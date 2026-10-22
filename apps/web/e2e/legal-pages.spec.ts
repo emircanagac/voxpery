@@ -23,10 +23,13 @@ test.describe('public landing and comparison', () => {
         await expect(image).toBeInViewport()
         expect(await host.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
         await page.getByRole('link', { name: 'Compare', exact: true }).click()
-        await expect(page.getByRole('region', { name: 'Voxpery advantages' })).toBeVisible()
-        await expect.poll(() => host.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
-        await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
+        await expect(page.getByRole('region', { name: 'Voxpery advantages' })).toBeInViewport()
+        // The comparison has more rows than one screen holds: it may scroll vertically, never sideways.
+        expect(await host.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+        await page.getByRole('table').scrollIntoViewIfNeeded()
         await expect(page.getByRole('table')).toBeInViewport()
+        await page.getByRole('link', { name: 'Terms of Service', exact: true }).scrollIntoViewIfNeeded()
+        await expect(page.getByRole('link', { name: 'Terms of Service', exact: true })).toBeInViewport()
       }
     })
   }

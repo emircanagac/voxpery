@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The Terms of Service, Privacy Notice and KVKK notice are rewritten to match how the hosted service actually works: they now cover cookies and local storage, the minimum age (13), GIPHY and jsDelivr loading GIFs and stickers directly, desktop update checks through GitHub, what account deletion removes, and 14-day limits for server logs and backups. Everyone is asked to acknowledge the new version.
+- The Compare page shows where Voxpery stands out, with measured numbers: an 8.2 MB Windows installer and about 420 MB of memory while idle, against 146 MB and about 1.2 GB for Discord on the same PC. New rows cover price, installer size, desktop engine, platforms, mobile and end-to-end encryption, including where other apps are ahead.
 - Self-hosting: `db_backup.sh` deletes backups older than 14 days after each successful backup (`BACKUP_RETENTION_DAYS`, `0` keeps all), and the new `prune_container_logs.sh` keeps container logs under 14 days.
 
 ### Fixed
