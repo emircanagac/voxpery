@@ -23,6 +23,7 @@ E2E (Playwright):
 ```bash
 npm run test:e2e
 npm run test:e2e:ui-smoke
+npm run test:e2e:ui-smoke:firefox
 npm run test:e2e:mobile-smoke
 npm run test:e2e:ui
 npm run test:e2e:headed
@@ -38,6 +39,8 @@ This Playwright suite runs against the real Vite UI with mocked API and WebSocke
 responses, so it does not require a backend. Use it as the fast PR guard for
 Friends, Requests, DM, server chat, channel creation, quick switcher, message
 actions, voice settings, voice error recovery, and responsive shell regressions.
+`npm run test:e2e:ui-smoke:firefox` runs the same `@core` tests in Firefox; CI runs
+it as the required `Checks / Frontend (Firefox)` job, beside the Chromium run.
 
 Mocked mobile web smoke:
 

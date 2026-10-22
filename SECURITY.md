@@ -43,6 +43,14 @@ patch before public disclosure.
 - Optional ClamAV scanning is supported for uploads
 - Dependency scanning runs in CI
 
+## Self-Hosting Checklist
+
+- Rotate all production secrets before the first public deployment
+- Keep `COOKIE_SECURE=1` for HTTPS deployments
+- Expose only the required ports through the reverse proxy and firewall
+- Keep the database and Redis bound privately
+- Review CI and deploy secrets regularly
+
 ## Additional Documentation
 
 For the detailed technical security reference, see

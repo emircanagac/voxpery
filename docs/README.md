@@ -2,7 +2,7 @@
 
 This folder is the source of truth for architecture, development, deployment, roadmap, release, and open-source contribution workflows.
 
-> Note: `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`, and `.github/SUPPORT.md` are lightweight pointers for GitHub Community Standards detection. Canonical content lives in this `docs/` folder.
+> GitHub reads `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` from this folder and the vulnerability policy from the root [`SECURITY.md`](../SECURITY.md); only `.github/SUPPORT.md` lives under `.github/`.
 
 ## Start Here
 
@@ -19,7 +19,6 @@ This folder is the source of truth for architecture, development, deployment, ro
 - **[WEBSOCKET_EVENTS.md](WEBSOCKET_EVENTS.md)** - Realtime protocol and event contracts
 - **[VOICE_SYSTEM.md](VOICE_SYSTEM.md)** - LiveKit integration and voice pipeline
 - **[VOICE_SUPPRESSION_SMOKE_TEST.md](VOICE_SUPPRESSION_SMOKE_TEST.md)** - release gate for RNNoise and voice suppression parity
-- **[PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md)** - Realtime workload risks and measurement plan
 - **[OBSERVABILITY.md](OBSERVABILITY.md)** - Privacy-safe operational event contract, metrics, and retention
 - **[PRIVACY_NOTICE.md](PRIVACY_NOTICE.md)** - Official hosted-service privacy notice
 - **[KVKK_AYDINLATMA_METNI.md](KVKK_AYDINLATMA_METNI.md)** - Official hosted-service Turkish KVKK notice

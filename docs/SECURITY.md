@@ -241,7 +241,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 - The proxy fetches only for requests carrying a server-signed, short-lived grant (HMAC-SHA256 with the server signing secret): a signed-in user's grant from the session snapshot, or a grant bound to one image URL for public invite previews. A user grant names its sign-in (user, token version and the token's `jti`) and lives at most 4 hours; logout marks that sign-in revoked in Redis, and a password change or account deletion invalidates it through the token version. It is not an open image fetcher, and its rate limit is keyed by the client address resolved through `TRUSTED_PROXY_CIDRS`.
 - The proxy accepts only `https://` image URLs, rejects localhost/private/reserved hosts, resolves DNS before fetch, pins the outbound request to the validated public IP addresses to prevent DNS rebinding, disables redirects, and rate-limits proxy requests.
 - Responses must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, are capped at 3 MB, and are returned with cache headers plus `X-Content-Type-Options: nosniff`.
-- `data:image/*` profile avatars and server icons are still accepted for uploaded profile photos/icons, but SVG data URLs are rejected and stored data URLs are capped at 1 MB.
+- Uploaded profile photos and server icons are `data:` URLs checked with the same rule the image route serves them by: base64 PNG, JPEG, GIF or WebP only, with the type taken from the file signature (a mislabeled image is stored under its real type), anything else rejected, SVG never accepted, and the stored URL capped at 1 MB.
 
 ### API Data Minimization
 

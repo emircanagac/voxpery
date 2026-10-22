@@ -26,6 +26,7 @@ Use Voxpery in your browser, download the desktop app, or host the same stack yo
 
 - **Chat together:** Text channels, DMs, voice channels, screen sharing, and moderation in one place.
 - **Choose where it runs:** Join the hosted service or deploy the full stack with Docker Compose.
+- **Light on your computer:** The desktop apps for Windows, macOS, and Linux are built on Tauri and use the system webview; the Windows installer is about 8 MB.
 - **Keep it inspectable:** The web app, server, and desktop client are developed in the open under the AGPL-3.0 license.
 - **Own your account data:** Export your data or delete your account; self-hosters control their own deployment.
 
