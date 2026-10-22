@@ -499,6 +499,34 @@ test.describe('mocked core UI smoke', () => {
     })
   }
 
+  // Firefox cuts off descenders ("g", "y") of single-line labels whose clip box is not taller than
+  // a tight line height, and Chromium hides it, so check the box size instead of the rendering.
+  test('keeps room for descenders in clipped single-line labels', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+    }))
+    await page.setViewportSize({ width: 1366, height: 768 })
+    const tightLabels = () => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .filter((el) => {
+        const style = getComputedStyle(el)
+        return el.childElementCount === 0
+          && /[gjpqy]/.test(el.textContent ?? '')
+          && el.getClientRects().length > 0
+          && style.whiteSpace === 'nowrap'
+          && (style.overflowY === 'hidden' || style.overflowY === 'clip')
+          && el.clientHeight < Number.parseFloat(style.fontSize) * 1.3
+      })
+      .map((el) => `${el.className || el.tagName}: "${el.textContent?.trim()}" ${el.clientHeight}px`))
+    for (const path of ['/social', '/servers']) {
+      await page.goto(path)
+      await page.locator('.user-panel').first().waitFor()
+      expect(await tightLabels(), path).toEqual([])
+    }
+  })
+
   test('keeps Friends tabs scrollable and friend actions reachable', { tag: '@core' }, async ({ page }) => {
     const state = createMockCoreState({
       friends: buildFriends(30),

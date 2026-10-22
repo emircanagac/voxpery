@@ -234,6 +234,49 @@ jobs:
         working-directory: apps/web
         run: npm run check:initial-bundle
 
+  frontend_firefox:
+    # Runs beside Checks / Frontend so Firefox-only layout and media bugs block merges without
+    # making the Chromium job longer.
+    name: Checks / Firefox
+    needs: changes
+    if: >-
+      !cancelled()
+      && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright Firefox
+        working-directory: apps/web
+        run: npx playwright install --with-deps firefox
+
+      - name: Basic feature UI smoke (Firefox)
+        working-directory: apps/web
+        run: npm run test:e2e:ui-smoke:firefox
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-firefox-ui-smoke-playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
   desktop:
     name: Checks / Desktop
     needs: changes
@@ -306,6 +349,7 @@ jobs:
       - release_metadata
       - backend
       - frontend
+      - frontend_firefox
       - desktop
     if: >-
       github.event_name == 'workflow_dispatch'
