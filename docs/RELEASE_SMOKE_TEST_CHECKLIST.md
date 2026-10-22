@@ -184,7 +184,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.8` an
 - [ ] `Checks / Secret Scan`
 - [ ] `Checks / Backend`
 - [ ] `Checks / Frontend` (lint, unit tests, core UI smoke, build)
-- [ ] `Checks / Firefox` (core UI smoke in Firefox)
+- [ ] `Checks / Frontend (Firefox)` (core UI smoke in Firefox)
 - [ ] `Checks / Desktop` (Linux launcher validation, desktop `cargo check`/`cargo test`)
 
 ## 2) Security and Release Gates (mandatory)

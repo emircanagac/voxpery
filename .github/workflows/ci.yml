@@ -237,7 +237,7 @@ jobs:
   frontend_firefox:
     # Runs beside Checks / Frontend so Firefox-only layout and media bugs block merges without
     # making the Chromium job longer.
-    name: Checks / Firefox
+    name: Checks / Frontend (Firefox)
     needs: changes
     if: >-
       !cancelled()
