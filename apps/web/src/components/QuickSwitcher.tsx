@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Hash, MessageCircleMore, Search, Server, X } from 'lucide-react'
+import { Hash, MessageCircleMore, Search, Server, Volume2, X } from 'lucide-react'
 import { useDialogFocus } from '../hooks/useDialogFocus'
 
 export type QuickSwitcherItem = {
   id: string
   kind: 'server' | 'channel' | 'dm'
+  /** Voice channels are listed with the text channels; picking one opens it without joining. */
+  channelType?: 'text' | 'voice'
   label: string
   subtitle?: string
   searchText: string
 }
 
-function itemIcon(kind: QuickSwitcherItem['kind']) {
-  if (kind === 'server') return <Server size={15} />
-  if (kind === 'channel') return <Hash size={15} />
+function itemIcon(item: QuickSwitcherItem) {
+  if (item.kind === 'server') return <Server size={15} />
+  if (item.kind === 'channel') return item.channelType === 'voice' ? <Volume2 size={15} /> : <Hash size={15} />
   return <MessageCircleMore size={15} />
 }
 
-function itemKindLabel(kind: QuickSwitcherItem['kind']) {
-  if (kind === 'server') return 'Server'
-  if (kind === 'channel') return 'Channel'
+function itemKindLabel(item: QuickSwitcherItem) {
+  if (item.kind === 'server') return 'Server'
+  if (item.kind === 'channel') return item.channelType === 'voice' ? 'Voice' : 'Channel'
   return 'DM'
 }
 
@@ -165,7 +167,7 @@ export default function QuickSwitcher({
                       onClick={() => onSelect(item)}
                     >
                       <span className={`quick-switcher-item-icon quick-switcher-item-icon-${item.kind}`} aria-hidden>
-                        {itemIcon(item.kind)}
+                        {itemIcon(item)}
                       </span>
                       <span className="quick-switcher-item-copy">
                         <span className="quick-switcher-item-label">{item.label}</span>
@@ -174,7 +176,7 @@ export default function QuickSwitcher({
                         ) : null}
                       </span>
                       <span className={`quick-switcher-kind quick-switcher-kind-${item.kind}`}>
-                        {itemKindLabel(item.kind)}
+                        {itemKindLabel(item)}
                       </span>
                     </button>
                   )

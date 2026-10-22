@@ -656,15 +656,16 @@ export default function AppShell() {
 
     const channelItems: QuickSwitcherItem[] = Object.values(channelsByServerId)
       .flatMap((serverChannels) => serverChannels)
-      .filter((channel) => channel.channel_type === 'text')
       .map((channel) => {
         const serverName = servers.find((server) => server.id === channel.server_id)?.name ?? 'Server'
+        const voice = channel.channel_type === 'voice'
         return {
           id: `channel:${channel.id}`,
           kind: 'channel' as const,
-          label: `# ${channel.name}`,
+          channelType: channel.channel_type,
+          label: voice ? channel.name : `# ${channel.name}`,
           subtitle: serverName,
-          searchText: `${channel.name} ${serverName}`,
+          searchText: `${channel.name} ${serverName}${voice ? ' voice' : ''}`,
         }
       })
 

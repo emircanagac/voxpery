@@ -844,6 +844,13 @@ test.describe('mocked core UI smoke', () => {
     await expect(page).toHaveURL(/\/servers/)
     await expect(page.locator('.chat-header .channel-title')).toHaveText('announcements')
 
+    // Voice channels are listed too; picking one opens the channel without joining it.
+    await page.getByTitle('Search servers, channels, and direct messages').click()
+    await page.getByPlaceholder('Search servers, channels, and direct messages').fill('lounge')
+    await page.getByRole('dialog', { name: 'Quick switcher' }).getByRole('button', { name: /Voice Lounge.*Voice/ }).click()
+    await expect(page.getByRole('button', { name: 'Join voice' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Leave voice channel' })).toHaveCount(0)
+
     await page.getByTitle('Search servers, channels, and direct messages').click()
     await page.getByPlaceholder('Search servers, channels, and direct messages').fill('Friend 01')
     await page.getByRole('dialog', { name: 'Quick switcher' }).getByRole('button', { name: /Friend 01/ }).click()
