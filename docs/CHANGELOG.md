@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Profile pictures and server icons are checked when they are uploaded: an image whose file type was labeled wrongly is saved under its real type instead of showing as a broken image, and files that are not PNG, JPEG, GIF or WebP images are refused.
 - Dates in profile cards, message search, timeouts, the audit log and moderation lists use the same English format as chat instead of the browser's language.
+- A message opened from search ("Go to message") is highlighted in the theme's accent color instead of a fixed red that looked like an error.
 
 ## [0.4.8] - 2026-10-21
 

@@ -5494,12 +5494,12 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
 
 @keyframes message-highlight-jump {
   0% {
-    background: rgba(233, 69, 96, 0.28);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.35);
+    background: var(--accent-soft-strong);
+    box-shadow: 0 0 0 2px var(--accent-border);
   }
   25% {
-    background: rgba(233, 69, 96, 0.2);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.25);
+    background: var(--accent-soft-hover);
+    box-shadow: 0 0 0 2px var(--accent-soft-strong);
   }
   100% {
     background: transparent;
