@@ -1,6 +1,7 @@
 import { ChevronRight, LoaderCircle, X } from 'lucide-react'
 import type { MessageWithAuthor } from '../api'
 import { parseReplyContent } from './chatMessageLayout'
+import { formatDateTime } from '../dateFormat'
 
 /** Search results show the reply text itself; the quoted message only appears as a short label. */
 function searchResultText(content: string): string {
@@ -8,9 +9,7 @@ function searchResultText(content: string): string {
 }
 
 function formatResultDate(value: string) {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ''
-    return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    return formatDateTime(value)
 }
 
 /** Search results shown beside the conversation (a full-height sheet on compact layouts). */
