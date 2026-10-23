@@ -26,13 +26,25 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.8 preparation (not release sign-off)
+### v0.4.9 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.8`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.9`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.8` and `voxpery/voxpery-web:v0.4.8`, the embedded web badge/build tag, desktop version `0.4.8`, the `Voxpery_0.4.8_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.9` and `voxpery/voxpery-web:v0.4.9`, the embedded web badge/build tag, desktop version `0.4.9`, the `Voxpery_0.4.9_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.9 checks
+
+- [ ] After the deploy, a signed-in account is asked once to acknowledge the `2026-10-23` Terms, Privacy Notice and KVKK notice and then continues normally; registration shows and records the same versions. `/terms`, `/privacy` and `/kvkk` match `docs/` word for word.
+- [ ] Upload a profile photo and a server icon whose file extension or type label is wrong (a JPEG saved as `.png`): it is shown everywhere, and a file that is not an image is refused with an error.
+- [ ] Profile cards, message search, timeouts, the audit log and moderation lists show dates like chat ("Aug 8, 2026 06:09 PM") with the browser set to another language.
+- [ ] Quick Search (Ctrl+K) lists voice channels with a speaker icon; picking one opens the channel without joining it.
+- [ ] Clicking a voice channel shows "Connecting to …" and a disabled "Joining…" button until the call starts, also when switching from another voice channel; a failed join brings Join voice back.
+- [ ] Focus view at 1920x1080, 1366x768, 960 px and on a phone: no scroll bar with the strip shown or hidden, the strip stays on one line with "+N" for the rest, and the strip arrow never covers the stream's fullscreen button. A camera can be focused, Esc leaves the focus view, double-clicking the focused stream toggles fullscreen, the hidden strip stays hidden after a reload, and a speaking participant's camera tile gets the ring.
+- [ ] Desktop (Windows, installed release build): fullscreen from a maximized window on the monitor with the taskbar covers the whole screen with no band or border, and the window is maximized again afterwards; check a second DPI scale or taskbar position if available.
+- [ ] Desktop (Windows): with Voxpery started at login (in the tray), install the update from Settings; the new version opens in front. A later login without an update still starts in the tray.
+- [ ] Production server: the log pruning cron is installed (dry run checked first), `db_backup.sh` removes backups older than 14 days, and the one-off pre-cleanup SQL dump is deleted (M-110).
 
 ### v0.4.8 checks
 

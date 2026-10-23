@@ -1827,7 +1827,8 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
-.channel-voice-duration > span:last-child { white-space: nowrap; }
+/* Room for "9:59:59" from the start, so the timer keeps its width when the first hour begins. */
+.channel-voice-duration > span:last-child { white-space: nowrap; min-width: 7ch; text-align: right; }
 /* A fixed three-bar voice wave; it marks an active channel and never animates. */
 .channel-voice-duration__wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; flex-shrink: 0; }
 .channel-voice-duration__wave > i { display: block; width: 2px; border-radius: 1px; background: currentColor; }

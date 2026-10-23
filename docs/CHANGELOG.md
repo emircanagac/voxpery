@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.9] - 2026-10-23
+
+### Security
+- Security updates.
 
 ### Added
 - Focus view improvements: cameras can be focused like screen shares, the participant strip stays hidden once you hide it, Esc leaves the focus view, double-clicking the focused stream toggles fullscreen, and camera tiles of whoever is speaking get the speaking ring.
@@ -17,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: `db_backup.sh` deletes backups older than 14 days after each successful backup (`BACKUP_RETENTION_DAYS`, `0` keeps all), and the new `prune_container_logs.sh` keeps container logs under 14 days.
 
 ### Fixed
+- The voice channel timer keeps its width when a call passes the first hour, so the channel name next to it no longer shifts.
 - Desktop app on Windows: fullscreen from a maximized window now really covers the whole screen. The runtime already made the window fullscreen while it was still maximized, so the 0.4.8 fix never ran and a taskbar-high black band stayed at the bottom.
 - Desktop app on Windows: after installing an update from Settings, the new version opens in front, even when Voxpery had been started at login and was waiting in the tray.
 - Focus view fits on one screen: the participant strip no longer adds a scroll bar, it stays on one line with a "+N" tile for everyone who does not fit (selecting it shows everyone), and the show/hide arrow sits below the stream instead of covering its fullscreen button.
