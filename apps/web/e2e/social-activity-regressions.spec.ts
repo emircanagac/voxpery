@@ -181,7 +181,8 @@ for (const scenario of [
     }
     expect(await participants.evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth))).toBe(true)
     const timer = sidebar.getByRole('timer')
-    await expect(timer).toHaveCSS('width', '72px')
+    // The bars-and-time timer (v0.4.8) has no fixed width; it reserves room for the hour instead.
+    await expect(timer).toBeVisible()
     await page.clock.install()
     await page.evaluate(async channel => {
       const path = '/e2e/social-activity-fixture.ts'
@@ -190,7 +191,8 @@ for (const scenario of [
     const before = await timer.boundingBox()
     await page.clock.fastForward(1000)
     await expect(timer).toHaveText('1:00:00')
-    expect(await timer.locator('span').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // The time is the last span; the first one holds the three bars.
+    expect(await timer.locator('span').last().evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     expect(await timer.boundingBox()).toEqual(before)
     await expect(timer).toHaveAttribute('aria-live', 'off')
     expect(await sidebar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
