@@ -188,6 +188,23 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
   })
 
+  it('shows that a join is connecting instead of offering Join voice again', () => {
+    useAppStore.setState({ joiningVoiceChannelId: 'voice-1' })
+    try {
+      const { unmount } = renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
+      expect(screen.getByRole('status')).toHaveTextContent('Connecting to Lounge…')
+      expect(screen.getByRole('button', { name: 'Joining…' })).toBeDisabled()
+      expect(screen.queryByRole('button', { name: 'Join voice' })).not.toBeInTheDocument()
+      unmount()
+
+      // While another channel is connecting, this one cannot start a second join.
+      renderChatArea({ activeChannel: { ...channel('voice-2', 'Studio'), channel_type: 'voice' } as Channel })
+      expect(screen.getByRole('button', { name: 'Join voice' })).toBeDisabled()
+    } finally {
+      useAppStore.setState({ joiningVoiceChannelId: null })
+    }
+  })
+
   it('offers to move a call from another device instead of hiding the join button', () => {
     useAppStore.setState({ voiceStates: { 'me': 'voice-1' }, joinedVoiceChannelId: null })
     try {
