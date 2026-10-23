@@ -191,6 +191,7 @@ Before publishing a desktop release:
 6. Confirm normal app launch opens maximized on a fresh install, then restores the user's last size, position, and maximized state on later launches.
 7. Confirm Windows startup launch stays in the tray until the user opens Voxpery from the tray, and tray Show opens a maximized window.
 8. Confirm installer/update preparation closes tray/minimize state cleanly before install.
+   - On Windows, start Voxpery from a login (`--autostart`), install an update from Settings, and confirm the new version opens in front. The updater relaunches with the old process's arguments; `desktop_prepare_for_update_install` writes an `update-relaunch` marker (valid 30 minutes) to the app config folder, and `main.rs` shows the window when it finds that marker. A later login without an update still starts in the tray.
 9. On a clean macOS account, confirm microphone and screen-recording prompts identify Voxpery and the app remains listed in both Privacy & Security sections.
 10. Start screen share on macOS and confirm remote voice volume remains stable while the native picker opens, after a source is selected, and while Voxpery is unfocused.
 
