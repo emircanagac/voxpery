@@ -46,6 +46,21 @@ describe('syncDesktopWindowFullscreen', () => {
     expect(win.calls).toEqual(['unmaximize', 'fullscreen:true', 'fullscreen:false', 'maximize'])
   })
 
+  it('restores a window the runtime made fullscreen while it was still maximized', async () => {
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+    // The desktop runtime enters window fullscreen for element fullscreen but keeps it maximized.
+    const win = desktopWindow({ fullscreen: true, maximized: true })
+    await syncDesktopWindowFullscreen(true, async () => win)
+    expect(win.calls).toEqual(['fullscreen:false', 'unmaximize', 'fullscreen:true'])
+
+    // It also leaves window fullscreen by itself when the element exits; the window is maximized again.
+    win.calls.length = 0
+    await win.setFullscreen(false)
+    win.calls.length = 0
+    await syncDesktopWindowFullscreen(false, async () => win)
+    expect(win.calls).toEqual(['maximize'])
+  })
+
   it('ignores runtime refusals', async () => {
     Object.assign(window, { __TAURI_INTERNALS__: {} })
     const win = desktopWindow()
