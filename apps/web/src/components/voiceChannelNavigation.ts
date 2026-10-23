@@ -11,9 +11,12 @@ export async function joinVoiceChannelFromNavigation(channelId: string): Promise
   store.setActiveChannel(channelId)
   store.closeMobileSidebar()
   if (store.joinedVoiceChannelId === channelId) return
+  // One join at a time: a second click while connecting is ignored instead of failing.
+  if (store.joiningVoiceChannelId) return
 
   const voiceWindow = window as VoiceJoinWindow
   voiceWindow.__voxperyManualJoinActive = true
+  store.setJoiningVoiceChannelId(channelId)
   try {
     if (!voiceWindow.__voxperyJoinVoice) {
       useToastStore.getState().pushToast({
@@ -26,5 +29,6 @@ export async function joinVoiceChannelFromNavigation(channelId: string): Promise
     console.error('Voice join failed:', error)
   } finally {
     voiceWindow.__voxperyManualJoinActive = false
+    useAppStore.getState().setJoiningVoiceChannelId(null)
   }
 }

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { isBrowserSupported } from 'livekit-client'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
@@ -43,7 +43,7 @@ import {
 import { isTauri } from '../secureStorage'
 import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
-import { THEATER_STRIP_TILE_HEIGHT, fitMediaFrame, fitStageGrid, useStageBox, useStageMediaAspects } from './voiceStageLayout'
+import { THEATER_STRIP_TILE, THEATER_STRIP_TILE_MOBILE, fitMediaFrame, fitStageGrid, stripVisibleCount, useStageBox, useStageMediaAspects } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -119,6 +119,32 @@ function readScreenShareQuality(): ScreenShareQuality {
   const raw = localStorage.getItem('voxpery-settings-screen-share-quality')
   if (raw === 'presentation' || raw === 'video' || raw === 'gaming') return raw
   return 'auto'
+}
+
+const THEATER_STRIP_VISIBLE_KEY = 'voxpery-focus-strip-visible'
+
+/** Whether the focus view shows its participant strip; remembered across focuses and reloads. */
+function readTheaterStripVisible(): boolean {
+  try {
+    return localStorage.getItem(THEATER_STRIP_VISIBLE_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+function writeTheaterStripVisible(visible: boolean) {
+  try {
+    localStorage.setItem(THEATER_STRIP_VISIBLE_KEY, visible ? '1' : '0')
+  } catch {
+    // Storage can be unavailable (private mode); the choice then lasts for this session only.
+  }
+}
+
+/** Double-clicking the focused stream toggles fullscreen, like the fullscreen button. */
+function toggleTileFullscreen(event: ReactMouseEvent<HTMLElement>) {
+  if ((event.target as HTMLElement).closest('button, input')) return
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+  else void event.currentTarget.requestFullscreen?.().catch(() => { })
 }
 
 function screenShareQualitySummary(mode: ScreenShareQuality) {
@@ -327,7 +353,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const stageBox = useStageBox(stageElement)
   const stageMediaAspects = useStageMediaAspects(stageElement)
   const [theaterStreamKey, setTheaterStreamKey] = useState<string | null>(null)
-  const [theaterStripVisible, setTheaterStripVisible] = useState(true)
+  const [theaterStripVisible, setTheaterStripVisible] = useState(readTheaterStripVisible)
+  useEffect(() => { writeTheaterStripVisible(theaterStripVisible) }, [theaterStripVisible])
   const [dismissedMiniPlayerKeys, setDismissedMiniPlayerKeys] = useState<Set<string>>(() => new Set())
   const [hiddenRemoteMediaKeys, setHiddenRemoteMediaKeys] = useState<Set<string>>(() => new Set())
   const [remoteMediaPlaceholders, setRemoteMediaPlaceholders] = useState<Map<string, RemoteMediaPlaceholder>>(() => new Map())
@@ -831,14 +858,30 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const activeTheaterStreamKeys = useMemo(() => {
     const keys: string[] = []
     if (state.isScreenSharing && state.screenStream) keys.push('local-screen')
+    if (state.cameraStream) keys.push('local-camera')
     for (const { peerId, track, kind } of remoteVideoTrackEntries) {
       if (kind === 'screen' && state.watchedRemoteScreenPeerIds.has(peerId)) {
         keys.push(`screen-${peerId}-${track.id}`)
+      } else if (kind === 'camera' && !isRemoteMediaHidden(peerId, 'camera')) {
+        keys.push(`camera-${peerId}-${track.id}`)
       }
     }
     return keys
-  }, [remoteVideoTrackEntries, state.isScreenSharing, state.screenStream, state.watchedRemoteScreenPeerIds])
+  }, [isRemoteMediaHidden, remoteVideoTrackEntries, state.cameraStream, state.isScreenSharing, state.screenStream, state.watchedRemoteScreenPeerIds])
   const hasTheaterFocus = theaterStreamKey !== null && activeTheaterStreamKeys.includes(theaterStreamKey)
+
+  // Esc leaves the focus view, unless it belongs to fullscreen, a dialog or a text field.
+  useEffect(() => {
+    if (!hasTheaterFocus) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.fullscreenElement) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
+      setTheaterStreamKey(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [hasTheaterFocus])
 
   useEffect(() => {
     if (theaterStreamKey && !activeTheaterStreamKeys.includes(theaterStreamKey)) {
@@ -1498,10 +1541,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
   const showTheaterStrip = hasTheaterFocus && theaterStripVisible
+  const stripTile = isMobileViewport ? THEATER_STRIP_TILE_MOBILE : THEATER_STRIP_TILE
+  // The strip is a single line; tiles that do not fit are summed up in a "+N" tile.
+  const stripTileCount = hasTheaterFocus ? Math.max(0, totalStageTiles - 1) : 0
+  const stripShownCount = showTheaterStrip && stageBox
+    ? stripVisibleCount(stripTileCount, stageBox.width, stripTile.width, stageBox.gap)
+    : stripTileCount
+  const stripHiddenCount = showTheaterStrip ? stripTileCount - stripShownCount : 0
   // Screen tiles are keyed 'screen' (local) or by track (remote); focus keys add a prefix.
   const focusedMediaKey = theaterStreamKey === 'local-screen'
     ? 'screen'
-    : theaterStreamKey?.startsWith('screen-') ? theaterStreamKey.slice('screen-'.length) : null
+    : theaterStreamKey === 'local-camera'
+      ? 'camera'
+      : theaterStreamKey && /^(screen|camera)-/.test(theaterStreamKey)
+        ? theaterStreamKey.slice(theaterStreamKey.indexOf('-') + 1)
+        : null
   const focusedMediaAspect = focusedMediaKey ? stageMediaAspects[focusedMediaKey] : undefined
   // Focus view keeps a strip of the other participants under the focused stream, like Discord,
   // and frames the stream at its own aspect so a window or taskbar-less screen is not letterboxed.
@@ -1509,7 +1563,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     ? fitStageGrid(
       hasTheaterFocus ? 1 : totalStageTiles,
       showTheaterStrip
-        ? { ...stageBox, height: Math.max(0, stageBox.height - THEATER_STRIP_TILE_HEIGHT - stageBox.gap) }
+        ? { ...stageBox, height: Math.max(0, stageBox.height - stripTile.height - stageBox.gap) }
         : stageBox,
       isMobileViewport ? 140 : 180,
       hasTheaterFocus ? focusedMediaAspect : undefined,
@@ -1541,6 +1595,16 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }
   const stageDensity = totalStageTiles > 9 ? 'dense' : totalStageTiles > 6 ? 'crowded' : 'standard'
+  // Strip tiles come from several lists, so the ones past the strip's line are marked in the DOM.
+  useLayoutEffect(() => {
+    if (!stageElement) return
+    const tiles = Array.from(stageElement.children).filter((child) => (
+      !child.classList.contains('is-theater-focused')
+      && !child.classList.contains('screen-share-strip-toggle')
+      && !child.classList.contains('screen-share-strip-more')
+    ))
+    tiles.forEach((tile, index) => tile.toggleAttribute('data-strip-overflow', showTheaterStrip && index >= stripShownCount))
+  })
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
   const roomReconnecting = roomState === 'reconnecting'
@@ -1757,12 +1821,31 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </div>
               )}
               {state.cameraStream && (
-                <VoiceMediaPreview kind="camera" className="voice-stage-share-tile camera-preview" data-fullscreen-key="camera" onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview
+                  kind="camera"
+                  className={`voice-stage-share-tile camera-preview${theaterStreamKey === 'local-camera' ? ' is-theater-focused' : ''}${voiceLocalSpeaking && !(muted || deafened || serverMuted || serverDeafened) ? ' is-speaking' : ''}`}
+                  data-fullscreen-key="camera"
+                  onMouseMove={handleTileMouseMove}
+                  onMouseLeave={handleTileMouseLeave}
+                  onDoubleClick={theaterStreamKey === 'local-camera' ? toggleTileFullscreen : undefined}
+                >
                   <video ref={attachCameraPreviewElement} autoPlay muted playsInline style={{ objectFit: 'cover', width: '100%', height: '100%', backgroundColor: '#000' }} />
+                  {showTheaterStrip && theaterStreamKey !== 'local-camera' && (
+                    <button type="button" className="screen-share-strip-focus" aria-label="Focus your camera" onClick={() => toggleTheaterStream('local-camera')} />
+                  )}
                   <div className="screen-share-info-overlay">{mediaOwnerAvatar(null, true)}<span className="screen-share-info-text">Camera · You</span></div>
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
+                      <button
+                        type="button"
+                        className="screen-share-controls-btn screen-share-focus-btn"
+                        title={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === 'local-camera' ? 'Exit focus view' : 'Focus camera'}
+                        aria-label={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === 'local-camera' ? 'Exit focus view' : 'Focus camera'}
+                        onClick={() => toggleTheaterStream('local-camera')}
+                      >
+                        {!fullscreenTileKey && theaterStreamKey === 'local-camera' ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
+                      </button>
                       {isMobileViewport && state.canSwitchCamera && (
                         <button
                           type="button"
@@ -1789,7 +1872,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                 </VoiceMediaPreview>
               )}
               {state.isScreenSharing && state.screenStream && (
-                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" style={screenTileFrameStyle('screen')} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" style={screenTileFrameStyle('screen')} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave} onDoubleClick={theaterStreamKey === 'local-screen' ? toggleTileFullscreen : undefined}>
                   <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
                   {showTheaterStrip && theaterStreamKey !== 'local-screen' && (
                     <button type="button" className="screen-share-strip-focus" aria-label="Focus your screen share" onClick={() => toggleTheaterStream('local-screen')} />
@@ -1869,16 +1952,28 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   volumeKey,
                 )
                 const tileKey = `${peerId}-${track.id}`
-                const theaterKey = kind === 'screen' ? `screen-${tileKey}` : null
+                const theaterKey = `${kind}-${tileKey}`
                 const owner = remoteShareOwner(peerId)
                 const isHidden = isRemoteMediaHidden(peerId, kind)
                 if (kind === 'screen' && !watchedRemoteScreenPeerIds.has(peerId)) return null
                 if (kind === 'camera' && isHidden) return null
+                const cameraSpeaking = kind === 'camera'
+                  && voiceSpeakingUserIds.includes(resolvePeerVolumeKey(peerId))
+                  && !effectiveDeafened
                 return (
-                  <VoiceMediaPreview key={tileKey} kind={kind} className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}`} data-fullscreen-key={tileKey} style={kind === 'screen' ? screenTileFrameStyle(tileKey) : undefined} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave}>
+                  <VoiceMediaPreview
+                    key={tileKey}
+                    kind={kind}
+                    className={`remote-screen-preview voice-stage-share-tile${theaterStreamKey === theaterKey ? ' is-theater-focused' : ''}${cameraSpeaking ? ' is-speaking' : ''}`}
+                    data-fullscreen-key={tileKey}
+                    style={kind === 'screen' ? screenTileFrameStyle(tileKey) : undefined}
+                    onMouseMove={handleTileMouseMove}
+                    onMouseLeave={handleTileMouseLeave}
+                    onDoubleClick={theaterStreamKey === theaterKey ? toggleTileFullscreen : undefined}
+                  >
                     <RemoteVideoTrack track={track} />
-                    {showTheaterStrip && theaterKey && theaterStreamKey !== theaterKey && (
-                      <button type="button" className="screen-share-strip-focus" aria-label={`Focus ${owner}'s screen share`} onClick={() => toggleTheaterStream(theaterKey)} />
+                    {showTheaterStrip && theaterStreamKey !== theaterKey && (
+                      <button type="button" className="screen-share-strip-focus" aria-label={`Focus ${owner}'s ${kind === 'screen' ? 'screen share' : 'camera'}`} onClick={() => toggleTheaterStream(theaterKey)} />
                     )}
                     <div className="screen-share-info-overlay">{mediaOwnerAvatar(peerId, true)}<span className="screen-share-info-text">{label} · {owner}</span></div>
                     {kind === 'screen' && <ScreenShareViewerAvatars viewerIds={getScreenShareViewerIds(peerId)} members={members} />}
@@ -1932,43 +2027,39 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                         >
                           <EyeOff size={16} />
                         </button>
-                        {kind === 'screen' ? (
-                          <>
-                            <button
-                              type="button"
-                              className="screen-share-controls-btn screen-share-focus-btn"
-                              title={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
-                              aria-label={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === theaterKey ? 'Exit focus view' : 'Focus stream'}
-                              onClick={() => {
-                                if (theaterKey) toggleTheaterStream(theaterKey)
-                              }}
-                            >
-                              {!fullscreenTileKey && theaterStreamKey === theaterKey ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
-                            </button>
-                            <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
-                              const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                              if (!tile) return
-                              if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
-                              else void tile.requestFullscreen?.().catch(() => { })
-                            }}>
-                              {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                            </button>
-                          </>
-                        ) : (
-                          <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
-                            const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
-                            if (!tile) return
-                            if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
-                            else void tile.requestFullscreen?.().catch(() => { })
-                          }}>
-                            {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="screen-share-controls-btn screen-share-focus-btn"
+                          title={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === theaterKey ? 'Exit focus view' : kind === 'screen' ? 'Focus stream' : 'Focus camera'}
+                          aria-label={fullscreenTileKey ? 'Switch to focus view' : theaterStreamKey === theaterKey ? 'Exit focus view' : kind === 'screen' ? 'Focus stream' : 'Focus camera'}
+                          onClick={() => toggleTheaterStream(theaterKey)}
+                        >
+                          {!fullscreenTileKey && theaterStreamKey === theaterKey ? <LayoutGrid size={16} /> : <PanelsTopLeft size={16} />}
+                        </button>
+                        <button type="button" className="screen-share-controls-btn" title={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={fullscreenTileKey === tileKey ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={(e) => {
+                          const tile = (e.currentTarget as HTMLElement).closest('.screen-share-preview') as HTMLElement | null
+                          if (!tile) return
+                          if (document.fullscreenElement) void document.exitFullscreen().catch(() => { })
+                          else void tile.requestFullscreen?.().catch(() => { })
+                        }}>
+                          {fullscreenTileKey === tileKey ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                        </button>
                       </div>
                     </div>
                   </VoiceMediaPreview>
                 )
               })}
+              {stripHiddenCount > 0 && (
+                <button
+                  type="button"
+                  className="screen-share-strip-more"
+                  aria-label={`Show everyone (${stripHiddenCount} more)`}
+                  title="Show everyone"
+                  onClick={() => setTheaterStreamKey(null)}
+                >
+                  +{stripHiddenCount}
+                </button>
+              )}
               {hasTheaterFocus && (
                 <button
                   type="button"

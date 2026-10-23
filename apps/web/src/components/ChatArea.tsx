@@ -222,6 +222,7 @@ export default function ChatArea({
 }: ChatAreaProps) {
     const readableTextColor = useReadableTextColor()
     const joinedVoiceChannelId = useAppStore((state) => state.joinedVoiceChannelId)
+    const joiningVoiceChannelId = useAppStore((state) => state.joiningVoiceChannelId)
     const voiceParticipantCount = useAppStore((state) => Object.values(state.voiceStates).filter((channelId) => !!activeChannel && channelId === activeChannel.id).length)
     // The account is in voice, but on another tab or device rather than this one.
     const voiceElsewhereChannelId = useAppStore((state) => (
@@ -1927,7 +1928,11 @@ export default function ChatArea({
                         <div className="voice-channel-idle">
                             <Volume2 size={36} aria-hidden="true" />
                             <h2>{voiceParticipantCount === 0 ? 'No one is here yet' : `${voiceParticipantCount} in voice`}</h2>
-                            <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
+                            {joiningVoiceChannelId === activeChannel.id ? (
+                                <p role="status">Connecting to {activeChannel.name}…</p>
+                            ) : (
+                                <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
+                            )}
                             {voiceElsewhereChannelId && (
                                 <p className="voice-channel-idle-elsewhere" role="status">
                                     {voiceElsewhereChannelId === activeChannel.id
@@ -1935,8 +1940,16 @@ export default function ChatArea({
                                         : 'You are in voice on another device. Joining here moves your call to this device.'}
                                 </p>
                             )}
-                            <button type="button" className="btn btn-primary" onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}>
-                                {voiceElsewhereChannelId ? 'Join here' : 'Join voice'}
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                disabled={!!joiningVoiceChannelId}
+                                aria-busy={joiningVoiceChannelId === activeChannel.id}
+                                onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}
+                            >
+                                {joiningVoiceChannelId === activeChannel.id
+                                    ? 'Joining…'
+                                    : voiceElsewhereChannelId ? 'Join here' : 'Join voice'}
                             </button>
                         </div>
                     )}

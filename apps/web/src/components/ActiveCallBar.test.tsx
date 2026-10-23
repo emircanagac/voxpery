@@ -761,6 +761,71 @@ describe('ActiveCallBar regressions', () => {
     expect(stage()).toHaveClass('screen-share-stage--strip')
   })
 
+  it('remembers a hidden participant strip for the next focus', () => {
+    localStorage.removeItem('voxpery-focus-strip-visible')
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const props = {
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    }
+    try {
+      const first = renderActiveCallBar(props)
+      fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Hide participants' }))
+      first.unmount()
+
+      const { container } = renderActiveCallBar(props)
+      fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+      expect(container.querySelector('.screen-share-stage')).toHaveClass('screen-share-stage--theater')
+      expect(container.querySelector('.screen-share-stage')).not.toHaveClass('screen-share-stage--strip')
+    } finally {
+      localStorage.removeItem('voxpery-focus-strip-visible')
+    }
+  })
+
+  it('focuses a camera like a screen share and leaves the focus view with Esc', () => {
+    const cameraTrack = mediaTrack('video', 'camera-track', { label: 'webcam' })
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([cameraTrack])]]),
+    })
+    const stage = () => container.querySelector('.screen-share-stage')!
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus camera' }))
+    expect(stage()).toHaveClass('screen-share-stage--theater')
+    expect(container.querySelector('.remote-screen-preview')).toHaveClass('is-theater-focused')
+
+    // Esc typed in a text field is left to the field.
+    const input = document.createElement('input')
+    document.body.append(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(stage()).toHaveClass('screen-share-stage--theater')
+    input.remove()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(stage()).not.toHaveClass('screen-share-stage--theater')
+  })
+
+  it('toggles fullscreen when the focused stream is double-clicked', () => {
+    const screenTrack = mediaTrack('video', 'screen-track')
+    const { container } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([screenTrack])]]),
+      remoteScreenTrackIds: new Set(['screen-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+    const tile = container.querySelector('.remote-screen-preview') as HTMLElement
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(tile, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+
+    // Outside the focus view a double-click does nothing.
+    fireEvent.doubleClick(tile)
+    expect(requestFullscreen).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus stream' }))
+    fireEvent.doubleClick(tile)
+    expect(requestFullscreen).toHaveBeenCalledOnce()
+  })
+
   it('switches directly from browser fullscreen to the in-app focus view', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const { container } = renderActiveCallBar({

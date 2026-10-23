@@ -16,9 +16,10 @@ let restoreMaximizedAfterFullscreen = false
 
 /**
  * Element fullscreen only fills the desktop webview, so the native window follows it. On Windows
- * a maximized frameless window keeps its client area to the work area (taskbar excluded) even in
- * fullscreen, which leaves black bars and a border around the stream; the window is therefore
- * restored first and maximized again when fullscreen ends.
+ * the runtime makes the window fullscreen by itself when an element enters fullscreen, but a
+ * maximized window stays maximized, so the webview keeps the work-area size and a taskbar-high
+ * black band remains. A maximized window therefore leaves fullscreen, is restored and enters
+ * fullscreen again, and is maximized again when fullscreen ends, whoever left it.
  */
 export async function syncDesktopWindowFullscreen(
   active: boolean,
@@ -27,14 +28,19 @@ export async function syncDesktopWindowFullscreen(
   if (!isTauri()) return
   try {
     const desktopWindow = await loadWindow()
-    if ((await desktopWindow.isFullscreen()) === active) return
+    const fullscreen = await desktopWindow.isFullscreen()
     if (active) {
-      restoreMaximizedAfterFullscreen = await desktopWindow.isMaximized()
-      if (restoreMaximizedAfterFullscreen) await desktopWindow.unmaximize()
-      await desktopWindow.setFullscreen(true)
+      if (await desktopWindow.isMaximized()) {
+        restoreMaximizedAfterFullscreen = true
+        if (fullscreen) await desktopWindow.setFullscreen(false)
+        await desktopWindow.unmaximize()
+        await desktopWindow.setFullscreen(true)
+      } else if (!fullscreen) {
+        await desktopWindow.setFullscreen(true)
+      }
       return
     }
-    await desktopWindow.setFullscreen(false)
+    if (fullscreen) await desktopWindow.setFullscreen(false)
     if (restoreMaximizedAfterFullscreen) {
       restoreMaximizedAfterFullscreen = false
       await desktopWindow.maximize()

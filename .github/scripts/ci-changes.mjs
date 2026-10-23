@@ -9,7 +9,7 @@ const DOCS = /^(docs\/|LICENSE$|\.github\/ISSUE_TEMPLATE\/)|\.md$/
 // The CI definition itself can break any job.
 const CI_WORKFLOW = /^\.github\/workflows\/ci\.yml$/
 const BACKEND = /^apps\/server\//
-const DESKTOP = /^(apps\/desktop\/|\.github\/scripts\/validate-linux-launchers|scripts\/dev\/local-qa-config)/
+const DESKTOP = /^(apps\/desktop\/|\.github\/desktop-apt-packages\.txt$|\.github\/scripts\/validate-linux-launchers|scripts\/dev\/local-qa-config)/
 // Files outside apps/web that frontend-job validators and regression scripts read.
 const FRONTEND_CROSS_REFERENCES = /^(apps\/server\/src\/services\/privacy\.rs$|apps\/server\/src\/routes\/desktop_registration_captcha\.js$|apps\/desktop\/src-tauri\/(tauri\.conf\.json$|tauri\.dev\.conf\.json$|linux\/))/
 

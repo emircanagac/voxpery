@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react'
 
 export const STAGE_TILE_ASPECT = 16 / 9
-/** Height of the participant strip under a focused stream (16:9 tiles, 160px wide). */
-export const THEATER_STRIP_TILE_HEIGHT = 90
+/** Participant strip tiles under a focused stream (16:9); phones use the smaller size. */
+export const THEATER_STRIP_TILE = { width: 160, height: 90 }
+export const THEATER_STRIP_TILE_MOBILE = { width: 120, height: 68 }
+
+/**
+ * How many of `count` strip tiles to show on the strip's single line: all of them when they fit,
+ * otherwise one less than fits, leaving that slot for the "+N" tile.
+ */
+export function stripVisibleCount(count: number, lineWidth: number, tileWidth: number, gap: number): number {
+  if (count <= 0 || lineWidth <= 0) return Math.max(0, count)
+  const capacity = Math.max(1, Math.floor((lineWidth + gap) / (tileWidth + gap)))
+  return count <= capacity ? count : capacity - 1
+}
 
 export interface StageBox {
   width: number

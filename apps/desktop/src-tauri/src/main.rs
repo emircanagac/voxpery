@@ -41,6 +41,55 @@ fn is_autostart_launch() -> bool {
     std::env::args().any(|arg| arg == "--autostart")
 }
 
+/// Written when the user starts an in-app update. The updater relaunches the new version with the
+/// old process's arguments, so a copy that was started at login would come back hidden with
+/// `--autostart`; the marker tells it that the user is waiting for the window instead.
+const UPDATE_RELAUNCH_MARKER: &str = "update-relaunch";
+const UPDATE_RELAUNCH_MAX_AGE_SECS: u64 = 30 * 60;
+
+fn unix_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+/// A marker counts only for a relaunch shortly after the update started, never for a later login.
+fn is_fresh_update_marker(contents: &str, now_secs: u64) -> bool {
+    contents.trim().parse::<u64>().is_ok_and(|written| {
+        written <= now_secs && now_secs - written <= UPDATE_RELAUNCH_MAX_AGE_SECS
+    })
+}
+
+fn update_relaunch_marker_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(UPDATE_RELAUNCH_MARKER))
+}
+
+fn write_update_relaunch_marker(app: &tauri::AppHandle) {
+    let Some(path) = update_relaunch_marker_path(app) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, unix_now_secs().to_string());
+}
+
+/// Removes the marker and reports whether this launch is the relaunch after a user-started update.
+fn take_update_relaunch_marker(app: &tauri::AppHandle) -> bool {
+    let Some(path) = update_relaunch_marker_path(app) else {
+        return false;
+    };
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let _ = std::fs::remove_file(&path);
+    is_fresh_update_marker(&contents, unix_now_secs())
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(false);
@@ -191,8 +240,12 @@ fn desktop_update_channel() -> &'static str {
 }
 
 #[tauri::command]
-fn desktop_prepare_for_update_install(state: tauri::State<'_, DesktopRuntimeState>) {
+fn desktop_prepare_for_update_install(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DesktopRuntimeState>,
+) {
     state.allow_close_for_update.store(true, Ordering::Relaxed);
+    write_update_relaunch_marker(&app);
 }
 
 #[tauri::command]
@@ -493,7 +546,10 @@ fn main() {
                 // Close behavior is user-controlled. Default matches typical chat apps and keeps
                 // the app in the tray until the user disables it from settings.
                 if let Some(main_win) = app.get_webview_window("main") {
-                    if is_autostart_launch() {
+                    if take_update_relaunch_marker(app.handle()) {
+                        // Back from an update the user started: bring the window to the front.
+                        show_main_window(app.handle());
+                    } else if is_autostart_launch() {
                         #[cfg(target_os = "linux")]
                         {
                             if app.state::<DesktopRuntimeState>().tray_available.load(Ordering::Relaxed) {
@@ -570,6 +626,29 @@ fn main() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod update_relaunch_tests {
+    use super::{is_fresh_update_marker, UPDATE_RELAUNCH_MAX_AGE_SECS};
+
+    #[test]
+    fn only_a_recent_marker_shows_the_window_after_an_update() {
+        let now = 1_800_000_000;
+        assert!(is_fresh_update_marker(&now.to_string(), now));
+        assert!(is_fresh_update_marker(&format!("{}\n", now - 60), now));
+        assert!(is_fresh_update_marker(
+            &(now - UPDATE_RELAUNCH_MAX_AGE_SECS).to_string(),
+            now
+        ));
+        // A marker left by an update that never relaunched must not affect a later login.
+        assert!(!is_fresh_update_marker(
+            &(now - UPDATE_RELAUNCH_MAX_AGE_SECS - 1).to_string(),
+            now
+        ));
+        assert!(!is_fresh_update_marker(&(now + 5).to_string(), now));
+        assert!(!is_fresh_update_marker("garbage", now));
+    }
 }
 
 #[cfg(test)]

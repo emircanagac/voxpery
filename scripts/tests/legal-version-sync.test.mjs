@@ -17,7 +17,8 @@ test('published legal pages show the version the server enforces', () => {
 
 // The docs copies are what reviewers and self-hosters read; they must say exactly what the page says.
 test('docs copies of the legal pages match the published text', () => {
-  const page = read('apps/web/src/pages/LegalPage.tsx')
+  // Windows checkouts use CRLF; the function boundaries below are matched on LF.
+  const page = read('apps/web/src/pages/LegalPage.tsx').replace(/\r\n/g, '\n')
   const contact = page.match(/const CONTACT = '([^']+)'/)?.[1]
   // Repeats until nothing changes, so removing one tag cannot join two fragments into a new one.
   const stripTags = text => {

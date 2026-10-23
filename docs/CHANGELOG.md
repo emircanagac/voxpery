@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Focus view improvements: cameras can be focused like screen shares, the participant strip stays hidden once you hide it, Esc leaves the focus view, double-clicking the focused stream toggles fullscreen, and camera tiles of whoever is speaking get the speaking ring.
 - Quick Search (Ctrl+K) also finds voice channels, shown with a speaker icon; picking one opens the channel without joining it.
 
 ### Changed
@@ -16,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: `db_backup.sh` deletes backups older than 14 days after each successful backup (`BACKUP_RETENTION_DAYS`, `0` keeps all), and the new `prune_container_logs.sh` keeps container logs under 14 days.
 
 ### Fixed
+- Desktop app on Windows: fullscreen from a maximized window now really covers the whole screen. The runtime already made the window fullscreen while it was still maximized, so the 0.4.8 fix never ran and a taskbar-high black band stayed at the bottom.
+- Desktop app on Windows: after installing an update from Settings, the new version opens in front, even when Voxpery had been started at login and was waiting in the tray.
+- Focus view fits on one screen: the participant strip no longer adds a scroll bar, it stays on one line with a "+N" tile for everyone who does not fit (selecting it shows everyone), and the show/hide arrow sits below the stream instead of covering its fullscreen button.
+- While a voice channel is connecting, the voice stage says "Connecting to …" and shows a disabled "Joining…" button instead of offering Join voice again; a second click no longer fails silently.
 - Profile pictures and server icons are checked when they are uploaded: an image whose file type was labeled wrongly is saved under its real type instead of showing as a broken image, and files that are not PNG, JPEG, GIF or WebP images are refused.
 - Dates in profile cards, message search, timeouts, the audit log and moderation lists use the same English format as chat instead of the browser's language.
 - A message opened from search ("Go to message") is highlighted in the theme's accent color instead of a fixed red that looked like an error.

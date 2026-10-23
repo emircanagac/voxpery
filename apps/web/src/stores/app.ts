@@ -88,6 +88,9 @@ interface AppState {
     // Voice channel we are currently in (stays set when navigating to Social so call does not drop)
     joinedVoiceChannelId: string | null
     setJoinedVoiceChannelId: (id: string | null) => void
+    // Voice channel a join started from the channel list or voice stage is connecting to
+    joiningVoiceChannelId: string | null
+    setJoiningVoiceChannelId: (id: string | null) => void
     // Modals
     showCreateServer: boolean
     showJoinServer: boolean
@@ -400,6 +403,8 @@ export const useAppStore = create<AppState>()(
             // Voice channel we are in (persists across route changes)
             joinedVoiceChannelId: null,
             setJoinedVoiceChannelId: (id) => set({ joinedVoiceChannelId: id }),
+            joiningVoiceChannelId: null,
+            setJoiningVoiceChannelId: (id) => set({ joiningVoiceChannelId: id }),
 
             // Modals
             showCreateServer: false,
@@ -441,6 +446,7 @@ export const useAppStore = create<AppState>()(
                     voiceSpeakingUserIds: [],
                     voiceLocalSpeaking: false,
                     joinedVoiceChannelId: null,
+                    joiningVoiceChannelId: null,
                     showCreateServer: false,
                     showJoinServer: false,
                     openServerSettingsForServerId: null,
