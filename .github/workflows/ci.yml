@@ -292,15 +292,18 @@ jobs:
           persist-credentials: false
 
       # The Ubuntu mirror is sometimes very slow (45 MB took 19 minutes), so the downloaded
-      # packages are cached; the key changes with the package list below.
-      - name: Cache Linux packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # packages are cached; the key changes with the package list below. The cache is saved
+      # right after the install, not at the end of the job, so a slow first run still fills it
+      # even when a later step fails. Pull requests read the cache that main saved.
+      - name: Restore Linux packages
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/apt-cache
           key: apt-desktop-ubuntu-24.04-${{ hashFiles('.github/desktop-apt-packages.txt') }}
 
       - name: Install Linux dependencies
-        timeout-minutes: 15
+        timeout-minutes: 35
         run: |
           mkdir -p ~/apt-cache/archives/partial
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dir::Cache::Archives="$HOME/apt-cache/archives")
@@ -308,6 +311,13 @@ jobs:
           sudo apt-get "${apt_options[@]}" install -y $(cat .github/desktop-apt-packages.txt)
           # apt leaves its download folder to root; the cache step must be able to read it.
           sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
+
+      - name: Save Linux packages
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: apt-desktop-ubuntu-24.04-${{ hashFiles('.github/desktop-apt-packages.txt') }}
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
