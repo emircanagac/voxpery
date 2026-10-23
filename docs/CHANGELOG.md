@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.9] - 2026-10-23
 
 ### Added
 - Focus view improvements: cameras can be focused like screen shares, the participant strip stays hidden once you hide it, Esc leaves the focus view, double-clicking the focused stream toggles fullscreen, and camera tiles of whoever is speaking get the speaking ring.
