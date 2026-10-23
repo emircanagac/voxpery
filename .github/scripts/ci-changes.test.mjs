@@ -24,6 +24,8 @@ test('desktop changes run desktop, plus frontend for validated config and launch
   assert.deepEqual(classify(['apps/desktop/src-tauri/tauri.conf.json']), { ...none, desktop: true, frontend: true })
   assert.deepEqual(classify(['apps/desktop/src-tauri/linux/com.voxpery.desktop']), { ...none, desktop: true, frontend: true })
   assert.deepEqual(classify(['.github/scripts/validate-linux-launchers.mjs']), { ...none, desktop: true, frontend: true })
+  // The desktop job installs these packages, so changing the list must run it.
+  assert.deepEqual(classify(['.github/desktop-apt-packages.txt']), { ...none, desktop: true, frontend: true })
 })
 
 test('web and unknown paths run frontend', () => {
