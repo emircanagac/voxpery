@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Focus view improvements: cameras can be focused like screen shares, the participant strip stays hidden once you hide it, Esc leaves the focus view, double-clicking the focused stream toggles fullscreen, and camera tiles of whoever is speaking get the speaking ring.
 - Quick Search (Ctrl+K) also finds voice channels, shown with a speaker icon; picking one opens the channel without joining it.
 
 ### Changed

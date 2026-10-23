@@ -11482,6 +11482,11 @@ button.message-author {
   transform: translateY(-1px);
 }
 
+/* Camera tiles of whoever is speaking get the same ring as the avatar tiles. */
+.voice-stage-share-tile.is-speaking {
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.92), 0 0 16px rgba(45, 212, 191, 0.2);
+}
+
 .voice-stage-name {
   max-width: calc(100% - 20px);
   overflow: hidden;
