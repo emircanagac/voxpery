@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, PhoneOff, Mic, MicOff, Monitor, Volume2, VolumeX, Headphones, HeadphoneOff, Maximize2, Minimize2, LayoutGrid, PanelsTopLeft, SwitchCamera as SwitchCameraIcon, Users, Video, VideoOff, Wifi } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { isBrowserSupported } from 'livekit-client'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
@@ -43,7 +43,7 @@ import {
 import { isTauri } from '../secureStorage'
 import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
-import { THEATER_STRIP_TILE_HEIGHT, fitMediaFrame, fitStageGrid, useStageBox, useStageMediaAspects } from './voiceStageLayout'
+import { THEATER_STRIP_TILE, THEATER_STRIP_TILE_MOBILE, fitMediaFrame, fitStageGrid, stripVisibleCount, useStageBox, useStageMediaAspects } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -1498,6 +1498,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     + remoteMediaPlaceholdersToRender.length
     + remoteScreenSharePlaceholders.length
   const showTheaterStrip = hasTheaterFocus && theaterStripVisible
+  const stripTile = isMobileViewport ? THEATER_STRIP_TILE_MOBILE : THEATER_STRIP_TILE
+  // The strip is a single line; tiles that do not fit are summed up in a "+N" tile.
+  const stripTileCount = hasTheaterFocus ? Math.max(0, totalStageTiles - 1) : 0
+  const stripShownCount = showTheaterStrip && stageBox
+    ? stripVisibleCount(stripTileCount, stageBox.width, stripTile.width, stageBox.gap)
+    : stripTileCount
+  const stripHiddenCount = showTheaterStrip ? stripTileCount - stripShownCount : 0
   // Screen tiles are keyed 'screen' (local) or by track (remote); focus keys add a prefix.
   const focusedMediaKey = theaterStreamKey === 'local-screen'
     ? 'screen'
@@ -1509,7 +1516,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     ? fitStageGrid(
       hasTheaterFocus ? 1 : totalStageTiles,
       showTheaterStrip
-        ? { ...stageBox, height: Math.max(0, stageBox.height - THEATER_STRIP_TILE_HEIGHT - stageBox.gap) }
+        ? { ...stageBox, height: Math.max(0, stageBox.height - stripTile.height - stageBox.gap) }
         : stageBox,
       isMobileViewport ? 140 : 180,
       hasTheaterFocus ? focusedMediaAspect : undefined,
@@ -1541,6 +1548,16 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       }
       : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }
   const stageDensity = totalStageTiles > 9 ? 'dense' : totalStageTiles > 6 ? 'crowded' : 'standard'
+  // Strip tiles come from several lists, so the ones past the strip's line are marked in the DOM.
+  useLayoutEffect(() => {
+    if (!stageElement) return
+    const tiles = Array.from(stageElement.children).filter((child) => (
+      !child.classList.contains('is-theater-focused')
+      && !child.classList.contains('screen-share-strip-toggle')
+      && !child.classList.contains('screen-share-strip-more')
+    ))
+    tiles.forEach((tile, index) => tile.toggleAttribute('data-strip-overflow', showTheaterStrip && index >= stripShownCount))
+  })
   const roomState = state.livekit.roomState
   const roomConnected = roomState === 'connected'
   const roomReconnecting = roomState === 'reconnecting'
@@ -1969,6 +1986,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   </VoiceMediaPreview>
                 )
               })}
+              {stripHiddenCount > 0 && (
+                <button
+                  type="button"
+                  className="screen-share-strip-more"
+                  aria-label={`Show everyone (${stripHiddenCount} more)`}
+                  title="Show everyone"
+                  onClick={() => setTheaterStreamKey(null)}
+                >
+                  +{stripHiddenCount}
+                </button>
+              )}
               {hasTheaterFocus && (
                 <button
                   type="button"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitMediaFrame, fitStageGrid } from './voiceStageLayout'
+import { fitMediaFrame, fitStageGrid, stripVisibleCount } from './voiceStageLayout'
 
 describe('fitStageGrid', () => {
   it('keeps two tiles at 16:9 instead of stretching them to the stage height', () => {
@@ -47,5 +47,18 @@ describe('fitMediaFrame', () => {
   it('keeps the cell size when the stream aspect is unknown', () => {
     expect(fitMediaFrame(0, 640, 360)).toEqual({ width: 640, height: 360 })
     expect(fitMediaFrame(Number.NaN, 640, 360)).toEqual({ width: 640, height: 360 })
+  })
+})
+
+describe('stripVisibleCount', () => {
+  it('shows every strip tile that fits and keeps one slot for "+N" otherwise', () => {
+    // 804px holds four 160px tiles with 12px gaps.
+    expect(stripVisibleCount(3, 804, 160, 12)).toBe(3)
+    expect(stripVisibleCount(4, 804, 160, 12)).toBe(4)
+    expect(stripVisibleCount(5, 804, 160, 12)).toBe(3)
+    expect(stripVisibleCount(30, 804, 160, 12)).toBe(3)
+    // Too narrow for even one tile: only the "+N" tile is shown.
+    expect(stripVisibleCount(3, 100, 160, 12)).toBe(0)
+    expect(stripVisibleCount(0, 804, 160, 12)).toBe(0)
   })
 })

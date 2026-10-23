@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: `db_backup.sh` deletes backups older than 14 days after each successful backup (`BACKUP_RETENTION_DAYS`, `0` keeps all), and the new `prune_container_logs.sh` keeps container logs under 14 days.
 
 ### Fixed
+- Focus view fits on one screen: the participant strip no longer adds a scroll bar, it stays on one line with a "+N" tile for everyone who does not fit (selecting it shows everyone), and the show/hide arrow sits below the stream instead of covering its fullscreen button.
 - While a voice channel is connecting, the voice stage says "Connecting to …" and shows a disabled "Joining…" button instead of offering Join voice again; a second click no longer fails silently.
 - Profile pictures and server icons are checked when they are uploaded: an image whose file type was labeled wrongly is saved under its real type instead of showing as a broken image, and files that are not PNG, JPEG, GIF or WebP images are refused.
 - Dates in profile cards, message search, timeouts, the audit log and moderation lists use the same English format as chat instead of the browser's language.

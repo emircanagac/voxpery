@@ -10730,7 +10730,8 @@ button.message-author {
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
-  gap: 12px;
+  --stage-gap: 12px;
+  gap: var(--stage-gap);
   align-content: stretch;
   align-items: stretch;
   justify-items: stretch;
@@ -10748,11 +10749,11 @@ button.message-author {
 }
 
 .screen-share-stage[data-stage-density="crowded"] {
-  gap: 10px;
+  --stage-gap: 10px;
 }
 
 .screen-share-stage[data-stage-density="dense"] {
-  gap: 8px;
+  --stage-gap: 8px;
 }
 
 .screen-share-mini-player {
@@ -10902,13 +10903,14 @@ button.message-author {
 .voice-stage-media-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .voice-stage-media-avatar--compact { width: 28px; height: 28px; font-size: 13px; }
 
-/* Focus view keeps a selected screen share prominent without browser fullscreen. */
+/* Focus view keeps a selected screen share prominent without browser fullscreen. The bottom
+   padding is the band for the participant strip toggle, so it never covers stream controls. */
 .screen-share-stage--theater {
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 12px;
+  padding: 12px 12px 52px;
 }
 
 .screen-share-stage--theater .screen-share-preview.is-theater-focused {
@@ -10935,11 +10937,22 @@ button.message-author {
 }
 
 /* Focus view with the participant strip, like Discord: the focused stream on its own line and
-   every other tile as a 160x90 tile underneath (more lines when there are many). */
+   one line of 160x90 tiles underneath; tiles that do not fit are summed up in a "+N" tile. The
+   line break below is a zero-height flex line, so the gap is a tile margin instead of row-gap
+   (row-gap would add a second gap around that line and overflow the stage). */
 .screen-share-stage.screen-share-stage--strip {
   flex-wrap: wrap;
   align-content: center;
-  overflow-y: auto;
+  row-gap: 0;
+  overflow: hidden;
+}
+
+.screen-share-stage--strip > :not(.is-theater-focused) {
+  margin-top: var(--stage-gap);
+}
+
+.screen-share-stage--strip > [data-strip-overflow] {
+  display: none !important;
 }
 
 .screen-share-stage--strip > * {
@@ -11008,10 +11021,37 @@ button.message-author {
   outline-offset: -2px;
 }
 
+.screen-share-strip-more {
+  order: 1;
+  flex: 0 0 160px;
+  width: 160px;
+  height: 90px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--btn-secondary-border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.screen-share-strip-more:hover {
+  background: var(--bg-surface-hover);
+}
+
+.screen-share-strip-more:focus-visible {
+  outline: 2px solid var(--focus-outline, var(--accent-primary));
+  outline-offset: -2px;
+}
+
 .screen-share-strip-toggle {
   position: absolute;
-  right: 12px;
+  left: 50%;
   bottom: 12px;
+  transform: translateX(-50%);
   z-index: 6;
   display: inline-flex;
   align-items: center;
@@ -16417,7 +16457,7 @@ textarea {
     right: 12px;
     top: 120px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
-    gap: 8px;
+    --stage-gap: 8px;
     grid-auto-rows: minmax(0, 1fr);
     justify-items: stretch;
     align-content: stretch;
@@ -16436,7 +16476,17 @@ textarea {
   }
 
   .screen-share-stage--theater {
-    padding: 0;
+    padding: 0 0 40px;
+  }
+
+  .screen-share-strip-toggle {
+    bottom: 4px;
+  }
+
+  .screen-share-strip-more {
+    flex-basis: 120px;
+    width: 120px;
+    height: 68px;
   }
 
   .screen-share-stage--theater .screen-share-preview.is-theater-focused {
@@ -17548,7 +17598,7 @@ textarea {
   .screen-share-stage {
     top: 112px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
-    gap: 6px;
+    --stage-gap: 6px;
     grid-auto-rows: minmax(0, 1fr);
     align-content: stretch;
     overflow-y: auto;
