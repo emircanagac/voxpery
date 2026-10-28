@@ -4,5 +4,9 @@ ignore = [
   # Current transitive dependency chain (sqlx/jsonwebtoken) still resolves rand 0.8.x.
   # Keep ignored temporarily and remove as soon as upstream moves to a patched rand line.
   "RUSTSEC-2026-0097",
+  # RUSTSEC-2026-0387 (crypto-bigint 0.5 via jsonwebtoken rust_crypto -> p256/p384).
+  # Only HS256 is used, so the ECDSA path is unreachable. Remove once jsonwebtoken
+  # depends on elliptic-curve 0.14.
+  "RUSTSEC-2026-0387",
 ]
 

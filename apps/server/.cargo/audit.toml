@@ -4,5 +4,8 @@
 # and transitive stable dependencies (jsonwebtoken 10.3.0 / sqlx 0.8.x).
 # There is no clean stable upgrade path in this dependency set yet, so we ignore it
 # temporarily to keep CI actionable and will remove this once upstream stable fixes land.
+# RUSTSEC-2026-0387 (crypto-bigint 0.5) comes from jsonwebtoken's rust_crypto backend via
+# p256/p384 -> elliptic-curve 0.13. Tokens are HS256 (HMAC) only, so the ECDSA code is never
+# reached, and jsonwebtoken 11 still uses elliptic-curve 0.13. Remove once it moves to 0.14.
 [advisories]
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0097"]
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0097", "RUSTSEC-2026-0387"]
