@@ -235,19 +235,12 @@ impl ChannelReadAccess {
         if let Some(allowed) = self.known.get(&channel_id) {
             return *allowed;
         }
-        let allowed =
-            match permissions::get_user_channel_permissions(db, channel_id, self.user_id).await {
-                Ok(perms) if perms.contains(Permissions::VIEW_SERVER) => true,
-                // A deleted channel no longer restricts who may read what was quoted from it.
-                Ok(_) => sqlx::query_scalar::<_, bool>(
-                    "SELECT NOT EXISTS (SELECT 1 FROM channels WHERE id = $1)",
-                )
-                .bind(channel_id)
-                .fetch_one(db)
-                .await
-                .unwrap_or(false),
-                Err(_) => false,
-            };
+        // A deleted channel keeps its restrictions: who could read it can no longer be
+        // checked, so what was quoted from it stays hidden.
+        let allowed = matches!(
+            permissions::get_user_channel_permissions(db, channel_id, self.user_id).await,
+            Ok(perms) if perms.contains(Permissions::VIEW_SERVER)
+        );
         self.known.insert(channel_id, allowed);
         allowed
     }
@@ -317,10 +310,13 @@ pub(super) async fn list_reports(
     let mut rows = rows;
     let mut access = ChannelReadAccess::new(claims.sub);
     for row in &mut rows {
-        if let Some(channel_id) = row.channel_id {
-            if !access.allows(&state.db, channel_id).await {
-                row.message_excerpt = None;
-            }
+        // Deleting the channel clears `channel_id`; its quote is hidden like any unreadable one.
+        let readable = match row.channel_id {
+            Some(channel_id) => access.allows(&state.db, channel_id).await,
+            None => false,
+        };
+        if !readable {
+            row.message_excerpt = None;
         }
     }
 

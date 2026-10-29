@@ -567,14 +567,10 @@ async fn join_server(
     .execute(&state.db)
     .await?;
 
-    if let Err(err) = moderation::record_join_raid_signal(
-        &state.redis,
-        &state.db,
-        server.id,
-        claims.sub,
-        client_ip.clone(),
-    )
-    .await
+    // The joiner's IP is never stored with the signal: the privacy notice promises IP
+    // addresses stay out of the database.
+    if let Err(err) =
+        moderation::record_join_raid_signal(&state.redis, &state.db, server.id, claims.sub).await
     {
         tracing::warn!("Failed to record join raid signal: {err}");
     }

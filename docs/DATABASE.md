@@ -48,6 +48,7 @@ Key columns:
 - `terms_version`, `terms_accepted_at`
 - `privacy_notice_version`, `privacy_notice_acknowledged_at`
 - `kvkk_notice_version`, `kvkk_notice_acknowledged_at`
+- `is_system` (`BOOLEAN`): marks the single deleted-account placeholder that keeps the servers, moderation records and pins of deleted users (unique partial index, migration `059`). The placeholder is found by this flag only; its `system.local` address is reserved for registration.
 - `created_at`
 
 ### `pending_google_registrations`
@@ -120,6 +121,7 @@ Uniqueness (case-insensitive):
 - Columns: `server_id`, `category`, `role_id`, `allow`, `deny`
 - FK to `(server_id, name)` in `server_channel_categories`
 - Rename-safe FK behavior added in migration `023`.
+- Deleting a category removes its overrides in the same transaction; migration `059` removed overrides left behind by earlier deletions.
 
 ### `messages`
 
@@ -208,6 +210,7 @@ Uniqueness (case-insensitive):
 - Persistent moderation activity timeline for raid signals.
 - `event_type` values: `join_burst`, `new_account_join_burst`, `message_burst`, `invite_spike`.
 - Optional linkage: `user_id`, `channel_id`, `metadata`.
+- `metadata` holds counts and windows only, never IP addresses; migration `059` removed the `client_ip` that join-burst events (and their `audit_log` entries) stored before.
 
 ### `password_reset_tokens`
 
@@ -227,7 +230,13 @@ Uniqueness (case-insensitive):
 - `last_claimed_at`: when the file was last uploaded (an identical re-upload reuses the row and updates it).
 - `release_check_at`: when the server next checks whether the upload is still used; `NULL` once it was found in use.
 - Unused uploads are released (migration `055`). Triggers on `messages` and `dm_messages` set `release_check_at` for the files of every deleted message, including messages removed with their channel, server or DM. A periodic job (every 10 minutes, and right after a message delete) deletes uploads that no message references and that were last uploaded more than 24 hours ago, subtracts their size from `users.storage_used_bytes` in the same transaction and removes the files after the commit. Unsent uploads therefore stay usable for 24 hours.
+- Local files are removed after the commit through `pending_file_deletions` (below), so a failed removal is retried.
 - Message `attachments` reference uploads by `id`; migration `055` added the id to older references that only had a URL. GIN indexes on `messages.attachments` and `dm_messages.attachments` serve the "still in use" and attachment-access lookups.
+
+### `pending_file_deletions`
+
+- `storage_key` (primary key), `attempts`, `last_attempt_at`, `created_at`
+- Account deletion and the unused-upload release queue the local files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`).
 
 ## Transactional Write Invariants
 
@@ -313,6 +322,12 @@ All migrations currently present:
 - `051_pending_google_registration.sql`
 - `052_pending_desktop_registration.sql`
 - `053_group_dms.sql`
+- `054_nullable_pin_authors.sql`
+- `055_release_unused_uploads.sql`
+- `056_lookup_indexes.sql`
+- `057_drop_legacy_member_role.sql`
+- `058_avatar_urls.sql`
+- `059_security_cleanup.sql`
 
 ### Privacy audit log
 

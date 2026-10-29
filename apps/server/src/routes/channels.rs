@@ -287,6 +287,14 @@ async fn rename_channel(
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .or_else(|| channel.category.clone());
+    ensure_category_move_allowed(
+        &state.db,
+        channel.server_id,
+        claims.sub,
+        channel.category.as_deref(),
+        next_category.as_deref(),
+    )
+    .await?;
     if let Some(category_name) = &next_category {
         let canonical = ensure_category_exists(&state.db, channel.server_id, category_name).await?;
         next_category = Some(canonical);
@@ -731,6 +739,14 @@ async fn delete_category(
     }
 
     if !moving_channel_ids.is_empty() {
+        ensure_category_move_allowed(
+            &state.db,
+            server_id,
+            claims.sub,
+            Some(category),
+            Some(&move_to),
+        )
+        .await?;
         let move_to = ensure_category_exists(&state.db, server_id, &move_to).await?;
 
         let max_target_pos = sqlx::query_scalar::<_, Option<i32>>(
@@ -757,6 +773,14 @@ async fn delete_category(
         .bind(category)
         .execute(&mut *tx)
         .await?;
+    // Overrides are keyed by name; left behind they would apply to a new category of that name.
+    sqlx::query(
+        "DELETE FROM channel_category_role_overrides WHERE server_id = $1 AND category = $2",
+    )
+    .bind(server_id)
+    .bind(category)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -1092,6 +1116,67 @@ async fn ensure_channel_manage_permission_for_channel(
         Permissions::MANAGE_CHANNELS,
     )
     .await
+}
+
+/// Role overrides of a category as sorted `(role_id, allow, deny)` rows; none for no category.
+/// A name that matches no existing category resolves to an empty set, like a new category.
+async fn category_override_rows(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    category: Option<&str>,
+) -> Result<Vec<(Uuid, i64, i64)>, AppError> {
+    let Some(category) = category.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let canonical: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2) ORDER BY name LIMIT 1",
+    )
+    .bind(server_id)
+    .bind(category)
+    .fetch_optional(db)
+    .await?;
+    let rows = sqlx::query_as::<_, (Uuid, i64, i64)>(
+        r#"SELECT role_id, allow, deny
+           FROM channel_category_role_overrides
+           WHERE server_id = $1 AND category = $2
+           ORDER BY role_id"#,
+    )
+    .bind(server_id)
+    .bind(canonical.as_deref().unwrap_or(category))
+    .fetch_all(db)
+    .await?;
+    Ok(rows)
+}
+
+/// Moving channels to a category with different role overrides changes who can see and use
+/// them. Permission overrides are owner-only, so such a move is too; moves between categories
+/// with identical overrides stay open to channel managers.
+async fn ensure_category_move_allowed(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    user_id: Uuid,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<(), AppError> {
+    let from = from.map(str::trim).filter(|v| !v.is_empty());
+    let to = to.map(str::trim).filter(|v| !v.is_empty());
+    if from == to {
+        return Ok(());
+    }
+    if category_override_rows(db, server_id, from).await?
+        == category_override_rows(db, server_id, to).await?
+    {
+        return Ok(());
+    }
+    permissions::ensure_server_owner(db, server_id, user_id)
+        .await
+        .map_err(|error| match error {
+            AppError::Forbidden(_) => AppError::Forbidden(
+                "Only the server owner can move channels between categories with different permissions"
+                    .into(),
+            ),
+            other => other,
+        })
 }
 
 async fn ensure_category_exists(

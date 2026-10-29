@@ -73,6 +73,7 @@ Important behavior:
 - `POST /api/auth/change-password`
 - `POST /api/auth/set-password` (auth required)
   - Lets an account that signs in only with Google add its first local password. Rate limited per account.
+  - Needs a Google sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). Only one request can replace the Google-only marker; a second one gets `400`.
 - `POST /api/auth/forgot-password`
 - `POST /api/auth/reset-password`
 - `POST /api/auth/email/request-verification` (auth required)
@@ -105,12 +106,14 @@ Important behavior:
 - `DELETE /api/auth/account`
   - Body: `{ "confirm": "DELETE", "password"?: "..." }`
   - Permanently deletes account and authored content, including the files the account uploaded (removed from storage after the database commit).
+  - The response carries `files_pending_removal`: files that could not be removed from storage right away. They stay queued in `pending_file_deletions` and are retried every 10 minutes until they are gone.
   - Password accounts confirm with `password`; Google-only accounts need a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise).
-  - Owned servers that still have members pass to the highest-ranked remaining member (earliest to join on a tie); servers without other members go to the deleted-account placeholder.
+  - Owned servers that still have members pass to the highest-ranked remaining member (earliest to join on a tie); servers without other members go to the deleted-account placeholder (the account flagged `is_system`). Addresses in the `system.local` domain are reserved and refused at registration and email change.
 
 Notes:
 
 - Authenticated application, WebSocket, attachment, and voice endpoints return `428` with code `LEGAL_CONSENT_REQUIRED` while the account's legal-document versions are missing or stale. Session inspection, legal acknowledgement, public legal pages, and logout remain available.
+- With `EMAIL_VERIFICATION_REQUIRED=true`, the same endpoints return `403` with code `EMAIL_VERIFICATION_REQUIRED` (the WebSocket handshake `403`) until the account's email address is verified. Session inspection, legal acknowledgement, logout and the account's own `/api/auth/*` routes (verification email, password, status, profile, data export, deletion) remain available.
 - `forgot-password` always returns a generic success message to prevent account enumeration.
 - Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
@@ -226,6 +229,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - If `category` is empty/missing, backend uses `General`.
   - Name uniqueness is enforced by scope: `(server, category, channel_type, case-insensitive name)`.
 - `PATCH /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
+  - Moving the channel to a category whose role overrides differ from its current category changes its permissions, so that move is owner only (`403` otherwise). Moves between categories with identical overrides, including two categories without any, stay open to channel managers.
 - `DELETE /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
 - `PATCH /api/channels/reorder`
 - `GET /api/channels/:channel_id/overrides` (requires `MANAGE_CHANNELS` at channel scope)
@@ -240,6 +244,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `DELETE /api/channels/server/:server_id/categories/:category`
   - Optional `move_to` query parameter; channels default-move to `General`.
   - Deletion is blocked if channels cannot be moved safely.
+  - Moving the channels to a category with different role overrides is owner only, as for `PATCH /api/channels/:channel_id`. The deleted category's overrides are removed with it.
 - `GET /api/channels/server/:server_id/categories/:category/overrides`
 - `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only; channel-scoped bits)
 - `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only)
@@ -331,12 +336,13 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Opens or creates a DM channel with the peer and restores it if the current user had hidden it.
 - `POST /api/dm/groups`
   - Accepts `{ "member_ids": [uuid, ...], "name": string|null }` and creates a group DM owned by the caller.
+  - A list longer than a group can hold (8 ids) is refused with `400` before any other check.
   - Needs at least two other people, all of them the caller's friends (403 otherwise); a group holds at most 8 people including the creator. Names are trimmed, at most 64 characters, and an empty name falls back to the members' names.
   - Group DMs appear in `GET /api/dm/channels` with `is_group: true`, `name`, `owner_id`, `members` and a nil `peer_id`; `peer_username` carries the display name. DM privacy settings do not apply inside a group the user is a member of.
 - `PATCH /api/dm/groups/:channel_id`
   - Accepts `{ "name": string }`; any member can rename the group.
 - `POST /api/dm/groups/:channel_id/members`
-  - Accepts `{ "user_ids": [uuid, ...] }`; any member can add their own friends while the group has room.
+  - Accepts `{ "user_ids": [uuid, ...] }`; any member can add their own friends while the group has room. Lists longer than 8 ids are refused with `400`.
 - `DELETE /api/dm/groups/:channel_id/members/:user_id`
   - Members can remove themselves (leave); only the owner can remove others. When the owner leaves, the longest-standing member becomes owner; the group is deleted when its last member leaves.
   - Every create, rename and membership change sends `DmChannelsUpdated` to the current and removed members.
@@ -374,6 +380,7 @@ Attachment note:
   - Short-lived credentials for the server's own TURN (`TURN_URLS`, `TURN_SHARED_SECRET`); empty `urls` when none is configured.
 - `GET /api/webrtc/livekit-token?channel_id=<voice-channel-uuid>`
   - Requires effective voice access (`VIEW_SERVER` + `CONNECT_VOICE` on the target channel).
+  - The token's room is always the canonical (lower-case, hyphenated) channel id, whichever spelling of the UUID was requested; the webhook ignores rooms with any other name.
   - Returns `503` with `FEATURE_DISABLED` when the voice media service is not configured.
 - `POST /api/webrtc/livekit-webhook`
   - Called only by the LiveKit server. Requests must carry LiveKit's signed `Authorization` header for the configured API key; anything else gets `401`.

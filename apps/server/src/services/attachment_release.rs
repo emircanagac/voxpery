@@ -5,12 +5,16 @@
 //! the database (migration 055). A file is released only when no server or direct message
 //! references it and it was last uploaded longer ago than [`UNUSED_UPLOAD_GRACE`], so the files
 //! of a message that is still being written are kept.
+//!
+//! Local files whose rows are deleted are queued in `pending_file_deletions` in the same
+//! transaction. The queue entry is dropped once the file is gone, so a failed removal is retried
+//! by [`retry_pending_file_deletions`] instead of leaving the file on disk unnoticed.
 
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{errors::AppError, services::attachments::AttachmentService};
@@ -135,17 +139,90 @@ pub async fn release_unused_uploads(
         }
         outcome.released += 1;
     }
+    queue_local_file_deletions(&mut tx, &released_local_keys).await?;
     tx.commit().await?;
 
-    for storage_key in released_local_keys {
-        if let Err(error) = attachment_service
-            .delete_local_file_by_storage_key(&storage_key)
+    delete_queued_local_files(db, attachment_service, &released_local_keys).await;
+    Ok(outcome)
+}
+
+/// Queues local files for removal inside the transaction that deletes their rows.
+pub async fn queue_local_file_deletions(
+    tx: &mut Transaction<'_, Postgres>,
+    storage_keys: &[String],
+) -> Result<(), AppError> {
+    if storage_keys.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"INSERT INTO pending_file_deletions (storage_key)
+           SELECT UNNEST($1::text[])
+           ON CONFLICT (storage_key) DO NOTHING"#,
+    )
+    .bind(storage_keys)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Removes queued files and drops their queue entries; returns how many are still pending.
+pub async fn delete_queued_local_files(
+    db: &PgPool,
+    attachment_service: &AttachmentService,
+    storage_keys: &[String],
+) -> usize {
+    let mut pending = 0;
+    for storage_key in storage_keys {
+        match attachment_service
+            .delete_local_file_by_storage_key(storage_key)
             .await
         {
-            tracing::warn!(error = %error, "Failed to remove a released upload file");
+            Ok(()) => {
+                if let Err(error) =
+                    sqlx::query("DELETE FROM pending_file_deletions WHERE storage_key = $1")
+                        .bind(storage_key)
+                        .execute(db)
+                        .await
+                {
+                    tracing::warn!(error = %error, "Failed to clear a file removal entry");
+                }
+            }
+            Err(error) => {
+                pending += 1;
+                tracing::warn!(error = %error, "File removal failed; it will be retried");
+                if let Err(error) = sqlx::query(
+                    r#"UPDATE pending_file_deletions
+                       SET attempts = attempts + 1, last_attempt_at = NOW()
+                       WHERE storage_key = $1"#,
+                )
+                .bind(storage_key)
+                .execute(db)
+                .await
+                {
+                    tracing::warn!(error = %error, "Failed to record a file removal attempt");
+                }
+            }
         }
     }
-    Ok(outcome)
+    pending
+}
+
+/// Retries queued file removals that failed before (bounded per call).
+pub async fn retry_pending_file_deletions(
+    db: &PgPool,
+    attachment_service: &AttachmentService,
+) -> Result<usize, AppError> {
+    let storage_keys = sqlx::query_scalar::<_, String>(
+        r#"SELECT storage_key
+           FROM pending_file_deletions
+           ORDER BY last_attempt_at NULLS FIRST, created_at
+           LIMIT $1"#,
+    )
+    .bind(RELEASE_BATCH_SIZE as i64)
+    .fetch_all(db)
+    .await?;
+    let pending = delete_queued_local_files(db, attachment_service, &storage_keys).await;
+    Ok(storage_keys.len() - pending)
 }
 
 /// Releases unused uploads until no full batch is left (bounded per call).

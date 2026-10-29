@@ -212,6 +212,7 @@ fn normalize_stored_image_data_url(raw: &str, label: &str) -> Result<String, App
         .decode(encoded.trim().as_bytes())
         .map_err(|_| invalid())?;
     let media_type = sniff_image_type(&bytes).ok_or_else(invalid)?;
+    let bytes = strip_image_metadata(media_type, &bytes);
     let normalized = format!("data:{media_type};base64,{}", BASE64.encode(&bytes));
     if normalized.len() > MAX_STORED_IMAGE_DATA_URL_BYTES {
         return Err(AppError::Validation(format!("{label} image is too large")));
@@ -235,7 +236,132 @@ pub fn decode_stored_image_data_url(raw: &str) -> Option<(&'static str, Vec<u8>)
         _ => return None,
     };
     let bytes = BASE64.decode(encoded.trim().as_bytes()).ok()?;
-    has_image_signature(media_type, &bytes).then_some((media_type, bytes))
+    // Images stored before uploads were cleaned are cleaned when served.
+    has_image_signature(media_type, &bytes)
+        .then(|| (media_type, strip_image_metadata(media_type, &bytes)))
+}
+
+/// Removes location, camera and text metadata from a PNG, JPEG or WebP without re-encoding it:
+/// PNG `eXIf`, `tEXt`, `zTXt`, `iTXt` and `tIME` chunks, JPEG APP1 (EXIF/XMP), APP13 (IPTC) and
+/// comment segments, WebP `EXIF` and `XMP ` chunks. Pixels, colour profiles and transparency are
+/// kept. Input whose structure cannot be walked to the end is returned unchanged.
+pub fn strip_image_metadata(media_type: &str, bytes: &[u8]) -> Vec<u8> {
+    let stripped = match media_type {
+        "image/png" => strip_png_metadata(bytes),
+        "image/jpeg" => strip_jpeg_metadata(bytes),
+        "image/webp" => strip_webp_metadata(bytes),
+        _ => None,
+    };
+    stripped.unwrap_or_else(|| bytes.to_vec())
+}
+
+fn strip_png_metadata(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut out = PNG_SIGNATURE.to_vec();
+    let mut pos = PNG_SIGNATURE.len();
+    loop {
+        let header = bytes.get(pos..pos + 8)?;
+        let length = u32::from_be_bytes(header[..4].try_into().ok()?) as usize;
+        let chunk_type = &header[4..8];
+        // Length, type, data and CRC.
+        let end = pos.checked_add(12)?.checked_add(length)?;
+        let chunk = bytes.get(pos..end)?;
+        if !matches!(chunk_type, b"eXIf" | b"tEXt" | b"zTXt" | b"iTXt" | b"tIME") {
+            out.extend_from_slice(chunk);
+        }
+        pos = end;
+        if chunk_type == b"IEND" {
+            return Some(out);
+        }
+    }
+}
+
+fn strip_jpeg_metadata(bytes: &[u8]) -> Option<Vec<u8>> {
+    if !bytes.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let mut out = vec![0xff, 0xd8];
+    let mut pos = 2;
+    loop {
+        if *bytes.get(pos)? != 0xff {
+            return None;
+        }
+        // Any number of 0xFF fill bytes may precede a marker.
+        let mut marker_pos = pos + 1;
+        while *bytes.get(marker_pos)? == 0xff {
+            marker_pos += 1;
+        }
+        let marker = bytes[marker_pos];
+        match marker {
+            // End of image.
+            0xd9 => {
+                out.extend_from_slice(&[0xff, 0xd9]);
+                return Some(out);
+            }
+            // Markers without a length.
+            0x01 | 0xd0..=0xd7 => {
+                out.extend_from_slice(&[0xff, marker]);
+                pos = marker_pos + 1;
+            }
+            _ => {
+                let length_bytes = bytes.get(marker_pos + 1..marker_pos + 3)?;
+                let length = u16::from_be_bytes([length_bytes[0], length_bytes[1]]) as usize;
+                if length < 2 {
+                    return None;
+                }
+                let end = marker_pos + 1 + length;
+                let segment = bytes.get(marker_pos + 1..end)?;
+                // Start of scan: the entropy-coded data and the rest of the file stay as they are.
+                if marker == 0xda {
+                    out.extend_from_slice(&[0xff, marker]);
+                    out.extend_from_slice(&bytes[marker_pos + 1..]);
+                    return Some(out);
+                }
+                // APP1 (EXIF, XMP), APP13 (IPTC) and comments carry the metadata.
+                if !matches!(marker, 0xe1 | 0xed | 0xfe) {
+                    out.extend_from_slice(&[0xff, marker]);
+                    out.extend_from_slice(segment);
+                }
+                pos = end;
+            }
+        }
+    }
+}
+
+fn strip_webp_metadata(bytes: &[u8]) -> Option<Vec<u8>> {
+    const VP8X_EXIF_FLAG: u8 = 0x08;
+    const VP8X_XMP_FLAG: u8 = 0x04;
+    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return None;
+    }
+    let riff_end = (u32::from_le_bytes(bytes[4..8].try_into().ok()?) as usize).checked_add(8)?;
+    let body = bytes.get(..riff_end)?;
+    let mut out = bytes[..12].to_vec();
+    let mut pos = 12;
+    while pos < body.len() {
+        let header = body.get(pos..pos + 8)?;
+        let size = u32::from_le_bytes(header[4..8].try_into().ok()?) as usize;
+        // Chunks are padded to an even size.
+        let end = pos
+            .checked_add(8)?
+            .checked_add(size)?
+            .checked_add(size & 1)?;
+        let chunk = body.get(pos..end)?;
+        match &header[..4] {
+            b"EXIF" | b"XMP " => {}
+            b"VP8X" => {
+                let start = out.len();
+                out.extend_from_slice(chunk);
+                if let Some(flags) = out.get_mut(start + 8) {
+                    *flags &= !(VP8X_EXIF_FLAG | VP8X_XMP_FLAG);
+                }
+            }
+            _ => out.extend_from_slice(chunk),
+        }
+        pos = end;
+    }
+    let riff_size = u32::try_from(out.len() - 8).ok()?;
+    out[4..8].copy_from_slice(&riff_size.to_le_bytes());
+    Some(out)
 }
 
 #[cfg(test)]
@@ -361,6 +487,73 @@ mod tests {
                 "{refused} must be refused"
             );
         }
+    }
+
+    fn png_chunk(chunk_type: &[u8], data: &[u8]) -> Vec<u8> {
+        // The stripper does not check CRCs, so a placeholder is enough here.
+        [
+            &(data.len() as u32).to_be_bytes()[..],
+            chunk_type,
+            data,
+            &[0, 0, 0, 0],
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn strips_location_and_camera_metadata_from_stored_images() {
+        let ihdr = png_chunk(b"IHDR", &[0; 13]);
+        let idat = png_chunk(b"IDAT", b"pixels");
+        let iend = png_chunk(b"IEND", b"");
+        let png = [
+            PNG_SIGNATURE,
+            &ihdr,
+            &png_chunk(b"eXIf", b"MM-GPS"),
+            &png_chunk(b"tEXt", b"Camera-Phone"),
+            &idat,
+            &iend,
+        ]
+        .concat();
+        let clean_png = [PNG_SIGNATURE, &ihdr, &idat, &iend].concat();
+        let url = format!("data:image/png;base64,{}", BASE64.encode(&png));
+        assert_eq!(
+            validate_profile_avatar_url(&url).unwrap(),
+            format!("data:image/png;base64,{}", BASE64.encode(&clean_png))
+        );
+        // Images stored earlier are cleaned when served.
+        assert_eq!(
+            decode_stored_image_data_url(&url),
+            Some(("image/png", clean_png))
+        );
+
+        let app0 = [&[0xff, 0xe0, 0x00, 0x06][..], b"JFIF"].concat();
+        let exif = [&[0xff, 0xe1, 0x00, 0x08][..], b"Exif-0"].concat();
+        let comment = [&[0xff, 0xfe, 0x00, 0x05][..], b"GPS"].concat();
+        let scan = [&[0xff, 0xda, 0x00, 0x02][..], b"scan", &[0xff, 0xd9]].concat();
+        let jpeg = [&[0xff, 0xd8][..], &app0, &exif, &comment, &scan].concat();
+        assert_eq!(
+            strip_image_metadata("image/jpeg", &jpeg),
+            [&[0xff, 0xd8][..], &app0, &scan].concat()
+        );
+
+        let riff = |chunks: &[&[u8]]| {
+            let body: Vec<u8> = chunks.concat();
+            [
+                &b"RIFF"[..],
+                &(body.len() as u32 + 4).to_le_bytes(),
+                b"WEBP",
+                &body,
+            ]
+            .concat()
+        };
+        let vp8x = [&b"VP8X"[..], &10u32.to_le_bytes(), &[0x0c], &[0; 9]].concat();
+        let clean_vp8x = [&b"VP8X"[..], &10u32.to_le_bytes(), &[0x00], &[0; 9]].concat();
+        let exif_chunk = [&b"EXIF"[..], &3u32.to_le_bytes(), b"GPS", &[0]].concat();
+        let image = [&b"VP8L"[..], &4u32.to_le_bytes(), b"data"].concat();
+        assert_eq!(
+            strip_image_metadata("image/webp", &riff(&[&vp8x, &exif_chunk, &image])),
+            riff(&[&clean_vp8x, &image])
+        );
     }
 
     #[test]

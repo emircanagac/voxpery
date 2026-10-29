@@ -194,6 +194,15 @@ async fn main() {
             {
                 tracing::warn!("Releasing unused uploads failed: {error}");
             }
+            if let Err(error) =
+                voxpery_server::services::attachment_release::retry_pending_file_deletions(
+                    &release_state.db,
+                    &release_state.attachment_service,
+                )
+                .await
+            {
+                tracing::warn!("Retrying queued file removals failed: {error}");
+            }
         }
     });
 

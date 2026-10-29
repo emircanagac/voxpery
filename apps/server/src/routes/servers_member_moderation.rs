@@ -233,11 +233,11 @@ pub(super) async fn get_audit_log(
                 .and_then(|value| value.as_str())
                 .and_then(|value| Uuid::parse_str(value).ok())
         });
-        let Some(channel_id) = channel_id else {
-            continue;
-        };
-        if access.allows(&state.db, channel_id).await {
-            continue;
+        // Quotes whose channel is gone or unknown stay hidden: access can no longer be checked.
+        if let Some(channel_id) = channel_id {
+            if access.allows(&state.db, channel_id).await {
+                continue;
+            }
         }
         if let Some(serde_json::Value::Object(details)) = entry.details.as_mut() {
             let mut hidden = false;

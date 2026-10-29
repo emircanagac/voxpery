@@ -11,6 +11,7 @@ mod direct_messages;
 mod messages;
 mod platform;
 mod realtime;
+mod security;
 mod servers;
 
 use axum::body::Body;
@@ -144,6 +145,40 @@ async fn setup_app_with_features_and_livekit(
     livekit_ws_url: String,
     livekit_api_url: Option<String>,
 ) -> (axum::Router, Arc<AppState>) {
+    build_test_app(
+        email_verification_enabled,
+        false,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+    )
+    .await
+}
+
+async fn setup_app_requiring_email_verification() -> (axum::Router, Arc<AppState>) {
+    build_test_app(
+        true,
+        true,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+    )
+    .await
+}
+
+async fn build_test_app(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -216,7 +251,7 @@ async fn setup_app_with_features_and_livekit(
         smtp_user: None,
         email_delivery_enabled: false,
         email_verification_enabled,
-        email_verification_required: false,
+        email_verification_required,
         password_reset_enabled,
         attachment_service: Arc::new(attachment_service),
         release_http_client,

@@ -19,7 +19,9 @@ use uuid::Uuid;
 
 use super::{WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
-use crate::middleware::auth::{claims_match_current_token_version, Claims};
+use crate::middleware::auth::{
+    claims_match_current_token_version, email_verification_pending, Claims,
+};
 use crate::services::audit::{self, VoiceModerationAuditEntry};
 use crate::services::permissions::{get_user_channel_permissions, Permissions};
 use crate::services::redact::ShortId;
@@ -714,6 +716,24 @@ pub async fn ws_handler(
         }
         Err(error) => {
             tracing::warn!("WebSocket legal-consent check failed: {}", error);
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "Session validation unavailable",
+            )
+                .into_response();
+        }
+    }
+    match email_verification_pending(&state, claims.sub).await {
+        Ok(false) => {}
+        Ok(true) => {
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                "Verify your email address to continue",
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::warn!("WebSocket email-verification check failed: {}", error);
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 "Session validation unavailable",

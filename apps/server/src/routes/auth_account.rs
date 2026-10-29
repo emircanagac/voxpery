@@ -81,15 +81,31 @@ pub(super) async fn set_password(
             "Password is already set. Use change password.".into(),
         ));
     }
+    // A first password is a lasting second way into the account, so a stolen older session
+    // must not be able to add one: like a data export, it needs a recent Google sign-in.
+    let now = chrono::Utc::now().timestamp().max(0) as usize;
+    if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
+        return Err(AppError::ReauthenticationRequired(
+            "Sign in with Google again before setting a password".into(),
+        ));
+    }
 
     let password_hash = hash_password(&body.new_password)?;
-    sqlx::query(
-        "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+    // Only replaces the Google-only marker, so two concurrent requests cannot both set one.
+    let updated = sqlx::query(
+        r#"UPDATE users
+           SET password_hash = $1, token_version = token_version + 1
+           WHERE id = $2 AND password_hash = 'oauth'"#,
     )
     .bind(&password_hash)
     .bind(claims.sub)
     .execute(&state.db)
     .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::Validation(
+            "Password is already set. Use change password.".into(),
+        ));
+    }
 
     let updated = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)

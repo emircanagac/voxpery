@@ -226,7 +226,6 @@ pub async fn record_join_raid_signal(
     db: &PgPool,
     server_id: Uuid,
     user_id: Uuid,
-    client_ip: Option<String>,
 ) -> Result<(), AppError> {
     let (join_count, new_account_join_count) = sqlx::query_as::<_, (i64, i64)>(
         r#"SELECT
@@ -255,7 +254,6 @@ pub async fn record_join_raid_signal(
             serde_json::json!({
                 "window_minutes": 5,
                 "join_count": join_count,
-                "client_ip": client_ip,
             }),
         )
         .await?;
@@ -275,7 +273,6 @@ pub async fn record_join_raid_signal(
                 "window_minutes": 5,
                 "new_account_join_count": new_account_join_count,
                 "account_age_window_hours": 24,
-                "client_ip": client_ip,
             }),
         )
         .await?;

@@ -222,11 +222,14 @@ async fn accept_friend_request(
     Extension(claims): Extension<Claims>,
     Path(request_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // The row lock makes a concurrent cancel or reject either finish first (and this sees a
+    // request that is no longer pending) or wait until the friendship exists.
+    let mut tx = state.db.begin().await?;
     let req = sqlx::query_as::<_, (Uuid, Uuid, String)>(
-        "SELECT requester_id, receiver_id, status FROM friend_requests WHERE id = $1",
+        "SELECT requester_id, receiver_id, status FROM friend_requests WHERE id = $1 FOR UPDATE",
     )
     .bind(request_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound("Friend request not found".into()))?;
 
@@ -241,10 +244,10 @@ async fn accept_friend_request(
     }
 
     sqlx::query(
-        "UPDATE friend_requests SET status = 'accepted', responded_at = NOW() WHERE id = $1",
+        "UPDATE friend_requests SET status = 'accepted', responded_at = NOW() WHERE id = $1 AND status = 'pending'",
     )
     .bind(request_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     let (a, b) = if requester_id < receiver_id {
@@ -257,8 +260,9 @@ async fn accept_friend_request(
     )
     .bind(a)
     .bind(b)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     notify_friend_update(&state, requester_id).await;
     notify_friend_update(&state, receiver_id).await;
@@ -273,30 +277,32 @@ async fn reject_friend_request(
     Extension(claims): Extension<Claims>,
     Path(request_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let req = sqlx::query_as::<_, (Uuid, Uuid, String)>(
-        "SELECT requester_id, receiver_id, status FROM friend_requests WHERE id = $1",
+    let req = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT requester_id, receiver_id FROM friend_requests WHERE id = $1",
     )
     .bind(request_id)
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound("Friend request not found".into()))?;
 
-    let (requester_id, receiver_id, status) = req;
+    let (requester_id, receiver_id) = req;
     if receiver_id != claims.sub && requester_id != claims.sub {
         return Err(AppError::Forbidden(
             "Not allowed to update this request".into(),
         ));
     }
-    if status != "pending" {
-        return Err(AppError::Validation("Request is not pending".into()));
-    }
 
-    sqlx::query(
-        "UPDATE friend_requests SET status = 'rejected', responded_at = NOW() WHERE id = $1",
+    // Only a request that is still pending can be closed, so an accept that won the race is
+    // never reported as canceled.
+    let updated = sqlx::query(
+        "UPDATE friend_requests SET status = 'rejected', responded_at = NOW() WHERE id = $1 AND status = 'pending'",
     )
     .bind(request_id)
     .execute(&state.db)
     .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::Validation("Request is not pending".into()));
+    }
 
     notify_friend_update(&state, requester_id).await;
     notify_friend_update(&state, receiver_id).await;

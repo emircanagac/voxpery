@@ -263,7 +263,10 @@ async fn livekit_webhook(
         tracing::warn!("Ignoring incomplete LiveKit participant webhook");
         return Ok(StatusCode::NO_CONTENT);
     };
-    let Ok(channel_id) = uuid::Uuid::parse_str(&room.name) else {
+    let Some(channel_id) = uuid::Uuid::parse_str(&room.name)
+        .ok()
+        .filter(|channel_id| channel_id.to_string() == room.name)
+    else {
         tracing::warn!("Ignoring LiveKit participant webhook with a non-Voxpery room");
         return Ok(StatusCode::NO_CONTENT);
     };
@@ -377,7 +380,10 @@ async fn livekit_token(
     let exp = now + LIVEKIT_JOIN_TOKEN_TTL_SECS;
     let nbf = now;
 
-    let room = query.channel_id;
+    // Always the canonical form: `Uuid::parse_str` also accepts upper-case, simple, braced and
+    // URN spellings, which would open a separate LiveKit room that revocation, moderation and
+    // channel deletion (all addressed by the canonical name) never reach.
+    let room = channel_id.to_string();
     let identity = claims.sub.to_string();
     let current_username =
         sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")

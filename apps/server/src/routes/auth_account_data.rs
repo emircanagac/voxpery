@@ -102,10 +102,13 @@ pub(super) fn summarize_export_attachments(
 pub(super) async fn ensure_deleted_placeholder_user(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Uuid, AppError> {
-    let existing = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1")
-        .bind("deleted@system.local")
-        .fetch_optional(&mut **tx)
-        .await?;
+    // Identified by the system flag only: the address is reserved for registration, but an
+    // account registered with it before the reservation must never be taken for this one.
+    let existing = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE is_system ORDER BY created_at, id LIMIT 1",
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
     if let Some(id) = existing {
         return Ok(id);
     }
@@ -131,12 +134,12 @@ pub(super) async fn ensure_deleted_placeholder_user(
     let password_hash = hash_password(&Uuid::new_v4().to_string())?;
     sqlx::query(
         r#"INSERT INTO users
-           (id, username, email, password_hash, avatar_url, status, dm_privacy, email_verified, created_at, google_id, username_changed_at, token_version)
-           VALUES ($1, $2, $3, $4, NULL, 'invisible', 'friends', TRUE, NOW(), NULL, NULL, 0)"#,
+           (id, username, email, password_hash, avatar_url, status, dm_privacy, email_verified, created_at, google_id, username_changed_at, token_version, is_system)
+           VALUES ($1, $2, $3, $4, NULL, 'invisible', 'friends', TRUE, NOW(), NULL, NULL, 0, TRUE)"#,
     )
     .bind(id)
     .bind(username)
-    .bind("deleted@system.local")
+    .bind(format!("deleted-{id}@{RESERVED_SYSTEM_EMAIL_DOMAIN}"))
     .bind(password_hash)
     .execute(&mut **tx)
     .await?;
@@ -724,17 +727,20 @@ pub(super) async fn delete_my_account(
         .execute(&mut *tx)
         .await?;
 
+    crate::services::attachment_release::queue_local_file_deletions(
+        &mut tx,
+        &uploaded_storage_keys,
+    )
+    .await?;
     tx.commit().await?;
 
-    for storage_key in &uploaded_storage_keys {
-        if let Err(error) = state
-            .attachment_service
-            .delete_local_file_by_storage_key(storage_key)
-            .await
-        {
-            tracing::warn!("Attachment file cleanup after account deletion failed: {error}");
-        }
-    }
+    // Files that cannot be removed now stay queued and are retried in the background.
+    let files_pending_removal = crate::services::attachment_release::delete_queued_local_files(
+        &state.db,
+        &state.attachment_service,
+        &uploaded_storage_keys,
+    )
+    .await;
     for server_id in transferred_server_ids {
         crate::ws::publish_event(&state, WsEvent::ServerRolesUpdated { server_id }).await;
     }
@@ -787,7 +793,8 @@ pub(super) async fn delete_my_account(
     Ok((
         out_headers,
         Json(serde_json::json!({
-            "message": "Account permanently deleted"
+            "message": "Account permanently deleted",
+            "files_pending_removal": files_pending_removal
         })),
     ))
 }
