@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { LogOut, ShieldCheck } from 'lucide-react'
-import { Outlet } from 'react-router'
 import {
   authApi,
   getAuthErrorMessage,
@@ -8,6 +7,7 @@ import {
   type LegalConsentStatus,
 } from '../api'
 import { useAuthStore } from '../stores/auth'
+import EmailVerificationGate from './EmailVerificationGate'
 import GlobalLoading from './GlobalLoading'
 import LegalAcknowledgements from './LegalAcknowledgements'
 
@@ -100,7 +100,7 @@ function LegalConsentGate() {
     )
   }
 
-  if (!status.required) return <Outlet />
+  if (!status.required) return <EmailVerificationGate />
 
   const submit = async () => {
     if (!termsAccepted || !privacyAcknowledged || !kvkkAcknowledged || submitting) return

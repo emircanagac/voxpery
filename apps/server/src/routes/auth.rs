@@ -23,8 +23,8 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{
-        claims_match_current_token_version, require_auth, require_auth_and_current_legal_consent,
-        token_from_request, Claims,
+        claims_match_current_token_version, require_auth,
+        require_auth_and_current_legal_consent_unverified_ok, token_from_request, Claims,
     },
     models::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
@@ -166,10 +166,19 @@ fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Domain of the internal account that keeps deleted users' servers and history; no user
+/// account may use an address in it.
+const RESERVED_SYSTEM_EMAIL_DOMAIN: &str = "system.local";
+
 fn is_valid_email(email: &str) -> bool {
     email.len() <= 255
         && email.contains('@')
         && email.find('@').map(|i| i > 0 && i < email.len() - 1) == Some(true)
+        && !email.rsplit_once('@').is_some_and(|(_, domain)| {
+            domain
+                .trim()
+                .eq_ignore_ascii_case(RESERVED_SYSTEM_EMAIL_DOMAIN)
+        })
 }
 
 fn frontend_base_url(state: &AppState) -> String {
@@ -398,7 +407,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/account", delete(delete_my_account))
         .route_layer(middleware::from_fn_with_state(
             state,
-            require_auth_and_current_legal_consent,
+            require_auth_and_current_legal_consent_unverified_ok,
         ));
 
     Router::new()

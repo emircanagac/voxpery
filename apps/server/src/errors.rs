@@ -41,6 +41,9 @@ pub enum AppError {
     #[error("Current legal documents must be acknowledged")]
     LegalConsentRequired,
 
+    #[error("Verify your email address to continue")]
+    EmailVerificationRequired,
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -71,6 +74,11 @@ impl IntoResponse for AppError {
                 StatusCode::PRECONDITION_REQUIRED,
                 self.to_string(),
                 Some("LEGAL_CONSENT_REQUIRED"),
+            ),
+            AppError::EmailVerificationRequired => (
+                StatusCode::FORBIDDEN,
+                self.to_string(),
+                Some("EMAIL_VERIFICATION_REQUIRED"),
             ),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
@@ -135,6 +143,7 @@ mod tests {
                 AppError::LegalConsentRequired,
                 StatusCode::PRECONDITION_REQUIRED,
             ),
+            (AppError::EmailVerificationRequired, StatusCode::FORBIDDEN),
         ];
         for (err, expected) in test_cases {
             let res = err.into_response();

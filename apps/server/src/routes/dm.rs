@@ -1065,12 +1065,34 @@ async fn group_dm_info(
         .ok_or(AppError::NotFound("DM channel not found".into()))
 }
 
+/// A request can never name more people than a group can hold; longer lists are refused before
+/// they are deduplicated.
+fn ensure_group_dm_list_size(len: usize) -> Result<(), AppError> {
+    if len > MAX_GROUP_DM_MEMBERS {
+        return Err(AppError::Validation(format!(
+            "A group can have at most {MAX_GROUP_DM_MEMBERS} members"
+        )));
+    }
+    Ok(())
+}
+
 /// POST /api/dm/groups — start a group DM with at least two friends.
 async fn create_group_dm(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
     Json(body): Json<CreateGroupDmRequest>,
 ) -> Result<Json<DmChannelInfo>, AppError> {
+    // Size and rate are checked before any per-id work, so an oversized list costs nothing.
+    ensure_group_dm_list_size(body.member_ids.len())?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("dm_create:{}", claims.sub),
+        5,
+        Duration::from_secs(60),
+        "Too many DM channels created recently. Please slow down.",
+    )
+    .await?;
+
     let mut member_ids: Vec<Uuid> = Vec::new();
     for id in body.member_ids {
         if id != claims.sub && !member_ids.contains(&id) {
@@ -1088,15 +1110,6 @@ async fn create_group_dm(
         )));
     }
     let name = normalize_group_dm_name(body.name.as_deref())?;
-
-    enforce_rate_limit(
-        &state.redis,
-        format!("dm_create:{}", claims.sub),
-        5,
-        Duration::from_secs(60),
-        "Too many DM channels created recently. Please slow down.",
-    )
-    .await?;
 
     let mut tx = state.db.begin().await?;
     ensure_friends_with(&mut tx, claims.sub, &member_ids).await?;
@@ -1154,6 +1167,7 @@ async fn add_group_dm_members(
     Path(channel_id): Path<Uuid>,
     Json(body): Json<AddGroupDmMembersRequest>,
 ) -> Result<Json<DmChannelInfo>, AppError> {
+    ensure_group_dm_list_size(body.user_ids.len())?;
     let mut tx = state.db.begin().await?;
     let (_, mut members) = lock_group_dm(&mut tx, channel_id, claims.sub).await?;
     let mut added: Vec<Uuid> = Vec::new();
