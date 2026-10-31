@@ -16,5 +16,6 @@ pub mod permissions;
 pub mod privacy;
 pub mod rate_limit;
 pub mod redact;
+pub mod server_membership;
 pub mod voice_moderation;
 pub mod voice_revoke;

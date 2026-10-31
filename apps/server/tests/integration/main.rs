@@ -187,6 +187,7 @@ async fn build_test_app(
         .expect("Failed to connect to test database");
 
     run_migrations(&db).await.expect("Failed to run migrations");
+    ensure_official_server(&db).await;
 
     let upload_dir =
         std::env::temp_dir().join(format!("voxpery-attachments-test-{}", Uuid::new_v4()));
@@ -260,6 +261,32 @@ async fn build_test_app(
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
     (app, state)
+}
+
+/// At startup the seeded admin gets the official server; tests share one for a throwaway owner.
+async fn ensure_official_server(db: &sqlx::PgPool) {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM servers WHERE invite_code = 'voxpery')")
+            .fetch_one(db)
+            .await
+            .unwrap();
+    if exists {
+        return;
+    }
+    let owner_id = Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO users (id, username, email, password_hash, status)
+           VALUES ($1, $2, $3, 'oauth', 'online')"#,
+    )
+    .bind(owner_id)
+    .bind(format!("official_{}", owner_id.as_u128() % 1_000_000_000))
+    .bind(format!("official-{owner_id}@example.com"))
+    .execute(db)
+    .await
+    .unwrap();
+    voxpery_server::routes::auth::ensure_default_server(db, owner_id)
+        .await
+        .unwrap();
 }
 
 async fn count_regular_files(root: &Path) -> usize {

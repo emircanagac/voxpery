@@ -30,7 +30,10 @@ use crate::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
         User, UserBroadcastProfile, UserPublic,
     },
-    services::auth::{generate_token, hash_password, verify_password},
+    services::auth::{
+        ensure_password_within_limit, generate_token, hash_password, hash_password_async,
+        revoke_pending_account_tokens, run_password_work, verify_password, verify_password_async,
+    },
     services::avatar_images::validate_profile_avatar_url,
     services::client_ip::resolve_client_ip,
     services::privacy::{
@@ -39,6 +42,7 @@ use crate::{
         DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT, DATA_EXPORT_REAUTH_MAX_AGE_SECS,
     },
     services::rate_limit::enforce_rate_limit,
+    services::server_membership,
     ws::WsEvent,
     AppState,
 };
@@ -89,10 +93,13 @@ static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
 
 /// Build Set-Cookie value to clear auth cookie.
 fn clear_auth_cookie_header(state: &AppState) -> HeaderMap {
-    let cookie = format!(
+    let mut cookie = format!(
         "{}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0",
         state.cookie_name
     );
+    if state.cookie_secure {
+        cookie.push_str("; Secure");
+    }
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&cookie) {
         headers.insert(header::SET_COOKIE, v);
@@ -161,9 +168,13 @@ fn extract_client_ip(
     )
 }
 
-fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
-    let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str())?;
-    Ok(())
+async fn perform_dummy_password_verification(password: &str) -> Result<(), AppError> {
+    let password = password.to_string();
+    run_password_work(move || {
+        let _ = verify_password(&password, DUMMY_PASSWORD_HASH.as_str())?;
+        Ok(())
+    })
+    .await
 }
 
 /// Domain of the internal account that keeps deleted users' servers and history; no user
@@ -274,13 +285,19 @@ fn login_failure_user_key(identifier: &str) -> String {
     crate::services::rate_limit::bounded_redis_key("auth:login_fail:user", identifier)
 }
 
+/// Failures against an account share one counter, whichever of its identifiers was typed.
+/// Kept apart from `login_failure_user_key`, whose value is whatever the client sends.
+fn login_failure_account_key(user_id: Uuid) -> String {
+    format!("auth:login_fail:account:{user_id}")
+}
+
 fn login_failure_ip_key(ip: &str) -> String {
     format!("auth:login_fail:ip:{ip}")
 }
 
 async fn ensure_login_not_temporarily_locked(
     state: &Arc<AppState>,
-    identifier: &str,
+    user_key: &str,
     client_ip: Option<&str>,
 ) -> Result<(), AppError> {
     let mut conn = state
@@ -289,8 +306,7 @@ async fn ensure_login_not_temporarily_locked(
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 
-    let user_key = login_failure_user_key(identifier);
-    let user_failures: i64 = conn.get(&user_key).await.unwrap_or(0);
+    let user_failures: i64 = conn.get(user_key).await.unwrap_or(0);
     if user_failures >= state.login_failure_max_attempts as i64 {
         return Err(AppError::TooManyRequests(
             "Too many login attempts. Please wait and try again.".into(),
@@ -312,7 +328,7 @@ async fn ensure_login_not_temporarily_locked(
 
 async fn record_login_failure(
     state: &Arc<AppState>,
-    identifier: &str,
+    user_key: &str,
     client_ip: Option<&str>,
 ) -> Result<(), AppError> {
     let mut conn = state
@@ -321,14 +337,13 @@ async fn record_login_failure(
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 
-    let user_key = login_failure_user_key(identifier);
     let user_failures: i64 = conn
-        .incr(&user_key, 1)
+        .incr(user_key, 1)
         .await
         .map_err(|e| AppError::Internal(format!("Redis increment failed: {e}")))?;
     if user_failures == 1 {
         let _: bool = conn
-            .expire(&user_key, state.login_failure_window_secs as i64)
+            .expire(user_key, state.login_failure_window_secs as i64)
             .await
             .map_err(|e| AppError::Internal(format!("Redis expire failed: {e}")))?;
     }
@@ -352,7 +367,7 @@ async fn record_login_failure(
 
 async fn clear_login_failures(
     state: &Arc<AppState>,
-    identifier: &str,
+    user_key: &str,
     client_ip: Option<&str>,
 ) -> Result<(), AppError> {
     let mut conn = state
@@ -361,9 +376,8 @@ async fn clear_login_failures(
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 
-    let user_key = login_failure_user_key(identifier);
     let _: i64 = conn
-        .del(&user_key)
+        .del(user_key)
         .await
         .map_err(|e| AppError::Internal(format!("Redis delete failed: {e}")))?;
 
@@ -393,9 +407,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
-    let protected = Router::new()
+    let small_requests = Router::new()
         .route("/status", patch(update_status))
-        .route("/profile", patch(update_profile))
         .route("/check-username", get(check_username))
         .route("/set-password", post(set_password))
         .route("/change-password", post(change_password))
@@ -405,6 +418,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/data-export", post(export_my_data))
         .route("/account", delete(delete_my_account))
+        .layer(DefaultBodyLimit::max(PUBLIC_AUTH_BODY_LIMIT));
+
+    let protected = small_requests
+        .route("/profile", patch(update_profile))
         .route_layer(middleware::from_fn_with_state(
             state,
             require_auth_and_current_legal_consent_unverified_ok,
@@ -599,6 +616,7 @@ async fn register(
             "Password must be at least 8 characters".into(),
         ));
     }
+    ensure_password_within_limit(&body.password)?;
 
     // Check if user already exists
     let existing = sqlx::query_scalar::<_, i64>(
@@ -614,7 +632,7 @@ async fn register(
     }
 
     // Hash password
-    let password_hash = hash_password(&body.password)?;
+    let password_hash = hash_password_async(&body.password).await?;
 
     // Insert the account and legal acknowledgement proof atomically.
     let mut tx = state.db.begin().await?;
@@ -695,42 +713,9 @@ const DEFAULT_COMMUNITY_ONBOARDING_TASKS: [&str; 3] = [
     "Explore the open-source project on GitHub",
 ];
 
-/// Env vars to resolve default Voxpery server owner: ADMIN_EMAIL or ADMIN_USERNAME (seeded admin).
-fn official_owner_lookup() -> (Option<String>, Option<String>) {
-    let email = std::env::var("ADMIN_EMAIL").ok().filter(|s| !s.is_empty());
-    let username = std::env::var("ADMIN_USERNAME")
-        .ok()
-        .filter(|s| !s.is_empty());
-    (email, username)
-}
-
-async fn resolve_official_owner_id(db: &sqlx::PgPool) -> Result<Option<Uuid>, AppError> {
-    let (email, username) = official_owner_lookup();
-    if let Some(owner_email) = email {
-        let id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1")
-            .bind(owner_email)
-            .fetch_optional(db)
-            .await?;
-        if id.is_some() {
-            return Ok(id);
-        }
-    }
-    if let Some(owner_username) = username {
-        let id =
-            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE lower(username) = lower($1)")
-                .bind(owner_username)
-                .fetch_optional(db)
-                .await?;
-        if id.is_some() {
-            return Ok(id);
-        }
-    }
-    Ok(None)
-}
-
 /// Create the default admin user at startup if ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_PASSWORD are all set.
 /// If a user with that email already exists, returns their id. Otherwise creates the user and returns the new id.
-/// Used so the default Voxpery server has a dedicated owner instead of the first random registrant.
+/// The seeded account is the only one that can own the default Voxpery server.
 pub async fn ensure_seed_admin(
     db: &sqlx::PgPool,
     email: &str,
@@ -784,18 +769,16 @@ pub async fn ensure_seed_admin(
     Ok(Some(id))
 }
 
-/// Ensure the official Voxpery community server exists and add the user to it.
-/// Called on register/login for every user, and at startup with the seeded admin id to create the server.
-pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Result<(), AppError> {
-    let mut server_id_opt: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM servers WHERE invite_code = $1")
+/// Create the official Voxpery community server unless it exists, owned by the seeded admin.
+/// Runs at startup only: no sign-up or sign-in may decide who owns it.
+pub async fn ensure_default_server(db: &sqlx::PgPool, owner_id: Uuid) -> Result<(), AppError> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM servers WHERE invite_code = $1)")
             .bind(DEFAULT_SERVER_INVITE_CODE)
-            .fetch_optional(db)
+            .fetch_one(db)
             .await?;
 
-    // Auto-create default Voxpery server when missing: use official owner if configured, else current user (CI/dev).
-    if server_id_opt.is_none() {
-        let owner_id = resolve_official_owner_id(db).await?.unwrap_or(user_id);
+    if !exists {
         let server_id = Uuid::new_v4();
         sqlx::query(
             r#"INSERT INTO servers (id, name, icon_url, owner_id, invite_code, created_at)
@@ -876,9 +859,19 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
         .bind(server_id)
         .execute(db)
         .await?;
-
-        server_id_opt = Some(server_id);
     }
+
+    ensure_default_server_join(db, owner_id).await
+}
+
+/// Add the user to the official Voxpery community server, when this installation has one.
+/// Called on register/login for every user.
+pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Result<(), AppError> {
+    let server_id_opt: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM servers WHERE invite_code = $1")
+            .bind(DEFAULT_SERVER_INVITE_CODE)
+            .fetch_optional(db)
+            .await?;
 
     if let Some(server_id) = server_id_opt {
         // Ensure default Voxpery server has an "@everyone" baseline role.
@@ -897,18 +890,12 @@ pub async fn ensure_default_server_join(db: &sqlx::PgPool, user_id: Uuid) -> Res
 
         ensure_default_onboarding_guide(db, server_id).await?;
 
-        sqlx::query(
-            r#"INSERT INTO server_members (server_id, user_id, joined_at)
-               SELECT $1, $2, NOW()
-               WHERE NOT EXISTS (
-                   SELECT 1 FROM server_bans WHERE server_id = $1 AND user_id = $2
-               )
-               ON CONFLICT (server_id, user_id) DO NOTHING"#,
-        )
-        .bind(server_id)
-        .bind(user_id)
-        .execute(db)
-        .await?;
+        let mut tx = db.begin().await?;
+        server_membership::lock_membership(&mut tx, server_id, user_id).await?;
+        if !server_membership::is_banned(&mut tx, server_id, user_id).await? {
+            server_membership::add_member(&mut tx, server_id, user_id).await?;
+        }
+        tx.commit().await?;
 
         // "@everyone" is implicit in permission resolution; no explicit member assignment needed.
     }
@@ -983,7 +970,10 @@ async fn login(
 
     // No account has an identifier this long (emails are capped at 255 characters), so reject it
     // before it reaches Redis or the database.
-    if identifier.is_empty() || identifier.len() > MAX_EMAIL_LEN {
+    if identifier.is_empty()
+        || identifier.len() > MAX_EMAIL_LEN
+        || body.password.len() > crate::services::auth::MAX_PASSWORD_BYTES
+    {
         return Err(AppError::InvalidCredentials);
     }
 
@@ -996,8 +986,6 @@ async fn login(
     )
     .await?;
 
-    ensure_login_not_temporarily_locked(&state, &identifier, client_ip.as_deref()).await?;
-
     // Find user by email or username (case-insensitive)
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($1)",
@@ -1006,26 +994,32 @@ async fn login(
     .fetch_optional(&state.db)
     .await?;
 
+    let failure_key = match &user {
+        Some(user) => login_failure_account_key(user.id),
+        None => login_failure_user_key(&identifier),
+    };
+    ensure_login_not_temporarily_locked(&state, &failure_key, client_ip.as_deref()).await?;
+
     let Some(user) = user else {
-        perform_dummy_password_verification(&body.password)?;
-        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
+        perform_dummy_password_verification(&body.password).await?;
+        record_login_failure(&state, &failure_key, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     };
 
     // OAuth-only accounts do not have a local password yet.
     if user.password_hash == "oauth" {
-        perform_dummy_password_verification(&body.password)?;
-        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
+        perform_dummy_password_verification(&body.password).await?;
+        record_login_failure(&state, &failure_key, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     }
 
     // Verify password
-    if !verify_password(&body.password, &user.password_hash)? {
-        record_login_failure(&state, &identifier, client_ip.as_deref()).await?;
+    if !verify_password_async(&body.password, &user.password_hash).await? {
+        record_login_failure(&state, &failure_key, client_ip.as_deref()).await?;
         return Err(AppError::InvalidCredentials);
     }
 
-    clear_login_failures(&state, &identifier, client_ip.as_deref()).await?;
+    clear_login_failures(&state, &failure_key, client_ip.as_deref()).await?;
 
     // Ensure user is in official Voxpery community on login as well
     ensure_default_server_join(&state.db, user.id).await?;
@@ -1118,7 +1112,9 @@ struct SessionRow {
 struct SessionResponse {
     user: UserPublic,
     legal_consent: LegalConsentStatus,
-    image_proxy: crate::services::image_proxy_grant::ImageProxyGrant,
+    /// Absent until the account may use the app: see `require_auth_and_current_legal_consent`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_proxy: Option<crate::services::image_proxy_grant::ImageProxyGrant>,
 }
 
 /// Read user and legal status from one row snapshot; never mutate acknowledgement.
@@ -1142,13 +1138,14 @@ async fn get_session(
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::Unauthorized)?;
+    let may_use_app =
+        row.legal_current && (row.user.email_verified || !state.email_verification_required);
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
         Json(SessionResponse {
-            image_proxy: crate::services::image_proxy_grant::current_user_grant(
-                &state.jwt_secret,
-                &claims,
-            ),
+            image_proxy: may_use_app.then(|| {
+                crate::services::image_proxy_grant::current_user_grant(&state.jwt_secret, &claims)
+            }),
             user: UserPublic::from(row.user),
             legal_consent: LegalConsentStatus::new(!row.legal_current),
         }),

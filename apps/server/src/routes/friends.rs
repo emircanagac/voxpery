@@ -331,16 +331,29 @@ async fn remove_friend(
         (friend_id, claims.sub)
     };
 
+    let mut tx = state.db.begin().await?;
     let removed = sqlx::query("DELETE FROM friendships WHERE user_a = $1 AND user_b = $2")
         .bind(a)
         .bind(b)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
     if removed == 0 {
         return Err(AppError::NotFound("Friendship not found".into()));
     }
+
+    // Earlier messages stop counting as an invitation to reply; see `dm_friendship_ends`.
+    sqlx::query(
+        r#"INSERT INTO dm_friendship_ends (user_a, user_b, ended_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (user_a, user_b) DO UPDATE SET ended_at = EXCLUDED.ended_at"#,
+    )
+    .bind(a)
+    .bind(b)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
 
     // Clean up any stale pending requests between the same users.
     sqlx::query(

@@ -213,8 +213,7 @@ async fn main() {
     ) {
         match routes::auth::ensure_seed_admin(&state.db, email, username, password).await {
             Ok(Some(admin_id)) => {
-                if let Err(e) = routes::auth::ensure_default_server_join(&state.db, admin_id).await
-                {
+                if let Err(e) = routes::auth::ensure_default_server(&state.db, admin_id).await {
                     tracing::warn!(
                         "Failed to create default Voxpery server with admin owner: {}",
                         e

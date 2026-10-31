@@ -69,6 +69,15 @@ pub(crate) async fn claims_match_current_token_version(
 }
 
 async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, AppError> {
+    // The signature comes first: an unsigned string must not cost a Redis lookup.
+    let claims = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    )
+    .map_err(|_| AppError::Unauthorized)?
+    .claims;
+
     match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
         Ok(true) => return Err(AppError::Unauthorized),
         Ok(false) => {}
@@ -77,14 +86,6 @@ async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, App
             return Err(AppError::Unauthorized);
         }
     }
-
-    let claims = decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-        &Validation::new(Algorithm::HS256),
-    )
-    .map_err(|_| AppError::Unauthorized)?
-    .claims;
 
     Ok(claims)
 }

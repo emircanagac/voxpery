@@ -8,6 +8,7 @@ import ToastViewport from './components/ToastViewport'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionGate from './components/ConnectionGate'
 import GlobalLoading from './components/GlobalLoading'
+import { clearLocalSessionData } from './localSessionData'
 import { ROUTES } from './routes'
 import { useSocketStore } from './stores/socket'
 import { useFeatureStore } from './stores/features'
@@ -158,6 +159,7 @@ function App() {
     if (restoring || user) return
     useSocketStore.getState().disconnect()
     useAppStore.getState().resetSessionState()
+    clearLocalSessionData()
   }, [restoring, user])
 
   // Desktop: restore secure storage, then collect cold-start and runtime OAuth deep links.

@@ -49,6 +49,15 @@ export function revokeAttachmentUrl(url: string) {
     decodedAttachmentImageCache.delete(url)
 }
 
+/** Drops every resolved attachment, including the blob URLs that hold its bytes. */
+export function clearAttachmentCaches() {
+    for (const { resolvedUrl } of attachmentResolutionCache.values()) {
+        if (resolvedUrl.startsWith('blob:')) revokeAttachmentUrl(resolvedUrl)
+    }
+    attachmentResolutionCache.clear()
+    decodedAttachmentImageCache.clear()
+}
+
 export function defaultAttachmentResolution(sourceUrl: string, cacheKey: string): AttachmentResolutionState {
     return {
         cacheKey,

@@ -9,13 +9,14 @@ import UnifiedSidebar from '../components/UnifiedSidebar'
 import HomePage from './HomePage'
 import AppLayout from './AppLayout'
 import { friendApi } from '../api'
+import { getImageProxyGrant } from '../api/imageProxyGrant'
 import { refreshImageProxyGrant } from '../api/imageProxyGrantRefresh'
+import { ACTIVE_SERVER_STORAGE_KEY } from '../localSessionData'
 import { shouldShowPushNotification, showPushNotification } from '../pushNotifications'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { ROUTES } from '../routes'
 import { useToastStore } from '../stores/toast'
 
-const ACTIVE_SERVER_STORAGE_KEY = 'voxpery-active-server-id'
 
 function tryGetStoredServerId(): string | null {
   try {
@@ -65,9 +66,11 @@ export default function UnifiedLayout() {
   const isFriendsOrDm = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
   const isServerView = location.pathname === ROUTES.servers || location.pathname.startsWith(`${ROUTES.servers}/`)
 
-  // Keep the image proxy grant fresh while the app stays open; it changes every two hours.
+  // Keep the image proxy grant fresh while the app stays open; it changes every two hours. The
+  // session snapshot carries none until the account may use the app, so fetch one on arrival.
   useEffect(() => {
     if (!userId) return
+    if (!getImageProxyGrant()) void refreshImageProxyGrant(token).catch(() => {})
     const timer = window.setInterval(() => {
       void refreshImageProxyGrant(token).catch(() => {})
     }, IMAGE_PROXY_GRANT_REFRESH_MS)

@@ -2818,6 +2818,7 @@ async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
         &state.db,
         unverified_id,
         &format!("google-{}", Uuid::new_v4()),
+        &unverified_email,
     )
     .await
     .unwrap();
@@ -2851,6 +2852,7 @@ async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
         &state.db,
         verified_id,
         &format!("google-{}", Uuid::new_v4()),
+        &verified_email,
     )
     .await
     .unwrap();

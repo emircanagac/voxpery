@@ -330,6 +330,10 @@ pub(super) async fn ban_member(
     }
 
     let mut tx = state.db.begin().await?;
+    server_membership::lock_membership(&mut tx, server_id, user_id).await?;
+    if server_membership::lock_server_owner(&mut tx, server_id).await? == Some(user_id) {
+        return Err(AppError::Forbidden("Cannot ban the server owner".into()));
+    }
 
     sqlx::query(
         r#"INSERT INTO server_bans (server_id, user_id, banned_by, reason, created_at)
@@ -344,20 +348,7 @@ pub(super) async fn ban_member(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM server_member_roles WHERE server_id = $1 AND user_id = $2")
-        .bind(server_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    let removed_member =
-        sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
-            .bind(server_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected()
-            > 0;
+    let removed_member = server_membership::remove_member(&mut tx, server_id, user_id).await?;
 
     tx.commit().await?;
 
@@ -427,12 +418,17 @@ pub(super) async fn timeout_member(
     let reason = normalize_timeout_reason(body.reason.as_deref())?;
     let until = Utc::now() + ChronoDuration::minutes(duration_minutes);
 
+    // The target may have left, or become the owner, since the checks above.
     let entry = sqlx::query_as::<_, ServerTimeoutEntry>(
         r#"WITH upserted AS (
                INSERT INTO server_member_timeouts (
                    server_id, user_id, timed_out_until, timeout_by, reason, created_at, updated_at
                )
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+               SELECT $1, $2, $3, $4, $5, NOW(), NOW()
+               WHERE EXISTS (
+                         SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2
+                     )
+                 AND NOT EXISTS (SELECT 1 FROM servers WHERE id = $1 AND owner_id = $2)
                ON CONFLICT (server_id, user_id)
                DO UPDATE SET
                    timed_out_until = EXCLUDED.timed_out_until,
@@ -459,8 +455,9 @@ pub(super) async fn timeout_member(
     .bind(until)
     .bind(claims.sub)
     .bind(&reason)
-    .fetch_one(&state.db)
-    .await?;
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("Member not found".into()))?;
 
     audit::log(
         &state.db,
@@ -676,11 +673,15 @@ pub(super) async fn kick_member(
         ));
     }
 
-    sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
-        .bind(server_id)
-        .bind(user_id)
-        .execute(&state.db)
-        .await?;
+    let mut tx = state.db.begin().await?;
+    server_membership::lock_membership(&mut tx, server_id, user_id).await?;
+    if server_membership::lock_server_owner(&mut tx, server_id).await? == Some(user_id) {
+        return Err(AppError::Forbidden("Cannot kick the server owner".into()));
+    }
+    if !server_membership::remove_member(&mut tx, server_id, user_id).await? {
+        return Err(AppError::NotFound("Member not found".into()));
+    }
+    tx.commit().await?;
 
     crate::services::audit::log(
         &state.db,

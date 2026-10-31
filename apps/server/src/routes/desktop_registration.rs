@@ -404,6 +404,7 @@ async fn create_account(
             "Password must be at least 8 characters".into(),
         ));
     }
+    ensure_password_within_limit(&form.password)?;
     enforce_rate_limit(
         &state.redis,
         format!("auth:register:{email}"),
@@ -435,7 +436,7 @@ async fn create_account(
     if existing > 0 {
         return Err(AppError::UserAlreadyExists);
     }
-    let password_hash = hash_password(&form.password)?;
+    let password_hash = hash_password_async(&form.password).await?;
     let user = sqlx::query_as::<_, User>("INSERT INTO users (id,username,email,password_hash,status,dm_privacy,email_verified,created_at,terms_version,terms_accepted_at,privacy_notice_version,privacy_notice_acknowledged_at,kvkk_notice_version,kvkk_notice_acknowledged_at) VALUES ($1,$2,$3,$4,'online','everyone',FALSE,NOW(),$5,NOW(),$6,NOW(),$7,NOW()) RETURNING *")
         .bind(Uuid::new_v4()).bind(username).bind(&email).bind(password_hash)
         .bind(CURRENT_TERMS_VERSION).bind(CURRENT_PRIVACY_NOTICE_VERSION).bind(CURRENT_KVKK_NOTICE_VERSION)
