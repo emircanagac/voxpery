@@ -107,6 +107,7 @@ export interface WsEventDataMap {
     VoiceControlUpdate: {
         user_id: string;
         server_id: string | null;
+        channel_id?: string;
         muted: boolean;
         deafened: boolean;
         server_muted: boolean;
