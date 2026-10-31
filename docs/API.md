@@ -65,7 +65,7 @@ Important behavior:
   - Updates the account and inserts the privacy-safe audit event in one database transaction; repeating the same current acknowledgement is idempotent.
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
 - `PATCH /api/auth/profile`
-  - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`. With `friends`, a non-friend cannot start a DM or send to one, except to reply in a one-to-one DM where the `friends` user has written themselves (writing to someone is consent to their reply); otherwise `403`.
+  - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`. With `friends`, a non-friend cannot start a DM, send to one, edit their messages there, add a reaction or pin, except in a one-to-one DM where the `friends` user has written themselves (writing to someone is consent to their reply); otherwise `403`. Ending a friendship resets that consent: only messages written after it ended count. Removing a reaction or a pin and deleting your own message stay possible.
   - Optional profile field: `about_me` (maximum 190 characters).
   - Usernames may contain ASCII letters in either case, digits, underscores, and periods. Display casing is preserved, while uniqueness, login, search, mentions, and friend lookup remain case-insensitive.
   - A username can be changed once every 7 days; the API is the authority for the cooldown.
@@ -119,6 +119,9 @@ Notes:
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
 - `email/request-verification` issues a fresh verification token, optionally for a new address (`{ "email", "current_password" }`). A different address needs the current password, or for a Google-only account a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). The account email does not change until the link is confirmed; the pending address is kept with the token.
 - `email/confirm` returns 409 when another account took the pending address after the link was sent.
+- Pending verification and password reset links end when the account changes hands: a Google link, a password change, set or reset, and a confirmed move to another address. That move also ends every session of the account; verifying the current address ends none.
+- New passwords are limited to 1024 bytes (`400`), and login treats anything longer as wrong credentials. These account routes take request bodies of at most 64 KiB (`413`).
+- Login lockout counts failures per account, whichever of its identifiers was typed.
 - `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session. Tokens that are not UUIDs return `400` without a lookup, and confirmations are rate-limited per client IP.
 - `desktop-exchange` (and the Google-specific exchange) are rate-limited per client IP in addition to the single-use PKCE code.
 
@@ -244,7 +247,8 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `DELETE /api/channels/server/:server_id/categories/:category`
   - Optional `move_to` query parameter; channels default-move to `General`.
   - Deletion is blocked if channels cannot be moved safely.
-  - Moving the channels to a category with different role overrides is owner only, as for `PATCH /api/channels/:channel_id`. The deleted category's overrides are removed with it.
+  - Moving the channels to a category with different role overrides is owner only, as for `PATCH /api/channels/:channel_id`. The deleted category's overrides are removed with it, so deleting an empty category that has overrides is owner only too.
+- Category routes and creating a channel in a category apply that category's overrides on top of server-wide `MANAGE_CHANNELS`: the caller needs `VIEW_SERVER` and `MANAGE_CHANNELS` in it (`404` for a category they cannot see, `403` otherwise). The category list contains only categories the caller can see, and `reorder` takes those; hidden categories keep their places.
 - `GET /api/channels/server/:server_id/categories/:category/overrides`
 - `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only; channel-scoped bits)
 - `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only)
@@ -269,7 +273,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 
 ## Image Proxy Endpoint
 
-- `GET /api/images/grant` (auth required)
+- `GET /api/images/grant` (auth, current legal consent and, where required, a verified email address)
   - Returns `{ grant, expires_at }` (Unix seconds) with `Cache-Control: no-store`. The session snapshot carries the first grant; clients refresh it while they stay open. A grant is valid for 2 to 4 hours and stays the same within each 2-hour window, so proxy URLs remain cacheable. It belongs to the sign-in it was issued to: the proxy refuses it after that sign-in logs out, and after a password change or account deletion.
 - `GET /api/images/avatar?url=<encoded-https-url>&grant=<grant>`
   - Proxies third-party avatar images so viewers do not request user-supplied image hosts directly.
@@ -293,7 +297,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - `has_attachment=true` returns only messages with one or more attachments.
 - `POST /api/messages/:channel_id` (requires `SEND_MESSAGES`)
   - Optional `client_request_id` makes network retries return the original message without a second database row or WebSocket broadcast. Reusing the ID with different content returns `409`.
-- `PATCH /api/messages/item/:message_id` (author only)
+- `PATCH /api/messages/item/:message_id` (author only; requires `SEND_MESSAGES`, and shares the message rate limit and raid protection)
 - Server-channel and direct messages are limited to 4000 Unicode code points, including any reply quote prepended by the client. Send and edit requests exceeding this limit are rejected by the API.
 - `DELETE /api/messages/item/:message_id` (author or `MANAGE_MESSAGES`)
 - Enabled AutoMod rules are evaluated before server-channel sends/edits are stored or broadcast. Keyword, link, invite, and mention-spam checks normalize invisible Unicode format/control characters before matching.

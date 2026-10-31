@@ -79,7 +79,7 @@ Key columns:
 ### `server_members`
 
 - `server_id`, `user_id`, `joined_at`
-- `voice_server_muted`, `voice_server_deafened` store moderator-enforced voice restrictions for the lifetime of the server membership. Voice leave, channel switches, and WebSocket reconnects do not clear them; a moderator update and its audit entries commit together.
+- `voice_server_muted`, `voice_server_deafened` store moderator-enforced voice restrictions; `server_voice_moderation_holds` keeps them across a departure. Voice leave, channel switches, and WebSocket reconnects do not clear them; a moderator update and its audit entries commit together.
 - Ownership is read only from `servers.owner_id`; authorization comes from role bitmasks. The legacy `role` column was dropped in migration `057`.
 - Migration `049` backfills missing membership in the official `voxpery` community for existing unbanned accounts. It preserves existing roles and join dates and does not add banned accounts. If the official server is first created after migration, its creation path adds existing accounts instead.
 
@@ -92,6 +92,12 @@ Key columns:
 
 - Many-to-many mapping for role assignments
 - Primary key: `(server_id, user_id, role_id)`
+- Roles belong to a membership: the foreign key to `server_members` removes them with it. Migration `060` removed rows left by earlier kicks and departures.
+
+### `server_voice_moderation_holds`
+
+- `server_id`, `user_id`, `voice_server_muted`, `voice_server_deafened`
+- Keeps a server mute or deafen while the person is not a member; the row returns to `server_members` when they rejoin, so leaving cannot lift it.
 
 ### `channels`
 
@@ -145,6 +151,11 @@ Uniqueness (case-insensitive):
 
 - Canonicalized pair table (`user_a < user_b`)
 - Primary key `(user_a, user_b)`
+
+### `dm_friendship_ends`
+
+- `user_a`, `user_b` (canonicalized like `friendships`), `ended_at`
+- A `friends`-only account stays reachable by someone it wrote to, but only through messages written after this time. Friendships that ended before migration `060` have no row.
 
 ### `dm_channels`
 
@@ -328,6 +339,7 @@ All migrations currently present:
 - `057_drop_legacy_member_role.sql`
 - `058_avatar_urls.sql`
 - `059_security_cleanup.sql`
+- `060_membership_cleanup.sql`
 
 ### Privacy audit log
 

@@ -1,5 +1,6 @@
 import { type MessageWithAuthor, type Channel } from '../api'
 import { type SafetySettingsTab } from '../components/ServerSettingsSafety'
+import { LAST_CHANNELS_STORAGE_KEY } from '../localSessionData'
 
 /** Types, limits and pure helpers of the server view (AppLayout). */
 export type UiMessage = MessageWithAuthor & {
@@ -86,7 +87,7 @@ export const PERM_MUTE_MEMBERS = 1 << 11
 export const PERM_DEAFEN_MEMBERS = 1 << 12
 export const PERM_MOVE_MEMBERS = 1 << 13
 
-export const LAST_CHANNELS_STORAGE_KEY = 'voxpery-last-channel-ids'
+export { LAST_CHANNELS_STORAGE_KEY }
 
 export function validateChannelNameInput(raw: string): string | null {
     const value = raw.trim()

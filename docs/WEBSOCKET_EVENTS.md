@@ -63,6 +63,7 @@ Slow clients: events addressed to one connection wait in a queue of at most 256 
 Authorization:
 
 - User must be allowed to subscribe to the channel.
+- `is_typing: true` also needs what sending a message needs: `SEND_MESSAGES` and no active timeout in a server channel, and the peer's `dm_privacy` in a one-to-one DM.
 
 Note:
 
@@ -145,7 +146,7 @@ Requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`. The target must b
 }
 ```
 
-Requires `MOVE_MEMBERS` or `MANAGE_SERVER`. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The target reuses its active authorized microphone capture when switching rooms, including from a background browser tab. The server retries briefly while the destination participant becomes visible, then verifies the room and authenticated identity, reconciles the authoritative LiveKit participant SID, and only then performs source cleanup and records audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
+Requires `MOVE_MEMBERS` or `MANAGE_SERVER` in both channels, and the moderator must be able to see them; a member they cannot moderate is reported like one who is not connected. Source and destination must be different voice channels in the same server, and the target must be able to join the destination. The request remains pending until the target sends `AcknowledgeVoiceMemberMove` after joining the destination LiveKit room. The target reuses its active authorized microphone capture when switching rooms, including from a background browser tab. The server retries briefly while the destination participant becomes visible, then verifies the room and authenticated identity, reconciles the authoritative LiveKit participant SID, and only then performs source cleanup and records audit success. The moderator receives `VoiceMemberMoveResult`; failures and timeouts are not audited as successful moves.
 
 ### `Ping`
 
@@ -208,6 +209,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
   - `channel_active_since_ms` is the backend epoch millisecond timestamp for when the channel became non-empty. It is `null` on leave events.
   - A member receives their own voice state and control updates after leaving voice even without an active channel subscription; server membership is still checked before delivery.
 - `VoiceControlUpdate`
+  - `channel_id` names the voice channel the update concerns, so recipients are filtered by it even after the member has left.
+  - `screen_sharing` and `camera_on` stay `false` while server moderation stops the member from publishing.
   - Includes combined and server-enforced flags:
     - `muted`
     - `deafened`

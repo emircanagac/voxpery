@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { authApi, getAuthErrorMessage, isAuthError, markAuthSessionChanged, setImageProxyGrant, type LegalConsentStatus, type UserPublic } from '../api'
+import { authApi, getApiBase, getAuthErrorMessage, isAuthError, markAuthSessionChanged, setImageProxyGrant, type LegalConsentStatus, type UserPublic } from '../api'
 import {
     isTauri,
     getSecureToken,
@@ -30,6 +30,15 @@ interface AuthState {
 const AUTH_STORAGE_KEY = 'voxpery-auth'
 // A non-secret logout tombstone prevents restoring an undeleted credential after restart.
 const DESKTOP_LOGOUT_PENDING = 'voxpery-desktop-logout-pending'
+/** Per server: an unfinished sign-out elsewhere must not end the session of this one. */
+const desktopLogoutPendingKey = () => `${DESKTOP_LOGOUT_PENDING}:${getApiBase()}`
+// Earlier versions wrote the key without a server; such a flag applies to whichever comes next.
+const hasDesktopLogoutPending = () =>
+    !!localStorage.getItem(desktopLogoutPendingKey()) || !!localStorage.getItem(DESKTOP_LOGOUT_PENDING)
+const clearDesktopLogoutPending = () => {
+    localStorage.removeItem(desktopLogoutPendingKey())
+    localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+}
 
 type SetState = (partial: Partial<AuthState> | ((s: AuthState) => Partial<AuthState>)) => void
 type GetState = () => AuthState
@@ -87,10 +96,10 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                 try {
                     const desktop = isTauri()
                     if (desktop) void onDesktopQueue(retryPendingRevocations).catch(() => {})
-                    if (desktop && localStorage.getItem(DESKTOP_LOGOUT_PENDING)) {
+                    if (desktop && hasDesktopLogoutPending()) {
                         await onDesktopQueue(cleanupDesktopSession)
                         if (request === generation) {
-                            localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                            clearDesktopLogoutPending()
                             set({ token: null, user: null, sessionState: 'ready', sessionError: null })
                         }
                         return
@@ -135,10 +144,10 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                     await onDesktopQueue(async () => {
                         if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
                         if (localStorage.getItem(DESKTOP_LOGOUT_PENDING)) await cleanupDesktopSession()
-                        localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                        localStorage.setItem(desktopLogoutPendingKey(), '1')
                         await setSecureToken(token)
                         if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
-                        localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                        clearDesktopLogoutPending()
                     })
                     if (request !== generation) throw new Error('Sign-in was cancelled. Please try again.')
                 } catch (error) {
@@ -165,9 +174,9 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             setImageProxyGrant(null)
             const request = generation
             if (isTauri()) {
-                localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                localStorage.setItem(desktopLogoutPendingKey(), '1')
                 void onDesktopQueue(removeSecureToken).then(() => {
-                    if (request === generation) localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                    if (request === generation) clearDesktopLogoutPending()
                 }).catch(error => {
                     if (request === generation) set({ sessionState: 'error', sessionError: getAuthErrorMessage(error).message })
                 })
@@ -180,14 +189,14 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
             const request = generation
             set({ legalConsent: null, sessionState: 'ready', sessionError: null })
             if (isTauri()) {
-                localStorage.setItem(DESKTOP_LOGOUT_PENDING, '1')
+                localStorage.setItem(desktopLogoutPendingKey(), '1')
                 set({ token: null, user: null, loggingOut: true })
                 void onDesktopQueue(async () => {
                     if (currentToken) await revokeOrPark(currentToken)
                     await cleanupDesktopSession(false)
                 }).then(() => {
                     if (request === generation) {
-                        localStorage.removeItem(DESKTOP_LOGOUT_PENDING)
+                        clearDesktopLogoutPending()
                         set({ loggingOut: false })
                     }
                 }).catch(error => {

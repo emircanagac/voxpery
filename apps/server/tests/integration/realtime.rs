@@ -2095,4 +2095,5 @@ async fn hidden_voice_channel_activity_is_not_broadcast_to_members_who_cannot_vi
     let left = receive_ws_event(&mut owner_ws, "VoiceStateUpdate").await;
     assert!(left["data"]["channel_id"].is_null());
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
+    assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceControlUpdate", &marker, quiet).await;
 }

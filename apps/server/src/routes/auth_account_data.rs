@@ -131,7 +131,7 @@ pub(super) async fn ensure_deleted_placeholder_user(
     }
 
     let id = Uuid::new_v4();
-    let password_hash = hash_password(&Uuid::new_v4().to_string())?;
+    let password_hash = hash_password_async(&Uuid::new_v4().to_string()).await?;
     sqlx::query(
         r#"INSERT INTO users
            (id, username, email, password_hash, avatar_url, status, dm_privacy, email_verified, created_at, google_id, username_changed_at, token_version, is_system)
@@ -179,6 +179,11 @@ pub(super) fn export_avatar_file(avatar_url: Option<&str>) -> Option<(String, Ve
     }
     Some((format!("files/avatar.{extension}"), bytes))
 }
+
+/// Archives are assembled in memory, up to 256 MB each, so only a few are built at once.
+const MAX_CONCURRENT_DATA_EXPORTS: usize = 2;
+static DATA_EXPORTS: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_CONCURRENT_DATA_EXPORTS);
 
 pub(super) fn build_data_export_zip(
     payload: &serde_json::Value,
@@ -272,10 +277,16 @@ pub(super) async fn export_my_data(
                     "Enter your current password before creating a data export".into(),
                 )
             })?;
-        if !verify_password(password, &account.password_hash)? {
+        if !verify_password_async(password, &account.password_hash).await? {
             return Err(AppError::InvalidCredentials);
         }
     }
+
+    let _export_permit = DATA_EXPORTS.try_acquire().map_err(|_| {
+        AppError::TooManyRequests(
+            "Data exports are busy right now. Please try again in a few minutes.".into(),
+        )
+    })?;
 
     let memberships = sqlx::query_as::<_, ExportMembershipRow>(
         r#"SELECT s.name AS server_name,
@@ -505,7 +516,12 @@ pub(super) async fn export_my_data(
         }
     });
 
-    let archive = build_data_export_zip(&payload, archive_files)?;
+    let archive =
+        tokio::task::spawn_blocking(move || build_data_export_zip(&payload, archive_files))
+            .await
+            .map_err(|error| {
+                AppError::Internal(format!("Failed to create data export: {error}"))
+            })??;
 
     let mut tx = state.db.begin().await?;
     record_privacy_event(&mut tx, claims.sub, "data_export_created", None, None, None).await?;
@@ -574,7 +590,7 @@ pub(super) async fn delete_my_account(
             .password
             .as_deref()
             .ok_or_else(|| AppError::Validation("Password is required".into()))?;
-        if !verify_password(password, &user.password_hash)? {
+        if !verify_password_async(password, &user.password_hash).await? {
             return Err(AppError::InvalidCredentials);
         }
     }

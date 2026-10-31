@@ -1016,6 +1016,12 @@ async fn edit_message(
         ));
     }
     check_channel_access(&state, channel_id, claims.sub).await?;
+    // An edit publishes text just like a new message, so it passes the same gates.
+    let channel_perms =
+        permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
+    if !channel_perms.contains(Permissions::SEND_MESSAGES) {
+        return Err(AppError::Forbidden("Missing required permission".into()));
+    }
     let server_id = server_id_for_channel(&state.db, channel_id).await?;
     moderation::ensure_not_timed_out(&state.db, server_id, claims.sub).await?;
 
@@ -1025,8 +1031,6 @@ async fn edit_message(
             "Message content cannot be empty".into(),
         ));
     }
-    let channel_perms =
-        permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;
     let content = if can_use_mass_mentions(channel_perms) {
         raw_content.to_string()
     } else {
@@ -1037,6 +1041,14 @@ async fn edit_message(
             "Message must be 1-4000 characters".into(),
         ));
     }
+    enforce_rate_limit(
+        &state.redis,
+        format!("message:channel:{}:{}", channel_id, claims.sub),
+        state.message_rate_limit_max,
+        Duration::from_secs(state.message_rate_limit_window_secs),
+        "Message rate limit exceeded. Please slow down.",
+    )
+    .await?;
     if let Some(matched) =
         automod::evaluate_message(&state.db, server_id, channel_id, claims.sub, &content).await?
     {
@@ -1049,6 +1061,15 @@ async fn edit_message(
             matched.rule_name
         )));
     }
+    moderation::enforce_message_raid_protection(
+        &state.redis,
+        &state.db,
+        server_id,
+        channel_id,
+        claims.sub,
+        &content,
+    )
+    .await?;
 
     sqlx::query("UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2")
         .bind(&content)

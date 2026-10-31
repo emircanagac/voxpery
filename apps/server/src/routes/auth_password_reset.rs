@@ -164,6 +164,7 @@ pub(super) async fn reset_password(
             "New password must be at least 8 characters".into(),
         ));
     }
+    ensure_password_within_limit(&body.new_password)?;
 
     let mut hasher = Sha256::new();
     hasher.update(body.token.as_bytes());
@@ -174,6 +175,8 @@ pub(super) async fn reset_password(
         user_id: Uuid,
         expires_at: chrono::DateTime<chrono::Utc>,
     }
+
+    let password_hash = hash_password_async(&body.new_password).await?;
 
     // Claim the token by deleting it: a concurrent request with the same token waits on the
     // row and then finds nothing, so each token resets the password at most once.
@@ -196,7 +199,6 @@ pub(super) async fn reset_password(
         ));
     }
 
-    let password_hash = hash_password(&body.new_password)?;
     sqlx::query(
         "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
     )
@@ -204,6 +206,7 @@ pub(super) async fn reset_password(
     .bind(row.user_id)
     .execute(&mut *tx)
     .await?;
+    revoke_pending_account_tokens(&mut tx, row.user_id).await?;
     tx.commit().await?;
 
     Ok(Json(

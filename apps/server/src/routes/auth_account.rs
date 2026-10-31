@@ -64,6 +64,7 @@ pub(super) async fn set_password(
             "New password must be at least 8 characters".into(),
         ));
     }
+    ensure_password_within_limit(&body.new_password)?;
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)
@@ -90,8 +91,9 @@ pub(super) async fn set_password(
         ));
     }
 
-    let password_hash = hash_password(&body.new_password)?;
+    let password_hash = hash_password_async(&body.new_password).await?;
     // Only replaces the Google-only marker, so two concurrent requests cannot both set one.
+    let mut tx = state.db.begin().await?;
     let updated = sqlx::query(
         r#"UPDATE users
            SET password_hash = $1, token_version = token_version + 1
@@ -99,13 +101,15 @@ pub(super) async fn set_password(
     )
     .bind(&password_hash)
     .bind(claims.sub)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::Validation(
             "Password is already set. Use change password.".into(),
         ));
     }
+    revoke_pending_account_tokens(&mut tx, claims.sub).await?;
+    tx.commit().await?;
 
     let updated = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)
@@ -376,7 +380,7 @@ pub(super) async fn request_email_verification(
                         "Enter your current password to change your email address".into(),
                     )
                 })?;
-            if !verify_password(password, &user.password_hash)? {
+            if !verify_password_async(password, &user.password_hash).await? {
                 return Err(AppError::InvalidCredentials);
             }
         }
@@ -394,34 +398,39 @@ pub(super) async fn request_email_verification(
         }
     }
 
+    let mut tx = state.db.begin().await?;
+    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+        .bind(claims.sub)
+        .execute(&mut *tx)
+        .await?;
+    if !email_changed && user.email_verified {
+        tx.commit().await?;
+        return Ok(Json(UserPublic::from(user)));
+    }
+
     let token_plain = Uuid::new_v4().to_string();
     let token_hash = token_hash_base64(&token_plain);
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
 
-    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
-        .bind(claims.sub)
-        .execute(&state.db)
-        .await?;
-
-    sqlx::query(
-        "INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    // The new address only replaces the current one once its link is confirmed; until then
+    // it waits in the verification token. Locking the row orders this against anything that
+    // ends the session: such a change either waits and then revokes this token, or runs first
+    // and no token is created.
+    let created = sqlx::query(
+        r#"INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at)
+           SELECT id, $2, $3, $4 FROM users WHERE id = $1 AND token_version = $5 FOR UPDATE"#,
     )
     .bind(claims.sub)
     .bind(&next_email)
     .bind(&token_hash)
     .bind(expires_at)
-    .execute(&state.db)
+    .bind(claims.ver)
+    .execute(&mut *tx)
     .await?;
-
-    // The new address only replaces the current one once its link is confirmed; until then
-    // it waits in the verification token.
-    if !email_changed && user.email_verified {
-        sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
-            .bind(claims.sub)
-            .execute(&state.db)
-            .await?;
-        return Ok(Json(UserPublic::from(user)));
+    if created.rows_affected() == 0 {
+        return Err(AppError::Unauthorized);
     }
+    tx.commit().await?;
     let updated = user;
 
     let (Some(host), Some(smtp_user), Some(smtp_pass)) =
@@ -508,12 +517,16 @@ pub(super) async fn confirm_email_verification(
         expires_at: chrono::DateTime<chrono::Utc>,
     }
 
+    // Claim the link by deleting it: a concurrent request with the same link waits on the row
+    // and then finds nothing, and a revocation either runs first or waits for this transaction.
     let token_hash = token_hash_base64(token);
+    let mut tx = state.db.begin().await?;
     let token_row = sqlx::query_as::<_, EmailVerificationTokenRow>(
-        "SELECT user_id, email, expires_at FROM email_verification_tokens WHERE token_hash = $1",
+        r#"DELETE FROM email_verification_tokens WHERE token_hash = $1
+           RETURNING user_id, email, expires_at"#,
     )
     .bind(&token_hash)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let Some(row) = token_row else {
@@ -523,16 +536,20 @@ pub(super) async fn confirm_email_verification(
     };
 
     if chrono::Utc::now() > row.expires_at {
-        sqlx::query("DELETE FROM email_verification_tokens WHERE token_hash = $1")
-            .bind(&token_hash)
-            .execute(&state.db)
-            .await?;
+        // Keep the deletion: an expired link is spent either way.
+        tx.commit().await?;
         return Err(AppError::Validation(
             "Email verification token has expired".into(),
         ));
     }
 
-    let mut tx = state.db.begin().await?;
+    let current_email =
+        sqlx::query_scalar::<_, String>("SELECT email FROM users WHERE id = $1 FOR UPDATE")
+            .bind(row.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let email_changed = !current_email.eq_ignore_ascii_case(&row.email);
+
     // Another account may have taken the pending address since the link was sent.
     let taken = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) AND id <> $2",
@@ -546,21 +563,30 @@ pub(super) async fn confirm_email_verification(
             "That email address is already in use".into(),
         ));
     }
+    // Moving the account to another address ends its sessions, like a password change.
     let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
-           SET email = $1, email_verified = TRUE
+           SET email = $1,
+               email_verified = TRUE,
+               token_version = token_version + CASE WHEN $3 THEN 1 ELSE 0 END
            WHERE id = $2
            RETURNING *"#,
     )
     .bind(&row.email)
     .bind(row.user_id)
+    .bind(email_changed)
     .fetch_one(&mut *tx)
-    .await?;
+    .await
+    .map_err(|error| match &error {
+        sqlx::Error::Database(database) if database.is_unique_violation() => {
+            AppError::Conflict("That email address is already in use".into())
+        }
+        _ => AppError::from(error),
+    })?;
 
-    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
-        .bind(row.user_id)
-        .execute(&mut *tx)
-        .await?;
+    if email_changed {
+        revoke_pending_account_tokens(&mut tx, row.user_id).await?;
+    }
 
     tx.commit().await?;
 
@@ -574,7 +600,11 @@ pub(super) async fn confirm_email_verification(
     .await;
 
     Ok(Json(ConfirmEmailVerificationResponse {
-        message: "Your email address has been verified.".to_string(),
+        message: if email_changed {
+            "Your email address has been changed. Please sign in again.".to_string()
+        } else {
+            "Your email address has been verified.".to_string()
+        },
     }))
 }
 
@@ -599,6 +629,7 @@ pub(super) async fn change_password(
             "New password must be at least 8 characters".into(),
         ));
     }
+    ensure_password_within_limit(&body.new_password)?;
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)
@@ -606,19 +637,22 @@ pub(super) async fn change_password(
         .await?
         .ok_or(AppError::NotFound("User not found".into()))?;
 
-    if !verify_password(&body.old_password, &user.password_hash)? {
+    if !verify_password_async(&body.old_password, &user.password_hash).await? {
         return Err(AppError::InvalidCredentials);
     }
 
-    let password_hash = hash_password(&body.new_password)?;
+    let password_hash = hash_password_async(&body.new_password).await?;
 
+    let mut tx = state.db.begin().await?;
     sqlx::query(
         "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
     )
     .bind(&password_hash)
     .bind(claims.sub)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    revoke_pending_account_tokens(&mut tx, claims.sub).await?;
+    tx.commit().await?;
 
     // Invalidate the current token if it can be extracted
     if let Some(token) = crate::middleware::auth::token_from_request(&headers, &state.cookie_name) {

@@ -1034,22 +1034,22 @@ pub(super) async fn google_oauth_callback(
         return failure("oauth_unverified_email");
     }
 
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)",
-    )
-    .bind(&google_id)
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await;
+    let user = crate::services::auth::find_google_account(&state.db, &google_id, &email).await;
 
     let user = match user {
         Ok(Some(mut u)) => {
             if u.google_id.is_none() {
-                if let Err(error) =
-                    crate::services::auth::link_google_identity(&state.db, u.id, &google_id).await
+                match crate::services::auth::link_google_identity(
+                    &state.db, u.id, &google_id, &email,
+                )
+                .await
                 {
-                    tracing::warn!("Google OAuth account link failed: {}", error);
-                    return failure("oauth_failed");
+                    Ok(true) => {}
+                    Ok(false) => return failure("oauth_failed"),
+                    Err(error) => {
+                        tracing::warn!("Google OAuth account link failed: {}", error);
+                        return failure("oauth_failed");
+                    }
                 }
                 if !u.email_verified {
                     u.password_hash = "oauth".to_string();

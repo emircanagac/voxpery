@@ -1,11 +1,23 @@
 import { getSecureToken, isTauri } from '../secureStorage'
-import { apiMultipartFetch } from './client'
+import { apiMultipartFetch, getApiBase } from './client'
 import type { AuthToken, UploadedAttachment } from './contracts'
 
 function isLoopbackAttachmentUrl(url: string): boolean {
     try {
         const parsed = new URL(url, typeof window === 'undefined' ? undefined : window.location.href)
         return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
+    } catch {
+        return false
+    }
+}
+
+/** Credentials only ever go to this app's API; any other address is left to the browser. */
+function isApiAttachmentUrl(url: string): boolean {
+    try {
+        const base = typeof window === 'undefined' ? undefined : window.location.href
+        const { origin } = new URL(url, base)
+        return origin === new URL(getApiBase(), base).origin
+            || (typeof window !== 'undefined' && origin === window.location.origin)
     } catch {
         return false
     }
@@ -19,6 +31,7 @@ export async function resolveAttachmentUrl(
     // Desktop production attachments need Bearer auth, while local desktop dev can
     // rely on the same localhost cookie path as the web app. In both cases we
     // resolve to a blob URL so the chat preview stays in-app.
+    if (!isApiAttachmentUrl(url)) return url
     const isDesktop = isTauri()
     const shouldUseBrowserFetch = !isDesktop || isLoopbackAttachmentUrl(url)
     if (!isDesktop && !options?.forceAuthenticatedFetch) return url

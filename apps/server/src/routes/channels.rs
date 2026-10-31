@@ -91,6 +91,7 @@ async fn create_channel(
         .filter(|v| !v.is_empty())
         .unwrap_or("General")
         .to_string();
+    ensure_category_manageable(&state.db, body.server_id, &category_input, claims.sub).await?;
     let category = ensure_category_exists(&state.db, body.server_id, &category_input).await?;
     ensure_channel_name_unique(
         &state.db,
@@ -296,6 +297,10 @@ async fn rename_channel(
     )
     .await?;
     if let Some(category_name) = &next_category {
+        if next_category != channel.category {
+            ensure_category_manageable(&state.db, channel.server_id, category_name, claims.sub)
+                .await?;
+        }
         let canonical = ensure_category_exists(&state.db, channel.server_id, category_name).await?;
         next_category = Some(canonical);
     }
@@ -344,6 +349,14 @@ async fn rename_channel(
         },
     )
     .await;
+    if updated.category != channel.category {
+        voice_revoke::revoke_invalid_voice_sessions_for_server(
+            &state,
+            channel.server_id,
+            "channel moved to another category",
+        )
+        .await?;
+    }
 
     Ok(Json(updated))
 }
@@ -608,29 +621,8 @@ async fn list_categories(
     .fetch_all(&state.db)
     .await?;
 
-    // Managers should always see all categories, including empty ones.
-    let server_perms =
-        permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
-    if server_perms.contains(Permissions::MANAGE_CHANNELS) {
-        return Ok(Json(
-            rows.into_iter()
-                .map(|name| CategoryNameResponse { name })
-                .collect(),
-        ));
-    }
-
-    // Return categories that are visible by effective category-level permission,
-    // including empty categories (important for newly created categories).
-    let snapshot =
-        permissions::ServerPermissionSnapshot::load(&state.db, server_id, Some(&[claims.sub]))
-            .await?;
-    let mut visible_categories = std::collections::HashSet::new();
-    for category_name in &rows {
-        let perms = snapshot.category_permissions(category_name, claims.sub);
-        if perms.contains(Permissions::VIEW_SERVER) {
-            visible_categories.insert(category_name.clone());
-        }
-    }
+    let visible_categories =
+        visible_category_names(&state.db, server_id, claims.sub, &rows).await?;
 
     Ok(Json(
         rows.into_iter()
@@ -638,6 +630,27 @@ async fn list_categories(
             .map(|name| CategoryNameResponse { name })
             .collect(),
     ))
+}
+
+/// The categories the user can see by effective category-level permission, including empty
+/// ones (important for newly created categories). Channel management grants no view of them.
+async fn visible_category_names(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    user_id: Uuid,
+    categories: &[String],
+) -> Result<std::collections::HashSet<String>, AppError> {
+    let snapshot =
+        permissions::ServerPermissionSnapshot::load(db, server_id, Some(&[user_id])).await?;
+    Ok(categories
+        .iter()
+        .filter(|name| {
+            snapshot
+                .category_permissions(name, user_id)
+                .contains(Permissions::VIEW_SERVER)
+        })
+        .cloned()
+        .collect())
 }
 
 async fn create_category(
@@ -695,6 +708,7 @@ async fn delete_category(
     if category.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
+    ensure_category_manageable(&state.db, server_id, category, claims.sub).await?;
 
     let mut tx = state.db.begin().await?;
 
@@ -738,7 +752,15 @@ async fn delete_category(
         }
     }
 
-    if !moving_channel_ids.is_empty() {
+    if moving_channel_ids.is_empty() {
+        // Deleting a category deletes its overrides, and those are owner-only.
+        if !category_override_rows(&state.db, server_id, Some(category))
+            .await?
+            .is_empty()
+        {
+            permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
+        }
+    } else {
         ensure_category_move_allowed(
             &state.db,
             server_id,
@@ -747,6 +769,7 @@ async fn delete_category(
             Some(&move_to),
         )
         .await?;
+        ensure_category_manageable(&state.db, server_id, &move_to, claims.sub).await?;
         let move_to = ensure_category_exists(&state.db, server_id, &move_to).await?;
 
         let max_target_pos = sqlx::query_scalar::<_, Option<i32>>(
@@ -785,6 +808,14 @@ async fn delete_category(
     tx.commit().await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
+    if !moving_channel_ids.is_empty() {
+        voice_revoke::revoke_invalid_voice_sessions_for_server(
+            &state,
+            server_id,
+            "category deleted",
+        )
+        .await?;
+    }
 
     Ok(Json(serde_json::json!({ "message": "Category deleted" })))
 }
@@ -807,6 +838,7 @@ async fn rename_category(
     if old_name.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
+    ensure_category_manageable(&state.db, server_id, old_name, claims.sub).await?;
 
     let new_name = body.name.trim();
     validate_category_name(new_name)?;
@@ -914,6 +946,7 @@ async fn list_category_overrides(
     if category.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
+    ensure_category_manageable(&state.db, server_id, category, claims.sub).await?;
 
     let overrides = sqlx::query_as::<_, CategoryOverride>(
         r#"SELECT role_id, allow, deny
@@ -1043,8 +1076,10 @@ async fn reorder_categories(
     .bind(server_id)
     .fetch_all(&state.db)
     .await?;
+    // Reordering covers what the caller can see; hidden categories keep their places.
+    let visible = visible_category_names(&state.db, server_id, claims.sub, &existing).await?;
 
-    if existing.len() != body.category_names.len() {
+    if visible.len() != body.category_names.len() {
         return Err(AppError::Validation(
             "category_names must include every category in the server".into(),
         ));
@@ -1063,21 +1098,26 @@ async fn reorder_categories(
         }
     }
 
-    let existing_set: std::collections::HashSet<String> = existing.into_iter().collect();
-    if set != existing_set {
+    if set != visible {
         return Err(AppError::Validation(
             "category_names includes unknown category names".into(),
         ));
     }
 
+    let mut requested = body.category_names.iter().map(|name| name.trim());
     let mut tx = state.db.begin().await?;
-    for (idx, name) in body.category_names.iter().enumerate() {
+    for (idx, current) in existing.iter().enumerate() {
+        let name = if visible.contains(current) {
+            requested.next().unwrap_or(current)
+        } else {
+            current
+        };
         sqlx::query(
             "UPDATE server_channel_categories SET position = $1 WHERE server_id = $2 AND name = $3",
         )
         .bind(idx as i32)
         .bind(server_id)
-        .bind(name.trim())
+        .bind(name)
         .execute(&mut *tx)
         .await?;
     }
@@ -1116,6 +1156,37 @@ async fn ensure_channel_manage_permission_for_channel(
         Permissions::MANAGE_CHANNELS,
     )
     .await
+}
+
+/// Server-wide channel management stops at a category's overrides: the caller must be able to
+/// see the category (a hidden one looks missing) and manage channels in it.
+async fn ensure_category_manageable(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    category: &str,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let canonical: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2) ORDER BY name LIMIT 1",
+    )
+    .bind(server_id)
+    .bind(category.trim())
+    .fetch_optional(db)
+    .await?;
+    let perms = permissions::get_user_category_permissions(
+        db,
+        server_id,
+        canonical.as_deref().unwrap_or(category),
+        user_id,
+    )
+    .await?;
+    if !perms.contains(Permissions::VIEW_SERVER) {
+        return Err(AppError::NotFound("Category not found".into()));
+    }
+    if !perms.contains(Permissions::MANAGE_CHANNELS) {
+        return Err(AppError::Forbidden("Missing required permission".into()));
+    }
+    Ok(())
 }
 
 /// Role overrides of a category as sorted `(role_id, allow, deny)` rows; none for no category.

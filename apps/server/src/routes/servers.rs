@@ -31,7 +31,7 @@ use crate::{
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
-        voice_revoke,
+        server_membership, voice_revoke,
     },
     ws::WsEvent,
     AppState,
@@ -533,39 +533,19 @@ async fn join_server(
         .await?
         .ok_or(AppError::NotFound("Invalid invite code".into()))?;
 
-    let is_banned = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM server_bans WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(server.id)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
-    .await?;
-    if is_banned > 0 {
+    let mut tx = state.db.begin().await?;
+    server_membership::lock_membership(&mut tx, server.id, claims.sub).await?;
+    if server_membership::is_banned(&mut tx, server.id, claims.sub).await? {
         return Err(AppError::Forbidden(
             "You are banned from this server".into(),
         ));
     }
+    let joined = server_membership::add_member(&mut tx, server.id, claims.sub).await?;
+    tx.commit().await?;
 
-    // Check if already a member
-    let already_member = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND user_id = $2",
-    )
-    .bind(server.id)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
-    .await?;
-
-    if already_member > 0 {
+    if !joined {
         return Ok(Json(server));
     }
-
-    sqlx::query(
-        "INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, NOW())",
-    )
-    .bind(server.id)
-    .bind(claims.sub)
-    .execute(&state.db)
-    .await?;
 
     // The joiner's IP is never stored with the signal: the privacy notice promises IP
     // addresses stay out of the database.
@@ -628,17 +608,18 @@ async fn leave_server(
         ));
     }
 
-    if server.owner_id == claims.sub {
+    let mut tx = state.db.begin().await?;
+    server_membership::lock_membership(&mut tx, server_id, claims.sub).await?;
+    let owner_id = server_membership::lock_server_owner(&mut tx, server_id)
+        .await?
+        .ok_or(AppError::NotFound("Server not found".into()))?;
+    if owner_id == claims.sub {
         return Err(AppError::Forbidden(
             "Server owner cannot leave. Transfer ownership or delete the server.".into(),
         ));
     }
-
-    sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
-        .bind(server_id)
-        .bind(claims.sub)
-        .execute(&state.db)
-        .await?;
+    server_membership::remove_member(&mut tx, server_id, claims.sub).await?;
+    tx.commit().await?;
 
     // Broadcast MemberLeft event
     crate::ws::publish_event(

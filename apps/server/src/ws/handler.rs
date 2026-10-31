@@ -59,6 +59,18 @@ async fn voice_moderator_permissions(
     }
 }
 
+/// Whether the actor can see the voice channel and move members in it.
+async fn can_move_members_in(db: &sqlx::PgPool, channel_id: Uuid, actor_id: Uuid) -> bool {
+    if !can_view_channel(db, actor_id, channel_id).await {
+        return false;
+    }
+    voice_moderator_permissions(db, channel_id, actor_id)
+        .await
+        .is_some_and(|perms| {
+            perms.contains(Permissions::MOVE_MEMBERS) || perms.contains(Permissions::MANAGE_SERVER)
+        })
+}
+
 async fn voice_channel_context(db: &sqlx::PgPool, channel_id: Uuid) -> Option<(Uuid, String)> {
     sqlx::query_as::<_, (Uuid, String)>(
         "SELECT server_id, name FROM channels WHERE id = $1 AND channel_type = 'voice'",
@@ -392,6 +404,7 @@ async fn enforce_ws_frame_rate_limit(
 fn voice_control_event_from_state(
     user_id: Uuid,
     server_id: Option<Uuid>,
+    channel_id: Uuid,
     state: (bool, bool, bool, bool, bool, bool),
 ) -> WsEvent {
     let (self_muted, self_deafened, server_muted, server_deafened, screen_sharing, camera_on) =
@@ -399,6 +412,7 @@ fn voice_control_event_from_state(
     WsEvent::VoiceControlUpdate {
         user_id,
         server_id,
+        channel_id: Some(channel_id),
         muted: self_muted || server_muted,
         deafened: self_deafened || server_deafened,
         server_muted,
@@ -579,6 +593,26 @@ async fn can_view_channel(db: &sqlx::PgPool, user_id: Uuid, channel_id: Uuid) ->
     )
 }
 
+/// A typing indicator reaches others like a message, so it needs what sending one needs.
+async fn can_start_typing(state: &AppState, user_id: Uuid, channel_id: Uuid) -> bool {
+    if !can_view_channel(&state.db, user_id, channel_id).await {
+        return false;
+    }
+    let Some(server_id) = server_id_for_channel(&state.db, channel_id).await else {
+        return crate::routes::dm::ensure_can_reach_dm_peer(state, channel_id, user_id)
+            .await
+            .is_ok();
+    };
+    let can_send = matches!(
+        get_user_channel_permissions(&state.db, channel_id, user_id).await,
+        Ok(perms) if perms.contains(Permissions::SEND_MESSAGES)
+    );
+    can_send
+        && crate::services::moderation::ensure_not_timed_out(&state.db, server_id, user_id)
+            .await
+            .is_ok()
+}
+
 /// Voice events reveal who is in which channel, so each recipient only receives the parts
 /// about channels they can view. Returns the event to send (possibly reduced to a leave
 /// when the user moved from a visible channel into a hidden one), or `None`.
@@ -624,11 +658,19 @@ async fn voice_event_for_recipient<'a>(
                 .await
                 .then_some(Cow::Borrowed(event))
         }
-        WsEvent::VoiceControlUpdate { user_id, .. } => {
-            match state.voice_sessions.get(user_id).map(|entry| *entry) {
+        WsEvent::VoiceControlUpdate {
+            user_id,
+            channel_id,
+            ..
+        } => {
+            // The event names its channel: the session is already gone after a departure.
+            let channel_id =
+                channel_id.or_else(|| state.voice_sessions.get(user_id).map(|entry| *entry));
+            match channel_id {
                 Some(channel_id) => can_view_channel(&state.db, recipient_id, channel_id)
                     .await
                     .then_some(Cow::Borrowed(event)),
+                // Events from an older server instance carry no channel; keep server scope.
                 None => Some(Cow::Borrowed(event)),
             }
         }
@@ -1253,6 +1295,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                 client_tx.try_send(voice_control_event_from_state(
                                                     *other_uid,
                                                     server_id,
+                                                    *other_cid,
                                                     control_state,
                                                 ));
                                         }
@@ -1318,10 +1361,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 ) {
                                     continue;
                                 }
-                                if let Ok(true) =
-                                    can_subscribe_to_channel(&recv_state.db, user_id, channel_id)
-                                        .await
-                                {
+                                let allowed = if is_typing {
+                                    can_start_typing(&recv_state, user_id, channel_id).await
+                                } else {
+                                    can_view_channel(&recv_state.db, user_id, channel_id).await
+                                };
+                                if allowed {
                                     super::publish_event(
                                         &recv_state,
                                         WsEvent::Typing {
@@ -1370,6 +1415,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             }
                                         };
                                         // 1. Update voice session
+                                        voice_revoke::record_voice_claim(
+                                            &recv_state,
+                                            user_id,
+                                            channel_id,
+                                        )
+                                        .await;
                                         clear_screen_share_viewer_entries_for_user(
                                             &recv_state,
                                             user_id,
@@ -1393,16 +1444,26 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                         channel_id: previous,
                                                     },
                                                 );
-                                                if previous != channel_id {
-                                                    voice_revoke::schedule_departed_participant_removal(
-                                                        recv_state.clone(),
-                                                        previous,
-                                                        user_id,
-                                                        previous_sid,
-                                                        voice_revoke::DEPARTED_VOICE_LEAVE_DELAY,
-                                                    );
-                                                }
                                             }
+                                        }
+                                        // The participant left behind in the previous room has
+                                        // no session any more, whoever made this move.
+                                        if let Some(previous) =
+                                            previous_channel_id.filter(|id| *id != channel_id)
+                                        {
+                                            voice_revoke::clear_voice_claim(
+                                                &recv_state,
+                                                user_id,
+                                                previous,
+                                            )
+                                            .await;
+                                            voice_revoke::schedule_departed_participant_removal(
+                                                recv_state.clone(),
+                                                previous,
+                                                user_id,
+                                                previous_sid,
+                                                voice_revoke::DEPARTED_VOICE_LEAVE_DELAY,
+                                            );
                                         }
                                         if let Some(participant_sid) =
                                             participant_sid.filter(|sid| {
@@ -1467,6 +1528,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             voice_control_event_from_state(
                                                 user_id,
                                                 server_id,
+                                                channel_id,
                                                 (
                                                     false,
                                                     false,
@@ -1504,6 +1566,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                     voice_control_event_from_state(
                                                         *other_uid,
                                                         server_id,
+                                                        channel_id,
                                                         control_state,
                                                     ),
                                                 );
@@ -1525,6 +1588,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                 if let Some((_, previous_channel_id)) =
                                     recv_state.voice_sessions.remove(&user_id)
                                 {
+                                    voice_revoke::clear_voice_claim(
+                                        &recv_state,
+                                        user_id,
+                                        previous_channel_id,
+                                    )
+                                    .await;
                                     clear_screen_share_viewer_entries_for_user(
                                         &recv_state,
                                         user_id,
@@ -1564,6 +1633,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         voice_control_event_from_state(
                                             user_id,
                                             previous_server_id,
+                                            previous_channel_id,
                                             (false, false, false, false, false, false),
                                         ),
                                     )
@@ -1674,10 +1744,64 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     );
                                     continue;
                                 };
-                                let Some(source_channel_id) = recv_state
+                                // Nothing about the member's voice state is revealed before
+                                // the moderator is known to be allowed in the destination.
+                                if !can_move_members_in(&recv_state.db, channel_id, user_id).await {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "You do not have permission to move this member.",
+                                    );
+                                    continue;
+                                }
+                                let Some((destination_server_id, destination_channel_name)) =
+                                    voice_channel_context(&recv_state.db, channel_id).await
+                                else {
+                                    send_voice_move_result(
+                                        &client_tx,
+                                        request_id,
+                                        target_user_id,
+                                        channel_id,
+                                        false,
+                                        "The destination voice channel is no longer available.",
+                                    );
+                                    continue;
+                                };
+
+                                // A member elsewhere, or in a channel this moderator cannot
+                                // moderate, looks the same as one who is not connected.
+                                let source = recv_state
                                     .voice_sessions
                                     .get(&target_user_id)
-                                    .map(|entry| *entry)
+                                    .map(|entry| *entry);
+                                let source = match source {
+                                    Some(source_channel_id)
+                                        if can_move_members_in(
+                                            &recv_state.db,
+                                            source_channel_id,
+                                            user_id,
+                                        )
+                                        .await =>
+                                    {
+                                        voice_channel_context(&recv_state.db, source_channel_id)
+                                            .await
+                                            .filter(|(server_id, _)| {
+                                                *server_id == destination_server_id
+                                            })
+                                            .map(|(server_id, name)| {
+                                                (source_channel_id, server_id, name)
+                                            })
+                                    }
+                                    _ => None,
+                                };
+                                let Some((
+                                    source_channel_id,
+                                    source_server_id,
+                                    source_channel_name,
+                                )) = source
                                 else {
                                     send_voice_move_result(
                                         &client_tx,
@@ -1697,75 +1821,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         channel_id,
                                         false,
                                         "The member is already in that voice channel.",
-                                    );
-                                    continue;
-                                }
-
-                                let Some((source_server_id, source_channel_name)) =
-                                    voice_channel_context(&recv_state.db, source_channel_id).await
-                                else {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "The source voice channel is no longer available.",
-                                    );
-                                    continue;
-                                };
-                                let Some((destination_server_id, destination_channel_name)) =
-                                    voice_channel_context(&recv_state.db, channel_id).await
-                                else {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "The destination voice channel is no longer available.",
-                                    );
-                                    continue;
-                                };
-                                if source_server_id != destination_server_id {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "Members can only be moved within the same server.",
-                                    );
-                                    continue;
-                                }
-
-                                let Some(perms) = voice_moderator_permissions(
-                                    &recv_state.db,
-                                    source_channel_id,
-                                    user_id,
-                                )
-                                .await
-                                else {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "You cannot move this member.",
-                                    );
-                                    continue;
-                                };
-                                if !perms.contains(Permissions::MOVE_MEMBERS)
-                                    && !perms.contains(Permissions::MANAGE_SERVER)
-                                {
-                                    send_voice_move_result(
-                                        &client_tx,
-                                        request_id,
-                                        target_user_id,
-                                        channel_id,
-                                        false,
-                                        "You do not have permission to move this member.",
                                     );
                                     continue;
                                 }
@@ -1936,8 +1991,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         .get(&target_id)
                                         .map(|s| *s)
                                         .unwrap_or((false, false, false, false, false, false));
+                                    let can_publish =
+                                        ServerVoiceModeration { muted, deafened }.can_publish();
                                     let next_state = (
-                                        current.0, current.1, muted, deafened, current.4, current.5,
+                                        current.0,
+                                        current.1,
+                                        muted,
+                                        deafened,
+                                        current.4 && can_publish,
+                                        current.5 && can_publish,
                                     );
                                     let _ = recv_state.voice_controls.insert(target_id, next_state);
                                     super::publish_event(
@@ -1945,6 +2007,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         voice_control_event_from_state(
                                             target_id,
                                             Some(target_server_id),
+                                            target_channel_id,
                                             next_state,
                                         ),
                                     )
@@ -2006,6 +2069,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     .get(&user_id)
                                     .map(|s| *s)
                                     .unwrap_or((false, false, false, false, false, false));
+                                // LiveKit refuses media from a server-muted member, so they
+                                // cannot be shown as sharing their screen or camera either.
+                                let screen_sharing = screen_sharing && moderation.can_publish();
+                                let camera_on = camera_on && moderation.can_publish();
                                 let next_state = (
                                     muted,
                                     deafened,
@@ -2029,6 +2096,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                     voice_control_event_from_state(
                                         user_id,
                                         actor_server_id,
+                                        actor_channel_id,
                                         next_state,
                                     ),
                                 )
@@ -2188,6 +2256,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     if held_voice || (last_session_gone && holder_missing) {
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
+            voice_revoke::clear_voice_claim(&state, user_id, previous_channel_id).await;
             clear_screen_share_viewer_entries_for_user(&state, user_id);
             let departed_sid = state
                 .voice_participant_sids
@@ -2219,6 +2288,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                 voice_control_event_from_state(
                     user_id,
                     previous_server_id,
+                    previous_channel_id,
                     (false, false, false, false, false, false),
                 ),
             )

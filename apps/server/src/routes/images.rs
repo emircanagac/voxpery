@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppError,
-    middleware::auth::{require_auth, Claims},
+    middleware::auth::{require_auth_and_current_legal_consent, Claims},
     services::{
         avatar_images::{
             decode_stored_image_data_url, is_allowed_avatar_content_type, is_private_or_local_ip,
@@ -39,8 +39,10 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/grant",
-            get(get_image_proxy_grant)
-                .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+            get(get_image_proxy_grant).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_auth_and_current_legal_consent,
+            )),
         )
         .route("/avatar", get(proxy_avatar))
         .route("/users/{user_id}/avatar", get(stored_user_avatar))

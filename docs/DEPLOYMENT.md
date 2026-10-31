@@ -43,7 +43,8 @@ Edit `.env` and set strong production values at minimum:
 - Optional seed admin (`ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`): created at startup
   only when all three are set and the password is not a placeholder or shorter than 12
   characters. If an existing seed admin still uses the example password, the server logs an
-  error until it is changed.
+  error until it is changed. This account owns the official community server: without it no
+  such server is created, and everyone uses the servers they create or join.
 - `COOKIE_SECURE=1` (when using HTTPS)
 - `CORS_ORIGINS` with your production origins only
 - Keep every web origin that sends cookie-authenticated writes in `CORS_ORIGINS`; the
@@ -203,7 +204,7 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
 - REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.
-- Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`.
+- Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`. Instances share a Redis record of each voice join that lasts an hour at most, so a LiveKit webhook handled by another instance does not remove a participant that joined properly.
 - Local attachment storage is per-instance. For multiple backend instances, mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` or move attachments to a shared object storage backend before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
 

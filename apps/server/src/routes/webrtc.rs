@@ -24,7 +24,8 @@ use crate::{
     services::rate_limit::enforce_rate_limit,
     services::voice_moderation,
     services::voice_revoke::{
-        clear_local_voice_session, remove_livekit_participant, update_livekit_voice_permissions,
+        clear_local_voice_session, remove_livekit_participant,
+        schedule_unclaimed_participant_check, update_livekit_voice_permissions,
     },
     ws::access::can_join_voice_channel,
     AppState,
@@ -288,6 +289,12 @@ async fn livekit_webhook(
             .await;
             return Ok(StatusCode::NO_CONTENT);
         }
+        schedule_unclaimed_participant_check(
+            state.clone(),
+            channel_id,
+            user_id,
+            participant.sid.clone(),
+        );
         if let Some(moderation) =
             voice_moderation::for_channel(&state.db, user_id, channel_id).await?
         {

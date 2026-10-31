@@ -87,6 +87,9 @@ pub enum WsEvent {
     VoiceControlUpdate {
         user_id: Uuid,
         server_id: Option<Uuid>,
+        /// The voice channel this update concerns; recipients must be able to view it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        channel_id: Option<Uuid>,
         muted: bool,
         deafened: bool,
         server_muted: bool,

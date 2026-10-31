@@ -6,10 +6,12 @@ use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
 };
 use jsonwebtoken::{encode, EncodingKey, Header};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::errors::AppError;
 use crate::middleware::auth::Claims;
+use crate::models::User;
 
 /// Google proves ownership of the address. A password set on an account whose email was
 /// never verified was not proven to belong to that owner (someone may have registered the
@@ -20,20 +22,113 @@ pub(crate) const LINK_GOOGLE_IDENTITY_SQL: &str = "UPDATE users
          password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END,
          email_verified = TRUE,
          token_version = token_version + 1
-     WHERE id = $2";
+     WHERE id = $2 AND google_id IS NULL AND lower(email) = $3";
 
-/// Link a Google identity to an existing local account with the same email address.
+/// The account a Google sign-in belongs to: the one already linked to this identity or, failing
+/// that, an unlinked account with the same address. Both can exist once a linked account has
+/// moved to another address and someone registered the old one.
+pub async fn find_google_account(
+    db: &sqlx::PgPool,
+    google_id: &str,
+    email: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT * FROM users
+         WHERE google_id = $1 OR (google_id IS NULL AND lower(email) = $2)
+         ORDER BY google_id IS NULL
+         LIMIT 1",
+    )
+    .bind(google_id)
+    .bind(email)
+    .fetch_optional(db)
+    .await
+}
+
+/// Link a Google identity to an existing local account with the same email address. Returns
+/// false when the account no longer has that address or already has a Google identity.
 pub async fn link_google_identity(
     db: &sqlx::PgPool,
     user_id: Uuid,
     google_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(LINK_GOOGLE_IDENTITY_SQL)
+    email: &str,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let linked = sqlx::query(LINK_GOOGLE_IDENTITY_SQL)
         .bind(google_id)
         .bind(user_id)
-        .execute(db)
+        .bind(email)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+        > 0;
+    if linked {
+        revoke_pending_account_tokens(&mut tx, user_id).await?;
+    }
+    tx.commit().await?;
+    Ok(linked)
+}
+
+/// Verification and reset links issued before a change of who controls the account must stop
+/// working with that change. Call it in the transaction that makes the change.
+pub(crate) async fn revoke_pending_account_tokens(
+    conn: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM email_verification_tokens WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *conn)
         .await?;
     Ok(())
+}
+
+/// Longest accepted password. It only bounds request-controlled work; longer passwords gain
+/// nothing and none can be stored, so verification treats them as wrong.
+pub(crate) const MAX_PASSWORD_BYTES: usize = 1024;
+/// Each Argon2 call uses about 19 MiB, so bursts wait here instead of filling the blocking pool.
+const MAX_CONCURRENT_PASSWORD_WORK: usize = 8;
+static PASSWORD_WORK: Semaphore = Semaphore::const_new(MAX_CONCURRENT_PASSWORD_WORK);
+
+/// Reject a new password over the length limit; callers keep their own minimum-length message.
+pub(crate) fn ensure_password_within_limit(password: &str) -> Result<(), AppError> {
+    if password.len() > MAX_PASSWORD_BYTES {
+        return Err(AppError::Validation(format!(
+            "Password must be at most {MAX_PASSWORD_BYTES} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// Run Argon2 work off the async runtime, so request threads keep serving other connections.
+pub(crate) async fn run_password_work<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
+    let _permit = PASSWORD_WORK
+        .acquire()
+        .await
+        .map_err(|e| AppError::Internal(format!("Password work queue closed: {e}")))?;
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Internal(format!("Password work failed: {e}")))?
+}
+
+/// [`hash_password`] for request handlers.
+pub async fn hash_password_async(password: &str) -> Result<String, AppError> {
+    let password = password.to_string();
+    run_password_work(move || hash_password(&password)).await
+}
+
+/// [`verify_password`] for request handlers.
+pub async fn verify_password_async(password: &str, hash: &str) -> Result<bool, AppError> {
+    if password.len() > MAX_PASSWORD_BYTES {
+        return Ok(false);
+    }
+    let password = password.to_string();
+    let hash = hash.to_string();
+    run_password_work(move || verify_password(&password, &hash)).await
 }
 
 /// Hash a password using Argon2id.

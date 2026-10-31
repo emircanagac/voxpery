@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from './auth'
-import type { UserPublic } from '../api'
+import { getApiBase, type UserPublic } from '../api'
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(), logout: vi.fn(async () => {}), desktop: vi.fn(() => false),
@@ -164,7 +164,18 @@ describe('auth store persistence', () => {
     mocks.setToken.mockRejectedValueOnce(new Error('SECURE_STORAGE_ERROR:Unlock the system keyring.'))
     await expect(useAuthStore.getState().setAuth('secret', user)).rejects.toThrow('SECURE_STORAGE_ERROR')
     expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, sessionState: 'error' })
-    expect(localStorage.getItem('voxpery-desktop-logout-pending')).toBe('1')
+    expect(localStorage.getItem(`voxpery-desktop-logout-pending:${getApiBase()}`)).toBe('1')
+  })
+
+  it('leaves the session alone when a sign-out is pending on another server', async () => {
+    mocks.desktop.mockReturnValue(true)
+    localStorage.setItem('voxpery-desktop-logout-pending:https://other.example.test', '1')
+    mocks.getToken.mockResolvedValueOnce('this-server-token')
+    mocks.session.mockResolvedValueOnce({ user, legal_consent: consent })
+    await useAuthStore.getState().restoreSession()
+    expect(mocks.removeToken).not.toHaveBeenCalled()
+    expect(useAuthStore.getState()).toMatchObject({ token: 'this-server-token', user })
+    localStorage.removeItem('voxpery-desktop-logout-pending:https://other.example.test')
   })
 
   it('does not restore an undeleted token after a failed logout and restart', async () => {

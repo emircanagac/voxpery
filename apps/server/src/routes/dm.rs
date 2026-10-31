@@ -562,7 +562,8 @@ async fn check_can_dm_peer(
     ))
 }
 
-/// Whether `peer_id` has sent a message in a one-to-one DM with `sender_id`.
+/// Whether `peer_id` has sent a message in a one-to-one DM with `sender_id`. Ending a friendship
+/// resets this: the peer opens the conversation again by writing after that.
 async fn peer_wrote_to_sender(
     state: &AppState,
     sender_id: Uuid,
@@ -576,6 +577,11 @@ async fn peer_wrote_to_sender(
                INNER JOIN dm_channel_members sender
                  ON sender.channel_id = m.channel_id AND sender.user_id = $1
                WHERE m.user_id = $2
+                 AND m.created_at > COALESCE(
+                     (SELECT ended_at FROM dm_friendship_ends
+                      WHERE user_a = LEAST($1, $2) AND user_b = GREATEST($1, $2)),
+                     '-infinity'
+                 )
            )"#,
     )
     .bind(sender_id)
@@ -583,6 +589,27 @@ async fn peer_wrote_to_sender(
     .fetch_one(&state.db)
     .await?;
     Ok(wrote)
+}
+
+/// A one-to-one DM honours the peer's privacy setting for anything that reaches them. Group
+/// members are added by a friend and can leave at any time, so the setting does not apply there.
+pub(crate) async fn ensure_can_reach_dm_peer(
+    state: &AppState,
+    channel_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    if is_group_dm(state, channel_id).await? {
+        return Ok(());
+    }
+    let peer_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2 LIMIT 1",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
+    check_can_dm_peer(state, user_id, peer_id).await
 }
 
 async fn get_or_create_dm_channel(
@@ -816,20 +843,7 @@ async fn send_dm_message(
     Json(body): Json<SendDmMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
-
-    // Group members are added by a friend and can leave at any time, so DM privacy settings
-    // apply to one-to-one DMs only.
-    if !is_group_dm(&state, channel_id).await? {
-        let peer_id = sqlx::query_scalar::<_, Uuid>(
-            "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2 LIMIT 1",
-        )
-        .bind(channel_id)
-        .bind(claims.sub)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
-        check_can_dm_peer(&state, claims.sub, peer_id).await?;
-    }
+    ensure_can_reach_dm_peer(&state, channel_id, claims.sub).await?;
 
     let client_request_id = normalize_client_request_id(body.client_request_id.as_deref())?;
     let content = body.content.unwrap_or_default();
@@ -1405,6 +1419,7 @@ async fn pin_dm_message(
     Json(body): Json<PinDmMessageRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     check_dm_access(&state, channel_id, claims.sub).await?;
+    ensure_can_reach_dm_peer(&state, channel_id, claims.sub).await?;
 
     let mut tx = state.db.begin().await?;
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM dm_channels WHERE id = $1 FOR UPDATE")
@@ -1530,6 +1545,7 @@ async fn edit_dm_message(
             "Only author can edit DM message".into(),
         ));
     }
+    ensure_can_reach_dm_peer(&state, channel_id, claims.sub).await?;
 
     let row = sqlx::query_as::<_, DmMessageRow>(
         r#"UPDATE dm_messages
@@ -1636,6 +1652,7 @@ async fn add_dm_reaction(
         .ok_or(AppError::NotFound("DM message not found".into()))?;
 
     check_dm_access(&state, channel_id, claims.sub).await?;
+    ensure_can_reach_dm_peer(&state, channel_id, claims.sub).await?;
 
     let mut tx = state.db.begin().await?;
     let locked_channel_id: Uuid =

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use jsonwebtoken::{encode, EncodingKey, Header};
+use redis::AsyncCommands;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -108,11 +109,13 @@ fn cleanup_voice_channel_active_since_if_empty(state: &Arc<AppState>, channel_id
 fn voice_control_event_from_state(
     user_id: Uuid,
     server_id: Option<Uuid>,
+    channel_id: Uuid,
     state: (bool, bool, bool, bool, bool, bool),
 ) -> WsEvent {
     WsEvent::VoiceControlUpdate {
         user_id,
         server_id,
+        channel_id: Some(channel_id),
         muted: state.0,
         deafened: state.1,
         server_muted: state.2,
@@ -140,6 +143,7 @@ pub(crate) async fn clear_local_voice_session(
 
     state.voice_participant_sids.remove(&user_id);
     state.voice_session_connections.remove(&user_id);
+    clear_voice_claim(state, user_id, channel_id).await;
     state
         .screen_share_viewers
         .retain(|(viewer_id, publisher_id), _| *viewer_id != user_id && *publisher_id != user_id);
@@ -170,6 +174,7 @@ pub(crate) async fn clear_local_voice_session(
         voice_control_event_from_state(
             user_id,
             server_id,
+            channel_id,
             (false, false, false, false, false, false),
         ),
     )
@@ -285,11 +290,117 @@ pub(crate) const DEPARTED_VOICE_LEAVE_DELAY: Duration = Duration::from_millis(15
 /// How long a user who lost their last WebSocket may take to rejoin voice before their LiveKit
 /// participant is removed. Long enough for a quick WebSocket reconnect to keep the call.
 pub(crate) const DEPARTED_VOICE_DISCONNECT_DELAY: Duration = Duration::from_secs(5);
+/// How long a LiveKit participant may exist before its client reports the join over the
+/// WebSocket. The client connects to LiveKit first and publishes the microphone before it
+/// sends `JoinVoice`.
+pub(crate) const VOICE_JOIN_CLAIM_WINDOW: Duration = Duration::from_secs(30);
+/// Lets another backend instance see a join reported to this one, also when LiveKit reconnects
+/// the participant later in the call (voice sessions are process-local; see docs/DEPLOYMENT.md).
+/// Leaving clears it; the expiry only covers an instance that stopped without doing so.
+const VOICE_JOIN_CLAIM_TTL_SECS: u64 = 60 * 60;
+
+fn voice_join_claim_key(user_id: Uuid, channel_id: Uuid) -> String {
+    format!("voice:join_claim:{user_id}:{channel_id}")
+}
+
+/// Records that the user reported this voice join. Best effort, like the check that reads it.
+pub async fn record_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
+    let result: Result<(), redis::RedisError> = async {
+        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        conn.set_ex(
+            voice_join_claim_key(user_id, channel_id),
+            1,
+            VOICE_JOIN_CLAIM_TTL_SECS,
+        )
+        .await
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!("Voice join claim could not be recorded: {}", error);
+    }
+}
+
+pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
+    let result: Result<(), redis::RedisError> = async {
+        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        conn.del(voice_join_claim_key(user_id, channel_id)).await
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!("Voice join claim could not be cleared: {}", error);
+    }
+}
+
+/// When Redis cannot answer this says yes: a working call must not end over an outage.
+async fn voice_claim_exists(state: &AppState, user_id: Uuid, channel_id: Uuid) -> bool {
+    let result: Result<bool, redis::RedisError> = async {
+        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        conn.exists(voice_join_claim_key(user_id, channel_id)).await
+    }
+    .await;
+    result.unwrap_or(true)
+}
+
+/// A LiveKit participant without a voice session is not in the voice list and escapes voice
+/// moderation, so after the claim window it is removed. For a participant that does have a
+/// session, this replaces the SID the client reported with the one LiveKit knows.
+pub(crate) fn schedule_unclaimed_participant_check(
+    state: Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    participant_sid: Option<String>,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(VOICE_JOIN_CLAIM_WINDOW).await;
+        end_unclaimed_participant(state, channel_id, user_id, participant_sid).await;
+    });
+}
+
+/// The check behind [`schedule_unclaimed_participant_check`], once the claim window is over.
+pub async fn end_unclaimed_participant(
+    state: Arc<AppState>,
+    channel_id: Uuid,
+    user_id: Uuid,
+    participant_sid: Option<String>,
+) {
+    let current_sid = match livekit_participant_sid(&state, channel_id, user_id).await {
+        Ok(Some(sid)) => sid,
+        Ok(None) | Err(AppError::FeatureDisabled(_)) => return,
+        Err(error) => {
+            tracing::warn!(
+                "Voice participant lookup failed for user {}: {}",
+                ShortId(user_id),
+                error
+            );
+            return;
+        }
+    };
+    // A newer connection replaced this participant and gets a check of its own.
+    if participant_sid
+        .as_deref()
+        .is_some_and(|sid| sid != current_sid)
+    {
+        return;
+    }
+    let has_session = state
+        .voice_sessions
+        .get(&user_id)
+        .is_some_and(|entry| *entry == channel_id);
+    if has_session {
+        state.voice_participant_sids.insert(user_id, current_sid);
+        return;
+    }
+    if voice_claim_exists(&state, user_id, channel_id).await {
+        return;
+    }
+    remove_livekit_participant(&state, channel_id, user_id, "no active voice session").await;
+}
 
 /// Removes the LiveKit participant of a user who left voice, after `delay`, so the rest of the
 /// room sees the departure at once. Only the departed session is removed: nothing happens when
-/// the user has rejoined voice meanwhile, or when LiveKit now holds a different participant SID
-/// for them (a new connection). Best effort; a failure leaves LiveKit's own timeout in charge.
+/// the user has rejoined voice meanwhile. A different participant SID may be a new connection
+/// that has yet to report its join, so it gets the claim window instead. Best effort; a failure
+/// leaves LiveKit's own timeout in charge.
 pub(crate) fn schedule_departed_participant_removal(
     state: Arc<AppState>,
     channel_id: Uuid,
@@ -324,6 +435,12 @@ pub(crate) fn schedule_departed_participant_removal(
             .as_deref()
             .is_some_and(|departed| departed != current_sid)
         {
+            schedule_unclaimed_participant_check(
+                state.clone(),
+                channel_id,
+                user_id,
+                Some(current_sid),
+            );
             return;
         }
         if let Err(error) =
