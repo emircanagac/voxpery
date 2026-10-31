@@ -504,6 +504,10 @@ test.describe('mocked release and settings regressions', () => {
         return { top: Math.round(box.top - root.top), width: box.width, height: box.height }
       })
     })
+    // The settings window animates open; measure the layout it settles on.
+    await page.locator('.user-settings-modal').evaluate(modal => Promise.all(
+      modal.getAnimations({ subtree: true }).map(animation => animation.finished),
+    ))
     const layoutBeforeError = await profileLayout()
     await profile.locator('input[type="file"]').setInputFiles({
       name: 'oversized.png', mimeType: 'image/png', buffer: Buffer.alloc(2 * 1024 * 1024 + 1),
