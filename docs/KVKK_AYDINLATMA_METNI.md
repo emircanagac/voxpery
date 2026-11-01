@@ -2,8 +2,8 @@
 
 # KVKK Aydınlatma Metni
 
-Sürüm: `2026-10-23`  
-Son güncelleme: 23 Ekim 2026
+Sürüm: `2026-11-01`  
+Son güncelleme: 1 Kasım 2026
 
 Bu metin, 6698 sayılı Kişisel Verilerin Korunması Kanunu'nun (KVKK) 10. maddesi uyarınca hazırlanmıştır ve yalnızca voxpery.com adresindeki resmî barındırılan hizmet (web ve masaüstü uygulamaları) için geçerlidir. Kendi Voxpery sunucusunu işletenler, kendi veri işleme faaliyetlerinin ayrı veri sorumlusudur.
 
@@ -16,6 +16,7 @@ Barındırılan hizmetin veri sorumlusu, Türkiye'de bireysel açık kaynak proj
 - **Kimlik ve iletişim:** kullanıcı adı, e-posta adresi, Google ile giriş yapılırsa Google hesap kimliği.
 - **Hesap ve profil:** parola özeti (hash), profil resmi, isteğe bağlı "hakkımda" metni, çevrim içi durumu, tercihler, e-postanın doğrulanıp doğrulanmadığı, kabul edilen metinlerin sürümleri ve kabul zamanları.
 - **Topluluk ve iletişim içeriği:** sunucular, üyelikler ve roller, arkadaşlıklar ve istekler, mesajlar ve doğrudan mesajlar, tepkiler, sabitlemeler, yüklenen dosyalar, şikâyetler, yasaklar, susturmalar ve sunucu denetim kayıtları. Yüklenen JPEG ve PNG resimlerdeki konum ve kamera bilgileri silinir.
+- **Kişisel notlar:** başka kullanıcılar hakkında yazdığınız notlar. Yalnız siz görürsünüz, notun konusu olan kişi göremez.
 - **İşlem güvenliği:** oturum bilgisi, IP adresini içeren kısa ömürlü istek sınırı sayaçları, sunucu kayıtları (log), hesabın oluşturulma ve veri dışa aktarma zamanları. IP adresleri veri tabanında saklanmaz.
 - **Ses, görüntü ve ekran paylaşımı:** işletmecinin hizmetle birlikte çalıştırdığı LiveKit medya sunucusu üzerinden anlık iletilir; görüşmeler kaydedilmez.
 
@@ -46,7 +47,7 @@ Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar
 ## Saklama süreleri
 
 - Hesap verileri ve içerik, siz ya da hesabınız silinene kadar saklanır.
-- Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler ve yüklenen dosyalar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye geçer.
+- Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler, yüklenen dosyalar ve başkalarının sizin hakkınızda yazdıkları dahil kişisel notlar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye, grup doğrudan mesajları en eski üyeye geçer.
 - Sunucu kayıtları ve veri tabanı yedekleri en fazla 14 gün tutulur; silinen veriler yedeklerden de 14 gün içinde çıkar.
 - İstek sınırı sayaçları ve tamamlanmayan kayıtlar dakikalar ile saatler içinde kendiliğinden silinir.
 
@@ -54,7 +55,7 @@ Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar
 
 Veri sorumlusuna başvurarak; kişisel verilerinizin işlenip işlenmediğini öğrenme, işlenmişse bilgi talep etme, işlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri bilme, eksik veya yanlış işlenmişse düzeltilmesini isteme, KVKK m.7 çerçevesinde silinmesini veya yok edilmesini isteme, düzeltme ve silme işlemlerinin aktarıldığı üçüncü kişilere bildirilmesini isteme, münhasıran otomatik sistemlerle analiz edilmesi sonucu aleyhinize bir sonuç çıkmasına itiraz etme ve kanuna aykırı işleme nedeniyle zarara uğramanız hâlinde zararın giderilmesini talep etme haklarına sahipsiniz.
 
-Başvurularınızı, hesabınızda kayıtlı e-posta adresinden yukarıdaki iletişim adresine gönderebilirsiniz. Başvurular en geç 30 gün içinde ücretsiz olarak sonuçlandırılır. Başvurunuzun reddedilmesi veya cevabı yetersiz bulmanız hâlinde Kişisel Verileri Koruma Kurulu'na şikâyette bulunabilirsiniz. Ayarlardaki ZIP dışa aktarımı (son 20.000 sunucu mesajınız, son 20.000 doğrudan mesajınız ve dosyalarınız) bir kolaylıktır; resmî bir başvurunun cevabı yerine geçmez.
+Başvurularınızı, hesabınızda kayıtlı e-posta adresinden yukarıdaki iletişim adresine gönderebilirsiniz. Başvurular en geç 30 gün içinde ücretsiz olarak sonuçlandırılır. Başvurunuzun reddedilmesi veya cevabı yetersiz bulmanız hâlinde Kişisel Verileri Koruma Kurulu'na şikâyette bulunabilirsiniz. Ayarlardaki ZIP dışa aktarımı (son 20.000 sunucu mesajınız, son 20.000 doğrudan mesajınız, kişisel notlarınız ve dosyalarınız) bir kolaylıktır; resmî bir başvurunun cevabı yerine geçmez.
 
 ## Değişiklikler
 

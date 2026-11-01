@@ -9,7 +9,7 @@ test('published legal pages show the version the server enforces', () => {
   const web = read('apps/web/src/legal.ts')
   const published = web.match(/PUBLISHED_LEGAL_VERSION = '([^']+)'/)?.[1]
   assert.ok(published, 'PUBLISHED_LEGAL_VERSION is missing')
-  for (const name of ['CURRENT_TERMS_VERSION', 'CURRENT_PRIVACY_NOTICE_VERSION', 'CURRENT_KVKK_NOTICE_VERSION']) {
+  for (const name of ['HOSTED_TERMS_VERSION', 'HOSTED_PRIVACY_NOTICE_VERSION', 'HOSTED_KVKK_NOTICE_VERSION']) {
     const version = server.match(new RegExp(`${name}: &str = "([^"]+)"`))?.[1]
     assert.equal(version, published, `${name} must match the published legal pages`)
   }

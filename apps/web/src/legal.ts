@@ -1,8 +1,8 @@
 import type { LegalConsentStatus } from './api/contracts'
 import { ROUTES } from './routes'
 
-/** Published hosted-service document version; must match the server's CURRENT_*_VERSION. */
-export const PUBLISHED_LEGAL_VERSION = '2026-10-23'
+/** Published hosted-service document version; must match the server's HOSTED_*_VERSION. */
+export const PUBLISHED_LEGAL_VERSION = '2026-11-01'
 
 export interface RegistrationLegalAcceptance {
   terms_accepted: boolean

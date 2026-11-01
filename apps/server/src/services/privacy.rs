@@ -8,9 +8,9 @@ use crate::errors::AppError;
 
 /// Documents the official hosted service publishes; they must match the web app's
 /// `PUBLISHED_LEGAL_VERSION`.
-pub const HOSTED_TERMS_VERSION: &str = "2026-10-23";
-pub const HOSTED_PRIVACY_NOTICE_VERSION: &str = "2026-10-23";
-pub const HOSTED_KVKK_NOTICE_VERSION: &str = "2026-10-23";
+pub const HOSTED_TERMS_VERSION: &str = "2026-11-01";
+pub const HOSTED_PRIVACY_NOTICE_VERSION: &str = "2026-11-01";
+pub const HOSTED_KVKK_NOTICE_VERSION: &str = "2026-11-01";
 /// What a self-hosted server that names no version of its own asks people to acknowledge. It
 /// stays fixed: a new hosted document says nothing about that server's operator.
 pub const SELF_HOSTED_DEFAULT_LEGAL_VERSION: &str = "2026-10-23";
