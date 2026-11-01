@@ -88,7 +88,7 @@ async fn publish_envelope(state: &AppState, envelope: WsBusEnvelope) {
         }
     };
 
-    let mut conn = match state.redis.get_multiplexed_async_connection().await {
+    let mut conn = match state.redis.connection().await {
         Ok(conn) => conn,
         Err(e) => {
             tracing::warn!(
@@ -137,7 +137,7 @@ pub async fn publish_user_event(state: &Arc<AppState>, user_id: Uuid, event: WsE
 pub fn spawn_redis_event_bridge(state: Arc<AppState>) {
     tokio::spawn(async move {
         loop {
-            let mut pubsub = match state.redis.get_async_pubsub().await {
+            let mut pubsub = match state.redis.client().get_async_pubsub().await {
                 Ok(pubsub) => pubsub,
                 Err(e) => {
                     tracing::warn!("Failed to open Redis Pub/Sub for WS events: {}", e);

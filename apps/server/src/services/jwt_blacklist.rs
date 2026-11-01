@@ -1,3 +1,4 @@
+use crate::services::shared_redis::SharedRedis;
 use redis::AsyncCommands;
 
 /// jsonwebtoken's default leeway: tokens still validate this long after `exp`. A revoked token
@@ -21,13 +22,13 @@ fn blacklist_ttl_secs(exp: usize, now: usize) -> usize {
         .saturating_sub(now)
 }
 
-pub async fn is_blacklisted(redis: &redis::Client, token: &str) -> Result<bool, redis::RedisError> {
-    let mut conn = redis.get_multiplexed_async_connection().await?;
+pub async fn is_blacklisted(redis: &SharedRedis, token: &str) -> Result<bool, redis::RedisError> {
+    let mut conn = redis.connection().await?;
     conn.exists(blacklist_key(token)).await
 }
 
 pub async fn blacklist_until_exp(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     token: &str,
     exp: usize,
 ) -> Result<(), redis::RedisError> {
@@ -35,7 +36,7 @@ pub async fn blacklist_until_exp(
     if ttl == 0 {
         return Ok(());
     }
-    let mut conn = redis.get_multiplexed_async_connection().await?;
+    let mut conn = redis.connection().await?;
     let _: () = conn.set_ex(blacklist_key(token), 1u8, ttl as u64).await?;
     Ok(())
 }

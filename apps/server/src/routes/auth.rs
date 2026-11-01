@@ -303,7 +303,7 @@ async fn ensure_login_not_temporarily_locked(
 ) -> Result<(), AppError> {
     let mut conn = state
         .redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 
@@ -334,7 +334,7 @@ async fn record_login_failure(
 ) -> Result<(), AppError> {
     let mut conn = state
         .redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 
@@ -373,7 +373,7 @@ async fn clear_login_failures(
 ) -> Result<(), AppError> {
     let mut conn = state
         .redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 

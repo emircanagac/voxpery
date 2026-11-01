@@ -69,9 +69,10 @@ async fn main() {
 
     let redis =
         redis::Client::open(config.redis_url.clone()).expect("Failed to initialize Redis client");
+    let redis = voxpery_server::services::shared_redis::SharedRedis::new(redis);
     {
         let mut conn = redis
-            .get_multiplexed_async_connection()
+            .connection()
             .await
             .expect("Failed to connect to Redis");
         let _: String = redis::cmd("PING")

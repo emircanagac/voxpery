@@ -1330,10 +1330,7 @@ async fn websocket_subscribe_and_connections_are_bounded_per_user() {
             .await;
     let _ = server_id;
     let addr = spawn_ws_app(&state).await;
-    let mut redis = redis_client()
-        .get_multiplexed_async_connection()
-        .await
-        .unwrap();
+    let mut redis = redis_client().connection().await.unwrap();
     let connect_limit_key = format!("rate:ws:{owner_id}");
 
     // Thousands of unknown ids next to a real channel: the real one is still subscribed.

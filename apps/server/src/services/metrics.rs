@@ -101,7 +101,7 @@ fn render_http(out: &mut String) {
 
 async fn redis_is_up(state: &AppState) -> bool {
     let ping = async {
-        let mut connection = state.redis.get_multiplexed_async_connection().await?;
+        let mut connection = state.redis.connection().await?;
         redis::cmd("PING")
             .query_async::<String>(&mut connection)
             .await

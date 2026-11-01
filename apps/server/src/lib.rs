@@ -43,7 +43,7 @@ pub struct PendingVoiceMove {
 pub struct AppState {
     pub instance_id: uuid::Uuid,
     pub db: sqlx::PgPool,
-    pub redis: redis::Client,
+    pub redis: services::shared_redis::SharedRedis,
     pub jwt_secret: String,
     pub jwt_expiration: i64,
     /// Broadcast channel for real-time events (messages, presence, etc.)
@@ -116,7 +116,7 @@ pub struct LatestReleaseCacheEntry {
 /// GET /health — liveness/readiness for load balancers and k8s.
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
-    let redis_ok = match state.redis.get_multiplexed_async_connection().await {
+    let redis_ok = match state.redis.connection().await {
         Ok(mut conn) => redis::cmd("PING")
             .query_async(&mut conn)
             .await

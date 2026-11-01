@@ -43,6 +43,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 use tower::ServiceExt;
 use uuid::Uuid;
+use voxpery_server::services::shared_redis::SharedRedis;
 use voxpery_server::{
     build_app, run_migrations,
     services::{
@@ -96,13 +97,16 @@ fn normalize_compose_host(url: String, service_host: &str, fallback_host: &str) 
         .replace(&scheme_path_pattern, &format!("://{fallback_host}/"))
 }
 
-fn redis_client() -> redis::Client {
+fn redis_client() -> SharedRedis {
     let redis_url = std::env::var("TEST_REDIS_URL")
         .ok()
         .or_else(|| std::env::var("REDIS_URL").ok())
         .unwrap_or_else(|| "redis://localhost:6379".into());
     let redis_url = normalize_compose_host(redis_url, "redis", "127.0.0.1");
-    redis::Client::open(redis_url).expect("Failed to create Redis client for integration tests")
+    SharedRedis::new(
+        redis::Client::open(redis_url)
+            .expect("Failed to create Redis client for integration tests"),
+    )
 }
 
 async fn setup_app() -> (axum::Router, Arc<AppState>) {

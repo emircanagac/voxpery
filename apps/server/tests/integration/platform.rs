@@ -192,10 +192,7 @@ async fn anonymous_auth_requests_cannot_store_oversized_values_in_redis() {
         return;
     };
     let (mut app, _state) = setup_app_with_auth_features(false, true).await;
-    let mut redis = redis_client()
-        .get_multiplexed_async_connection()
-        .await
-        .unwrap();
+    let mut redis = redis_client().connection().await.unwrap();
     let long_value = format!("{}@example.com", "x".repeat(48 * 1024));
     let post = |uri: &str, body: serde_json::Value| {
         Request::builder()
@@ -330,4 +327,50 @@ async fn metrics_stay_off_the_public_router_and_hold_no_identifiers() {
     let (status, body) = oneshot(&mut metrics, request).await;
     assert_eq!(status, StatusCode::OK);
     assert!(String::from_utf8_lossy(&body).contains("voxpery_redis_up 1"));
+}
+
+#[tokio::test]
+async fn the_shared_redis_connection_recovers_after_it_is_dropped() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let shared = redis_client();
+    let ping = |shared: SharedRedis| async move {
+        let mut connection = shared.connection().await?;
+        redis::cmd("PING")
+            .query_async::<String>(&mut connection)
+            .await
+    };
+    assert_eq!(ping(shared.clone()).await.unwrap(), "PONG");
+
+    let mut admin = shared
+        .client()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let killed: i64 = redis::cmd("CLIENT")
+        .arg("KILL")
+        .arg("TYPE")
+        .arg("normal")
+        .arg("SKIPME")
+        .arg("yes")
+        .query_async(&mut admin)
+        .await
+        .unwrap();
+    assert!(killed >= 1, "the shared connection was open");
+
+    let recovered = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if ping(shared.clone()).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        recovered.is_ok(),
+        "the connection must come back on its own"
+    );
 }

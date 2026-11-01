@@ -308,7 +308,7 @@ fn voice_join_claim_key(user_id: Uuid, channel_id: Uuid) -> String {
 /// Records that the user reported this voice join. Best effort, like the check that reads it.
 pub async fn record_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
     let result: Result<(), redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.set_ex(
             voice_join_claim_key(user_id, channel_id),
             1,
@@ -324,7 +324,7 @@ pub async fn record_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uui
 
 pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
     let result: Result<(), redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.del(voice_join_claim_key(user_id, channel_id)).await
     }
     .await;
@@ -336,7 +336,7 @@ pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid
 /// When Redis cannot answer this says yes: a working call must not end over an outage.
 async fn voice_claim_exists(state: &AppState, user_id: Uuid, channel_id: Uuid) -> bool {
     let result: Result<bool, redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.exists(voice_join_claim_key(user_id, channel_id)).await
     }
     .await;
