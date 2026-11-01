@@ -124,6 +124,7 @@ export type UserSettingsWindowProps = {
   refreshUpdateStatus: (manual?: boolean) => Promise<void>
   updateChecking: boolean
   updateInstalling: boolean
+  updateInstallLabel: string
   installDesktopUpdate: () => Promise<void>
   desktopAutostartSupported: boolean
   desktopStartupTargetLabel: "your computer starts" | "macOS starts" | "Linux starts" | "Windows starts"
@@ -248,6 +249,7 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
     refreshUpdateStatus,
     updateChecking,
     updateInstalling,
+    updateInstallLabel,
     installDesktopUpdate,
     desktopAutostartSupported,
     desktopStartupTargetLabel,
@@ -850,7 +852,7 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                         onClick={() => void installDesktopUpdate()}
                         disabled={updateChecking || updateInstalling}
                       >
-                        {updateInstalling ? 'Installing…' : `Install ${updateInfo.version}`}
+                        {updateInstalling ? updateInstallLabel : `Install ${updateInfo.version}`}
                       </button>
                     )}
                   </div>

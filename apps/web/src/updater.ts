@@ -2,6 +2,7 @@
  * Desktop (Tauri) update check. Only runs when running inside Tauri (v1 or v2).
  * In browser, checkForUpdates is a no-op.
  */
+import type { DownloadEvent } from '@tauri-apps/plugin-updater'
 import { isTauri } from './secureStorage'
 import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
@@ -9,6 +10,11 @@ export type UpdateResult =
   // `managedExternally`: this install is updated outside the app (a newer .flatpak file).
   | { available: false; error?: boolean; managedExternally?: boolean }
   | { available: true; version: string; body?: string; date?: string }
+
+export type UpdateProgress =
+  // `percent` is null when the server does not report the download size.
+  | { phase: 'downloading'; percent: number | null }
+  | { phase: 'installing' }
 
 export const DESKTOP_UPDATE_STATUS_EVENT = 'voxpery-desktop-update-status'
 
@@ -20,7 +26,8 @@ type DesktopUpdate = {
   version: string
   body?: string | null
   date?: string | null
-  downloadAndInstall: () => Promise<void>
+  download: (onEvent?: (event: DownloadEvent) => void) => Promise<void>
+  install: () => Promise<void>
 }
 
 type DesktopUpdaterRuntime = {
@@ -96,15 +103,47 @@ export async function checkForUpdatesWithRuntime(runtime: DesktopUpdaterRuntime)
   }
 }
 
-export async function downloadAndInstallUpdateWithRuntime(runtime: DesktopUpdaterRuntime): Promise<boolean> {
+export function updateProgressLabel(progress: UpdateProgress | null): string {
+  if (progress?.phase === 'installing') return 'Installing…'
+  if (progress?.percent != null) return `Downloading ${progress.percent}%`
+  return 'Downloading…'
+}
+
+function downloadProgressReporter(onProgress?: (progress: UpdateProgress) => void) {
+  let total = 0
+  let received = 0
+  let lastPercent: number | null = null
+  return (event: DownloadEvent) => {
+    if (event.event === 'Started') {
+      total = event.data.contentLength ?? 0
+      onProgress?.({ phase: 'downloading', percent: total ? 0 : null })
+    } else if (event.event === 'Progress' && total) {
+      received += event.data.chunkLength
+      const percent = Math.min(100, Math.floor((received * 100) / total))
+      if (percent !== lastPercent) {
+        lastPercent = percent
+        onProgress?.({ phase: 'downloading', percent })
+      }
+    }
+  }
+}
+
+export async function downloadAndInstallUpdateWithRuntime(
+  runtime: DesktopUpdaterRuntime,
+  onProgress?: (progress: UpdateProgress) => void,
+): Promise<boolean> {
   if (!runtime.isDesktop() || await runtime.isManagedExternally?.()) {
     return false
   }
   try {
     const update = await runtime.check()
     if (!update) return false
+    // Preparing lets the window close for the installer, so it waits for a finished download:
+    // after a failed one, closing the window must still keep Voxpery in the tray.
+    await update.download(downloadProgressReporter(onProgress))
+    onProgress?.({ phase: 'installing' })
     await runtime.prepareForInstall()
-    await update.downloadAndInstall()
+    await update.install()
     await runtime.relaunch()
     return true
   } catch (error) {
@@ -120,11 +159,13 @@ export async function checkForUpdates(): Promise<UpdateResult> {
   return checkForUpdatesWithRuntime(await defaultRuntime())
 }
 
-export async function downloadAndInstallUpdate(): Promise<boolean> {
+export async function downloadAndInstallUpdate(
+  onProgress?: (progress: UpdateProgress) => void,
+): Promise<boolean> {
   if (!isTauri()) {
     return false
   }
-  return downloadAndInstallUpdateWithRuntime(await defaultRuntime())
+  return downloadAndInstallUpdateWithRuntime(await defaultRuntime(), onProgress)
 }
 
 export async function getDesktopAppVersion(): Promise<string | null> {

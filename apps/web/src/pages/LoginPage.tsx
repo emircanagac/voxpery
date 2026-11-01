@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -13,6 +13,8 @@ import { googleOAuthErrorMessage, resolvePostAuthRoute, takeExpiredSession } fro
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import DesktopSignInCode from '../components/DesktopSignInCode'
 import CustomServerPanel from '../components/CustomServerPanel'
+
+const DesktopUpdateNotice = lazy(() => import('../components/DesktopUpdateNotice'))
 
 function GoogleLogoIcon() {
     return (
@@ -114,6 +116,12 @@ export default function LoginPage() {
                 </Link>
                 <h1>Voxpery</h1>
                 <p>Sign in and continue to your community</p>
+
+                {isTauri() && (
+                    <Suspense fallback={null}>
+                        <DesktopUpdateNotice />
+                    </Suspense>
+                )}
 
                 {expiredSession && !error && (
                     <div className="auth-notice" role="status">

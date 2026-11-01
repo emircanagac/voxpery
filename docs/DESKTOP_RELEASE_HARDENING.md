@@ -194,6 +194,8 @@ Before publishing a desktop release:
 7. Confirm Windows startup launch stays in the tray until the user opens Voxpery from the tray, and tray Show opens a maximized window.
 8. Confirm installer/update preparation closes tray/minimize state cleanly before install.
    - On Windows, start Voxpery from a login (`--autostart`), install an update from Settings, and confirm the new version opens in front. The updater relaunches with the old process's arguments; `desktop_prepare_for_update_install` writes an `update-relaunch` marker (valid 30 minutes) to the app config folder, and `main.rs` shows the window when it finds that marker. A later login without an update still starts in the tray.
+   - An update downloads first and shows its progress; only then does the app prepare to close and start the installer. A failed download leaves close-to-tray working.
+   - A signed-out desktop user sees the update on the sign-in page.
 9. On a clean macOS account, confirm microphone and screen-recording prompts identify Voxpery and the app remains listed in both Privacy & Security sections.
 10. Start screen share on macOS and confirm remote voice volume remains stable while the native picker opens, after a source is selected, and while Voxpery is unfocused.
 
@@ -203,7 +205,7 @@ Voxpery desktop rollback is manual and release-artifact based:
 
 - Keep the previous stable installer artifacts available in GitHub Releases.
 - If a desktop release is bad, mark the bad release as draft or remove the updater metadata asset so clients stop discovering it.
-- Publish or re-promote the previous stable release metadata if updater clients must move back to a known-good version.
+- The updater only offers a version higher than the installed one, so clients that already updated do not move back. Fix a bad release by publishing a new higher version; those users can also reinstall the previous installer by hand.
 - Document the rollback decision and affected version in release notes or the incident record.
 
 ## 7) Recommended Repository Secrets

@@ -2,6 +2,7 @@ import { Settings, ChevronsUpDown } from 'lucide-react'
 import type { StatusValue } from './StatusIcon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
+import { useDesktopUpdateInstall } from '../hooks/useDesktopUpdateInstall'
 import { useDialogFocus } from '../hooks/useDialogFocus'
 import { createPortal, flushSync } from 'react-dom'
 import { useNavigate } from 'react-router'
@@ -35,7 +36,6 @@ import {
 import {
   checkForUpdates,
   getDesktopAppVersion,
-  downloadAndInstallUpdate,
   type UpdateResult,
 } from '../updater'
 import {
@@ -229,7 +229,11 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const updatesManagedExternally = updateInfo?.available === false && updateInfo.managedExternally === true
   const [updateChecked, setUpdateChecked] = useState(false)
   const [updateChecking, setUpdateChecking] = useState(false)
-  const [updateInstalling, setUpdateInstalling] = useState(false)
+  const {
+    installing: updateInstalling,
+    statusLabel: updateInstallLabel,
+    install: installDesktopUpdate,
+  } = useDesktopUpdateInstall()
   const [desktopAppVersion, setDesktopAppVersion] = useState<string | null>(null)
   const [desktopAutostartEnabled, setDesktopAutostartState] = useState(false)
   const [desktopAutostartSupported, setDesktopAutostartSupported] = useState(true)
@@ -1287,28 +1291,6 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     }
   }
 
-  const installDesktopUpdate = async () => {
-    setUpdateInstalling(true)
-    try {
-      const ok = await downloadAndInstallUpdate()
-      if (!ok) {
-        pushToast({
-          level: 'error',
-          title: 'Update failed',
-          message: 'Could not download or install the desktop update. Try again later.',
-        })
-        return
-      }
-      pushToast({
-        level: 'info',
-        title: 'Installing update',
-        message: 'Voxpery will restart after the update is applied.',
-      })
-    } finally {
-      setUpdateInstalling(false)
-    }
-  }
-
   const toggleDesktopAutostart = async () => {
     if (desktopAutostartLoading) return
     const next = !desktopAutostartEnabled
@@ -1729,6 +1711,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
             refreshUpdateStatus,
             updateChecking,
             updateInstalling,
+            updateInstallLabel,
             installDesktopUpdate,
             desktopAutostartSupported,
             desktopStartupTargetLabel,

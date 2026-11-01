@@ -1,8 +1,11 @@
+import type { DownloadEvent } from '@tauri-apps/plugin-updater'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DESKTOP_UPDATE_STATUS_EVENT,
   checkForUpdatesWithRuntime,
   downloadAndInstallUpdateWithRuntime,
+  updateProgressLabel,
+  type UpdateProgress,
   type UpdateResult,
 } from './updater'
 
@@ -12,11 +15,13 @@ function createRuntime(options?: {
     version?: string
     body?: string | null
     date?: string | null
-    downloadAndInstall?: () => Promise<void>
+    download?: (onEvent?: (event: DownloadEvent) => void) => Promise<void>
+    install?: () => Promise<void>
   } | null
   checkRejects?: boolean
 }) {
-  const downloadAndInstall = vi.fn(options?.update?.downloadAndInstall ?? (() => Promise.resolve()))
+  const download = vi.fn(options?.update?.download ?? (() => Promise.resolve()))
+  const install = vi.fn(options?.update?.install ?? (() => Promise.resolve()))
   const update =
     options?.update === undefined
       ? null
@@ -24,7 +29,8 @@ function createRuntime(options?: {
           version: options.update.version ?? '0.2.0',
           body: options.update.body,
           date: options.update.date,
-          downloadAndInstall,
+          download,
+          install,
         }
   const check = options?.checkRejects
     ? vi.fn<() => Promise<typeof update>>(() => Promise.reject(new Error('updater failed')))
@@ -37,7 +43,8 @@ function createRuntime(options?: {
       relaunch: vi.fn(() => Promise.resolve()),
     },
     check,
-    downloadAndInstall,
+    download,
+    install,
   }
 }
 
@@ -59,7 +66,7 @@ afterEach(() => {
 
 describe('desktop updater', () => {
   it('leaves Flatpak installs to their .flatpak file without checking or installing', async () => {
-    const { runtime, check, downloadAndInstall } = createRuntime({ update: { version: '0.5.0' } })
+    const { runtime, check, download, install } = createRuntime({ update: { version: '0.5.0' } })
     const flatpakRuntime = { ...runtime, isManagedExternally: () => Promise.resolve(true) }
     const status = listenForUpdateStatus()
 
@@ -67,7 +74,8 @@ describe('desktop updater', () => {
     await expect(downloadAndInstallUpdateWithRuntime(flatpakRuntime)).resolves.toBe(false)
 
     expect(check).not.toHaveBeenCalled()
-    expect(downloadAndInstall).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+    expect(install).not.toHaveBeenCalled()
     expect(flatpakRuntime.relaunch).not.toHaveBeenCalled()
     expect(status.events).toEqual([])
     status.stop()
@@ -114,12 +122,15 @@ describe('desktop updater', () => {
     status.stop()
   })
 
-  it('prepares the desktop runtime before installing and relaunching', async () => {
+  it('prepares the desktop runtime after the download, before installing and relaunching', async () => {
     const calls: string[] = []
-    const { runtime, downloadAndInstall } = createRuntime({
+    const { runtime, download, install } = createRuntime({
       update: {
-        downloadAndInstall: async () => {
-          calls.push('downloadAndInstall')
+        download: async () => {
+          calls.push('download')
+        },
+        install: async () => {
+          calls.push('install')
         },
       },
     })
@@ -132,17 +143,74 @@ describe('desktop updater', () => {
 
     await expect(downloadAndInstallUpdateWithRuntime(runtime)).resolves.toBe(true)
 
-    expect(downloadAndInstall).toHaveBeenCalledTimes(1)
-    expect(calls).toEqual(['prepare', 'downloadAndInstall', 'relaunch'])
+    expect(download).toHaveBeenCalledTimes(1)
+    expect(install).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual(['download', 'prepare', 'install', 'relaunch'])
   })
 
-  it('returns false without install side effects when no update exists', async () => {
-    const { runtime, downloadAndInstall } = createRuntime({ update: null })
+  it('keeps the window behavior when the download fails', async () => {
+    const { runtime, install } = createRuntime({
+      update: { download: () => Promise.reject(new Error('network failed')) },
+    })
 
     await expect(downloadAndInstallUpdateWithRuntime(runtime)).resolves.toBe(false)
 
     expect(runtime.prepareForInstall).not.toHaveBeenCalled()
-    expect(downloadAndInstall).not.toHaveBeenCalled()
+    expect(install).not.toHaveBeenCalled()
+    expect(runtime.relaunch).not.toHaveBeenCalled()
+  })
+
+  it('reports each new percentage of the download, then the install', async () => {
+    const { runtime } = createRuntime({
+      update: {
+        download: async (onEvent) => {
+          onEvent?.({ event: 'Started', data: { contentLength: 1000 } })
+          onEvent?.({ event: 'Progress', data: { chunkLength: 400 } })
+          onEvent?.({ event: 'Progress', data: { chunkLength: 1 } })
+          onEvent?.({ event: 'Progress', data: { chunkLength: 599 } })
+          onEvent?.({ event: 'Finished' })
+        },
+      },
+    })
+    const progress: UpdateProgress[] = []
+
+    await downloadAndInstallUpdateWithRuntime(runtime, (next) => progress.push(next))
+
+    expect(progress).toEqual([
+      { phase: 'downloading', percent: 0 },
+      { phase: 'downloading', percent: 40 },
+      { phase: 'downloading', percent: 100 },
+      { phase: 'installing' },
+    ])
+  })
+
+  it('reports no percentage when the download size is unknown', async () => {
+    const { runtime } = createRuntime({
+      update: {
+        download: async (onEvent) => {
+          onEvent?.({ event: 'Started', data: {} })
+          onEvent?.({ event: 'Progress', data: { chunkLength: 400 } })
+        },
+      },
+    })
+    const progress: UpdateProgress[] = []
+
+    await downloadAndInstallUpdateWithRuntime(runtime, (next) => progress.push(next))
+
+    expect(progress[0]).toEqual({ phase: 'downloading', percent: null })
+    expect(updateProgressLabel(progress[0])).toBe('Downloading…')
+    expect(updateProgressLabel({ phase: 'downloading', percent: 42 })).toBe('Downloading 42%')
+    expect(updateProgressLabel({ phase: 'installing' })).toBe('Installing…')
+  })
+
+  it('returns false without install side effects when no update exists', async () => {
+    const { runtime, download, install } = createRuntime({ update: null })
+
+    await expect(downloadAndInstallUpdateWithRuntime(runtime)).resolves.toBe(false)
+
+    expect(runtime.prepareForInstall).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+    expect(install).not.toHaveBeenCalled()
     expect(runtime.relaunch).not.toHaveBeenCalled()
   })
 
