@@ -67,6 +67,7 @@ Google callbacks require a verified provider email. Existing accounts keep the n
 
 - `tokio::broadcast` is used for each process-local fan-out stream.
 - Redis Pub/Sub bridges broadcast and targeted user WS events between backend instances.
+- A broadcast event carries its audience (`ws/audience.rs`): the first connection that needs it looks it up, and every other connection of the instance reads the same answer. The lookup runs once per event, so permissions are still checked at delivery while status, member and voice events cost a fixed number of queries however many clients are connected. Message and typing events keep the per-connection channel access cache.
 - Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket; REST list endpoints that derive online/offline from this map are instance-local until presence is externalized.
 - Voice session/control state is still tracked in-memory for low-latency UI sync; run sticky WebSocket routing for multi-instance voice until this state is moved to Redis or another shared coordinator.
 

@@ -17,7 +17,7 @@ use std::{
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::{SessionQueue, WsClientMessage, WsEvent};
+use super::{BroadcastEvent, SessionQueue, WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{
     claims_match_current_token_version, email_verification_pending, Claims,
@@ -496,76 +496,6 @@ fn visible_presence_from_preference(status: &str) -> &'static str {
     }
 }
 
-async fn users_share_server_or_are_friends(
-    db: &sqlx::PgPool,
-    a_user_id: Uuid,
-    b_user_id: Uuid,
-) -> bool {
-    if a_user_id == b_user_id {
-        return true;
-    }
-    sqlx::query_scalar::<_, bool>(
-        r#"SELECT (
-            EXISTS (
-                SELECT 1
-                FROM servers s
-                WHERE
-                    (
-                        s.owner_id = $1
-                        OR EXISTS (
-                            SELECT 1 FROM server_members sm1
-                            WHERE sm1.server_id = s.id AND sm1.user_id = $1
-                        )
-                    )
-                    AND
-                    (
-                        s.owner_id = $2
-                        OR EXISTS (
-                            SELECT 1 FROM server_members sm2
-                            WHERE sm2.server_id = s.id AND sm2.user_id = $2
-                        )
-                    )
-            )
-            OR EXISTS (
-                SELECT 1
-                FROM friendships f
-                WHERE
-                    (f.user_a = $1 AND f.user_b = $2)
-                    OR
-                    (f.user_a = $2 AND f.user_b = $1)
-            )
-        )"#,
-    )
-    .bind(a_user_id)
-    .bind(b_user_id)
-    .fetch_one(db)
-    .await
-    .unwrap_or(false)
-}
-
-async fn user_in_server(db: &sqlx::PgPool, user_id: Uuid, server_id: Uuid) -> bool {
-    sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS (
-            SELECT 1
-            FROM servers s
-            WHERE s.id = $1
-              AND (
-                    s.owner_id = $2
-                    OR EXISTS (
-                        SELECT 1
-                        FROM server_members sm
-                        WHERE sm.server_id = s.id AND sm.user_id = $2
-                    )
-              )
-        )"#,
-    )
-    .bind(server_id)
-    .bind(user_id)
-    .fetch_one(db)
-    .await
-    .unwrap_or(false)
-}
-
 async fn can_receive_subscribed_channel_event(
     db: &sqlx::PgPool,
     user_id: Uuid,
@@ -633,8 +563,9 @@ async fn can_start_typing(state: &AppState, user_id: Uuid, channel_id: Uuid) -> 
 async fn voice_event_for_recipient<'a>(
     state: &AppState,
     recipient_id: Uuid,
-    event: &'a WsEvent,
+    shared: &'a BroadcastEvent,
 ) -> Option<Cow<'a, WsEvent>> {
+    let event = shared.event();
     match event {
         WsEvent::VoiceStateUpdate {
             channel_id,
@@ -644,11 +575,17 @@ async fn voice_event_for_recipient<'a>(
             ..
         } => {
             if let Some(channel_id) = channel_id {
-                if can_view_channel(&state.db, recipient_id, *channel_id).await {
+                if shared
+                    .can_view_channel(&state.db, recipient_id, *channel_id)
+                    .await
+                {
                     return Some(Cow::Borrowed(event));
                 }
                 let previous = (*previous_channel_id)?;
-                if !can_view_channel(&state.db, recipient_id, previous).await {
+                if !shared
+                    .can_view_channel(&state.db, recipient_id, previous)
+                    .await
+                {
                     return None;
                 }
                 return Some(Cow::Owned(WsEvent::VoiceStateUpdate {
@@ -660,18 +597,18 @@ async fn voice_event_for_recipient<'a>(
                 }));
             }
             match previous_channel_id {
-                Some(previous) => can_view_channel(&state.db, recipient_id, *previous)
+                Some(previous) => shared
+                    .can_view_channel(&state.db, recipient_id, *previous)
                     .await
                     .then_some(Cow::Borrowed(event)),
                 // Events from an older server instance carry no channel; keep server scope.
                 None => Some(Cow::Borrowed(event)),
             }
         }
-        WsEvent::ScreenShareViewerUpdate { channel_id, .. } => {
-            can_view_channel(&state.db, recipient_id, *channel_id)
-                .await
-                .then_some(Cow::Borrowed(event))
-        }
+        WsEvent::ScreenShareViewerUpdate { channel_id, .. } => shared
+            .can_view_channel(&state.db, recipient_id, *channel_id)
+            .await
+            .then_some(Cow::Borrowed(event)),
         WsEvent::VoiceControlUpdate {
             user_id,
             channel_id,
@@ -681,7 +618,8 @@ async fn voice_event_for_recipient<'a>(
             let channel_id =
                 channel_id.or_else(|| state.voice_sessions.get(user_id).map(|entry| *entry));
             match channel_id {
-                Some(channel_id) => can_view_channel(&state.db, recipient_id, channel_id)
+                Some(channel_id) => shared
+                    .can_view_channel(&state.db, recipient_id, channel_id)
                     .await
                     .then_some(Cow::Borrowed(event)),
                 // Events from an older server instance carry no channel; keep server scope.
@@ -1013,8 +951,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                 }
                 // Events from broadcast channel
                 result = broadcast_rx.recv() => {
-                    let event = match result {
-                        Ok(ev) => ev,
+                    let shared = match result {
+                        Ok(shared) => shared,
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("Broadcast receiver lagged by {} events (user {})", n, ShortId(user_id));
                             close_after_missed_events(&mut ws_sender).await;
@@ -1022,9 +960,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         }
                         Err(_) => break,
                     };
+                    let event = shared.event();
                     // Role, channel and membership changes can change what this user may see.
                     if matches!(
-                        &event,
+                        event,
                         WsEvent::MemberJoined { .. }
                             | WsEvent::MemberLeft { .. }
                             | WsEvent::MemberRoleUpdated { .. }
@@ -1034,12 +973,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         access_cache.clear();
                     }
                     let is_own_voice_event = matches!(
-                        &event,
+                        event,
                         WsEvent::VoiceStateUpdate { user_id: affected_user_id, .. }
                             | WsEvent::VoiceControlUpdate { user_id: affected_user_id, .. }
                             if *affected_user_id == user_id
                     );
-                    let should_send = match &event {
+                    let should_send = match event {
                         WsEvent::NewMessage { channel_id, .. }
                         | WsEvent::Typing { channel_id, .. }
                         | WsEvent::MessageDeleted { channel_id, .. }
@@ -1062,36 +1001,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                             user_id: target_user_id,
                             ..
                         } => *target_user_id == user_id,
-                        WsEvent::PresenceUpdate { user_id: changed_user_id, .. } => {
-                            users_share_server_or_are_friends(
-                                &send_state.db,
-                                user_id,
-                                *changed_user_id,
-                            )
-                            .await
-                        }
-                        WsEvent::UserUpdated { user } => {
-                            users_share_server_or_are_friends(&send_state.db, user_id, user.id)
-                                .await
-                        }
-                        WsEvent::MemberJoined { server_id, .. }
-                        | WsEvent::MemberLeft { server_id, .. }
-                        | WsEvent::MemberRoleUpdated { server_id, .. }
-                        | WsEvent::MemberTimeoutUpdated { server_id, .. }
-                        | WsEvent::ServerRolesUpdated { server_id }
-                        | WsEvent::ServerChannelsUpdated { server_id } => {
-                            user_in_server(&send_state.db, user_id, *server_id).await
+                        WsEvent::PresenceUpdate { .. }
+                        | WsEvent::UserUpdated { .. }
+                        | WsEvent::MemberJoined { .. }
+                        | WsEvent::MemberLeft { .. }
+                        | WsEvent::MemberRoleUpdated { .. }
+                        | WsEvent::MemberTimeoutUpdated { .. }
+                        | WsEvent::ServerRolesUpdated { .. }
+                        | WsEvent::ServerChannelsUpdated { .. } => {
+                            shared.reaches(&send_state.db, user_id).await
                         }
                         WsEvent::VoiceStateUpdate { server_id, .. }
                         | WsEvent::VoiceControlUpdate { server_id, .. }
                         | WsEvent::ScreenShareViewerUpdate { server_id, .. } => {
                             match server_id {
                                 Some(sid) => {
-                                    // Re-check current membership so users that were removed from
-                                    // the server stop receiving voice-related events immediately.
-                                    if !user_in_server(&send_state.db, user_id, *sid).await {
-                                        false
-                                    } else {
                                     let subscribed_to_server = sub_server_counts
                                         .read()
                                         .await
@@ -1099,22 +1023,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                         .copied()
                                         .unwrap_or(0)
                                         > 0;
+                                    // Voice participants should continue receiving voice state/control
+                                    // updates even when they're not actively subscribed to text channels
+                                    // (e.g. while viewing Home/DM pages).
+                                    let my_voice_channel =
+                                        send_state.voice_sessions.get(&user_id).map(|r| *r);
+                                    // Membership is re-checked so users that were removed from the
+                                    // server stop receiving voice-related events immediately.
                                     if is_own_voice_event || subscribed_to_server {
-                                        true
-                                    } else {
-                                        // Voice participants should continue receiving voice state/control
-                                        // updates even when they're not actively subscribed to text channels
-                                        // (e.g. while viewing Home/DM pages).
-                                        let my_voice_channel =
-                                            send_state.voice_sessions.get(&user_id).map(|r| *r);
-                                        if let Some(my_channel_id) = my_voice_channel {
-                                            server_id_for_channel(&send_state.db, my_channel_id)
+                                        shared.reaches(&send_state.db, user_id).await
+                                    } else if let Some(my_channel_id) = my_voice_channel {
+                                        shared.reaches(&send_state.db, user_id).await
+                                            && shared
+                                                .is_channel_of_server(&send_state.db, my_channel_id)
                                                 .await
-                                                == Some(*sid)
-                                        } else {
-                                            false
-                                        }
-                                    }
+                                    } else {
+                                        false
                                     }
                                 }
                                 None => false,
@@ -1129,23 +1053,24 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     let outgoing = if !should_send {
                         None
                     } else if is_own_voice_event {
-                        Some(Cow::Borrowed(&event))
+                        Some(Cow::Borrowed(event))
                     } else {
-                        voice_event_for_recipient(&send_state, user_id, &event).await
+                        voice_event_for_recipient(&send_state, user_id, &shared).await
                     };
-                    if let Some(event) = outgoing {
-                        match serde_json::to_string(event.as_ref()) {
-                            Ok(json) => {
-                                if !matches!(
-                                    tokio::time::timeout(WS_SEND_TIMEOUT, ws_sender.send(Message::Text(json.into()))).await,
-                                    Ok(Ok(()))
-                                ) {
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("WS broadcast serialization failed: {}", e);
-                            }
+                    let json = match outgoing {
+                        None => None,
+                        Some(Cow::Borrowed(_)) => shared.json(),
+                        Some(Cow::Owned(event)) => serde_json::to_string(&event)
+                            .map_err(|e| tracing::warn!("WS broadcast serialization failed: {}", e))
+                            .ok()
+                            .map(Into::into),
+                    };
+                    if let Some(json) = json {
+                        if !matches!(
+                            tokio::time::timeout(WS_SEND_TIMEOUT, ws_sender.send(Message::Text(json))).await,
+                            Ok(Ok(()))
+                        ) {
+                            break;
                         }
                     }
                 }

@@ -468,6 +468,14 @@ impl ServerPermissionSnapshot {
         })
     }
 
+    pub fn is_member(&self, user_id: Uuid) -> bool {
+        self.owner_id == Some(user_id) || self.members.contains(&user_id)
+    }
+
+    pub fn has_channel(&self, channel_id: Uuid) -> bool {
+        self.channel_categories.contains_key(&channel_id)
+    }
+
     /// Server-level permissions, or `None` when the user is neither the owner nor a member.
     fn server_permissions(&self, user_id: Uuid) -> Option<Permissions> {
         if self.owner_id == Some(user_id) {

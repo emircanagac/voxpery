@@ -47,7 +47,7 @@ pub struct AppState {
     pub jwt_secret: String,
     pub jwt_expiration: i64,
     /// Broadcast channel for real-time events (messages, presence, etc.)
-    pub tx: broadcast::Sender<ws::WsEvent>,
+    pub tx: broadcast::Sender<ws::BroadcastEvent>,
     /// Connected WebSocket sessions: user_id -> list of sender handles
     pub sessions: DashMap<uuid::Uuid, Vec<ws::SessionQueue>>,
     /// Voice sessions: user_id -> channel_id

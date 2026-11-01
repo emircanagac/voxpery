@@ -87,7 +87,7 @@ async fn main() {
 
     tracing::info!("Database connected and migrations applied");
 
-    let (tx, _rx) = broadcast::channel::<ws::WsEvent>(4096);
+    let (tx, _rx) = broadcast::channel::<ws::BroadcastEvent>(4096);
     let instance_id = uuid::Uuid::new_v4();
     let attachment_service =
         match voxpery_server::services::attachments::AttachmentService::from_config(&config).await {

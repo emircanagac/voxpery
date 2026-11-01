@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::services::redact::ShortId;
 use crate::AppState;
 
-use super::WsEvent;
+use super::{BroadcastEvent, WsEvent};
 
 const WS_EVENTS_CHANNEL: &str = "voxpery:ws-events:v1";
 
@@ -110,7 +110,7 @@ async fn publish_envelope(state: &AppState, envelope: WsBusEnvelope) {
 }
 
 pub async fn publish_event(state: &Arc<AppState>, event: WsEvent) {
-    let _ = state.tx.send(event.clone());
+    let _ = state.tx.send(BroadcastEvent::new(event.clone()));
     publish_envelope(
         state,
         WsBusEnvelope::Broadcast {
@@ -179,7 +179,7 @@ pub fn spawn_redis_event_bridge(state: Arc<AppState>) {
                 match envelope {
                     WsBusEnvelope::Broadcast { origin, event } => {
                         if origin != state.instance_id {
-                            let _ = state.tx.send(event);
+                            let _ = state.tx.send(BroadcastEvent::new(event));
                         }
                     }
                     WsBusEnvelope::User {

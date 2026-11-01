@@ -2114,9 +2114,11 @@ async fn a_connection_that_missed_events_is_closed_and_reloads_them() {
 
     // Nothing awaits here, so the connection cannot read while the 256 slot channel overflows.
     for _ in 0..300 {
-        let _ = state.tx.send(voxpery_server::ws::WsEvent::FriendUpdate {
-            user_id: Uuid::new_v4(),
-        });
+        let _ = state.tx.send(voxpery_server::ws::BroadcastEvent::new(
+            voxpery_server::ws::WsEvent::FriendUpdate {
+                user_id: Uuid::new_v4(),
+            },
+        ));
     }
     let (status, sent) = api_json(
         &mut app,
@@ -2160,4 +2162,195 @@ async fn a_connection_that_missed_events_is_closed_and_reloads_them() {
         messages.to_string().contains(sent["id"].as_str().unwrap()),
         "the reload returns the missed message"
     );
+}
+
+/// Subscribes and waits for the Pong, skipping any events that arrive first.
+async fn ws_barrier_ignoring_events(ws: &mut TestWs, channel_id: Uuid) {
+    ws_send(
+        ws,
+        json!({ "type": "Subscribe", "data": { "channel_ids": [channel_id] } }),
+    )
+    .await;
+    ws_send(ws, json!({ "type": "Ping", "data": { "sent_at_ms": 1 } })).await;
+    while let Some(Ok(frame)) = ws.next().await {
+        if matches!(&frame, WsMessage::Text(text) if text.contains("\"Pong\"")) {
+            return;
+        }
+    }
+}
+
+/// Lookups one broadcast event costs, counted as scans of `server_members`: the periodic session
+/// checks of idle connections never touch that table. Run on demand, for example:
+/// `MEASURE_WS_CONNECTIONS=1000 MEASURE_WS_EVENT=voice cargo test measure_broadcast_event_cost
+/// -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "load measurement, not a regression test"]
+async fn measure_broadcast_event_cost() {
+    use voxpery_server::ws::{publish_event, WsEvent};
+
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let env_number = |name: &str, fallback: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(fallback)
+    };
+    let connections = env_number("MEASURE_WS_CONNECTIONS", 100);
+    let events = env_number("MEASURE_WS_EVENTS", 5);
+    let kind = std::env::var("MEASURE_WS_EVENT").unwrap_or_else(|_| "presence".into());
+
+    let (mut app, state) = setup_app().await;
+    let (auth, owner_id, _) = register_named_user(&mut app, "loadowner").await;
+    let (server_id, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Load").await;
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let copied_columns: Vec<String> = sqlx::query_scalar(
+        r#"SELECT column_name::text FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'users'
+             AND is_generated = 'NEVER' AND column_name NOT IN ('id', 'username', 'email')"#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    let copied_columns = copied_columns.join(", ");
+    let users: Vec<Uuid> = sqlx::query_scalar(&format!(
+        r#"INSERT INTO users (id, username, email, {copied_columns})
+           SELECT gen_random_uuid(),
+                  'load_' || substr(md5(random()::text), 1, 20),
+                  gen_random_uuid()::text || '@example.com',
+                  {copied_columns}
+           FROM users, generate_series(1, $2) WHERE id = $1
+           RETURNING id"#
+    ))
+    .bind(owner_id)
+    .bind(connections as i32)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_members (server_id, user_id) SELECT $1, UNNEST($2::uuid[])")
+        .bind(server_id)
+        .bind(&users)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let token_version: i64 = sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1")
+        .bind(owner_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    let addr = spawn_ws_app(&state).await;
+    let started = std::time::Instant::now();
+    let mut sockets = Vec::with_capacity(users.len());
+    // The test pool is small, so handshakes must not time out waiting for a connection.
+    let handshakes = Arc::new(tokio::sync::Semaphore::new(4));
+    for (index, user_id) in users.iter().enumerate() {
+        let token = voxpery_server::services::auth::generate_token(
+            *user_id,
+            &format!("load{index}"),
+            token_version,
+            &state.jwt_secret,
+            3600,
+        )
+        .unwrap();
+        let handshakes = handshakes.clone();
+        sockets.push(tokio::spawn(async move {
+            let auth = format!("Bearer {token}");
+            let permit = handshakes.acquire_owned().await.unwrap();
+            let mut ws = connect_ws(addr, &auth).await;
+            ws_barrier_ignoring_events(&mut ws, channel_id).await;
+            drop(permit);
+            while let Some(Ok(_)) = ws.next().await {}
+        }));
+    }
+    while state.sessions.len() < users.len() {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    eprintln!("{} connections up in {:?}", users.len(), started.elapsed());
+
+    let scans = || {
+        let db = state.db.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0)
+                   FROM pg_stat_user_tables WHERE relname = 'server_members'"#,
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+    let commits = || {
+        let db = state.db.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT xact_commit FROM pg_stat_database WHERE datname = current_database()",
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+    // Statistics reach PostgreSQL's views late.
+    let flush = std::time::Duration::from_secs(12);
+    tokio::time::sleep(flush).await;
+    let before = scans().await;
+    let commits_before = commits().await;
+    let window = std::time::Instant::now();
+    for _ in 0..events {
+        let event = match kind.as_str() {
+            "voice" => WsEvent::VoiceStateUpdate {
+                channel_id: Some(voice_channel_id),
+                user_id: owner_id,
+                server_id: Some(server_id),
+                channel_active_since_ms: None,
+                previous_channel_id: None,
+            },
+            "member" => WsEvent::MemberRoleUpdated {
+                server_id,
+                user_id: owner_id,
+            },
+            _ => WsEvent::PresenceUpdate {
+                user_id: owner_id,
+                status: "online".into(),
+            },
+        };
+        publish_event(&state, event).await;
+    }
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let busy: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'active'",
+        )
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+        if busy <= 1 {
+            break;
+        }
+    }
+    let settled = window.elapsed();
+    tokio::time::sleep(flush).await;
+    let after = scans().await;
+    let commits_after = commits().await;
+    eprintln!(
+        "MEASURE kind={kind} connections={} events={events} settled={settled:?} scans_per_event={:.1} commits_per_event={:.1}",
+        users.len(),
+        (after - before) as f64 / events as f64,
+        (commits_after - commits_before) as f64 / events as f64,
+    );
+    for socket in sockets {
+        socket.abort();
+    }
 }
