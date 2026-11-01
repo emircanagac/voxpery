@@ -172,6 +172,22 @@ async fn setup_app_requiring_email_verification() -> (axum::Router, Arc<AppState
     .await
 }
 
+async fn setup_app_with_object_store(
+    store: voxpery_server::services::object_storage::ObjectStore,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_storage(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+        Some(store),
+    )
+    .await
+}
+
 async fn build_test_app(
     email_verification_enabled: bool,
     email_verification_required: bool,
@@ -180,6 +196,30 @@ async fn build_test_app(
     google_oauth_enabled: bool,
     livekit_ws_url: String,
     livekit_api_url: Option<String>,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_storage(
+        email_verification_enabled,
+        email_verification_required,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_test_app_with_storage(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+    object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -199,6 +239,10 @@ async fn build_test_app(
         )
         .await
         .expect("Failed to init test attachment service");
+    let attachment_service = match object_store {
+        Some(store) => attachment_service.with_object_store(store),
+        None => attachment_service,
+    };
 
     let (tx, _rx) = broadcast::channel(256);
     let release_http_client = reqwest::Client::builder()

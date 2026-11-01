@@ -949,3 +949,104 @@ async fn image_grants_end_with_the_session() {
         "grant after password change"
     );
 }
+
+/// Runs against a real S3 compatible server when TEST_S3_ENDPOINT is set.
+#[tokio::test]
+async fn attachments_work_end_to_end_on_object_storage() {
+    use voxpery_server::services::object_storage::{ObjectStore, ObjectStoreConfig};
+    let (Some(_), Ok(endpoint)) = (test_db_url(), std::env::var("TEST_S3_ENDPOINT")) else {
+        eprintln!("SKIP: TEST_S3_ENDPOINT not set");
+        return;
+    };
+    let store = ObjectStore::new(ObjectStoreConfig {
+        endpoint,
+        bucket: "voxpery-tests".into(),
+        region: "us-east-1".into(),
+        access_key: std::env::var("TEST_S3_ACCESS_KEY").unwrap(),
+        secret_key: std::env::var("TEST_S3_SECRET_KEY").unwrap(),
+        virtual_host: false,
+    })
+    .unwrap();
+    store.create_bucket().await.unwrap();
+
+    let (mut app, state) = setup_app_with_object_store(store.clone()).await;
+    let (auth, user_id, password) = register_named_user(&mut app, "s3user").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Objects").await;
+
+    let attachment = upload_text_file(&mut app, &auth, "stored.txt", b"bytes in a bucket").await;
+    let (backend, storage_key): (String, String) = sqlx::query_as(
+        "SELECT storage_backend, storage_key FROM uploaded_attachments WHERE id = $1",
+    )
+    .bind(attachment)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(backend, "s3");
+    assert!(state
+        .attachment_service
+        .local_storage_dir()
+        .map(|root| !std::fs::read_dir(root)
+            .unwrap()
+            .any(|entry| entry.unwrap().path().is_file()))
+        .unwrap());
+    send_with_attachment(&mut app, &auth, channel_id, attachment).await;
+
+    // Signed download through the API, not from the bucket.
+    let url = state
+        .attachment_service
+        .signed_content_url(attachment, &state.jwt_secret);
+    let path = url.split_once("3001").unwrap().1.to_string();
+    let request = Request::builder()
+        .uri(path)
+        .header("Authorization", &auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(&body[..], b"bytes in a bucket");
+
+    // The data export reads the object.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "password": password })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut archive = zip::ZipArchive::new(Cursor::new(body.to_vec())).unwrap();
+    let mut text = String::new();
+    archive
+        .by_name("files/attachments/0001-stored.txt")
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    assert_eq!(text, "bytes in a bucket");
+    drop(archive);
+
+    // Deleting the account removes the object.
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &auth,
+        Some(json!({ "confirm": "DELETE", "password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    assert!(
+        store.get(&storage_key).await.is_err(),
+        "object must be gone"
+    );
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+}

@@ -299,6 +299,8 @@ docker compose logs --since 15m server | grep -Ei 'Attachment|upload|Failed to r
 docker volume inspect voxpery_attachments_data
 ```
 
+With `ATTACHMENTS_S3_*` set, new files are in the bucket and not in this volume, so back the bucket up with the provider's tools. `Object storage refused` in the logs shows the HTTP status the bucket returned.
+
 WebSocket disconnect surge:
 
 ```bash

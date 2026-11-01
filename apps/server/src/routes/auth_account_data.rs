@@ -454,16 +454,11 @@ pub(super) async fn export_my_data(
         archive_files.push((path, bytes));
     }
     for (index, attachment) in attachments.iter().enumerate() {
-        if attachment.storage_backend != "local" {
-            return Err(AppError::Conflict(
-                "A stored file is not available to the self-service exporter. Use the formal privacy request process".into(),
-            ));
-        }
         let safe_name = safe_export_filename(&attachment.original_name, "attachment");
         let path = format!("files/attachments/{:04}-{safe_name}", index + 1);
         let bytes = state
             .attachment_service
-            .read_local_attachment_bytes(&attachment.storage_key)
+            .read_attachment_bytes(&attachment.storage_backend, &attachment.storage_key)
             .await?;
         file_manifest.push(serde_json::json!({
             "archive_path": path,
@@ -637,9 +632,9 @@ pub(super) async fn delete_my_account(
     let mut tx = state.db.begin().await?;
     let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
 
-    // Files are removed from disk after the commit; the rows go with the user.
+    // Files are removed after the commit; the rows go with the user.
     let uploaded_storage_keys = sqlx::query_scalar::<_, String>(
-        "SELECT storage_key FROM uploaded_attachments WHERE user_id = $1 AND storage_backend = 'local'",
+        "SELECT storage_key FROM uploaded_attachments WHERE user_id = $1",
     )
     .bind(claims.sub)
     .fetch_all(&mut *tx)
@@ -809,15 +804,12 @@ pub(super) async fn delete_my_account(
         .execute(&mut *tx)
         .await?;
 
-    crate::services::attachment_release::queue_local_file_deletions(
-        &mut tx,
-        &uploaded_storage_keys,
-    )
-    .await?;
+    crate::services::attachment_release::queue_file_deletions(&mut tx, &uploaded_storage_keys)
+        .await?;
     tx.commit().await?;
 
     // Files that cannot be removed now stay queued and are retried in the background.
-    let files_pending_removal = crate::services::attachment_release::delete_queued_local_files(
+    let files_pending_removal = crate::services::attachment_release::delete_queued_files(
         &state.db,
         &state.attachment_service,
         &uploaded_storage_keys,

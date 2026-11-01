@@ -18,9 +18,14 @@ use tokio::{
     net::TcpStream,
     time::timeout,
 };
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
-use crate::{config::Config, errors::AppError};
+use crate::{
+    config::Config,
+    errors::AppError,
+    services::object_storage::{ObjectStore, ObjectStoreConfig},
+};
 
 const MAX_URL_LEN: usize = 2048;
 const DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE: usize = 10;
@@ -104,6 +109,8 @@ struct ClamAvConfig {
 #[derive(Clone)]
 pub struct AttachmentService {
     local_storage_root: PathBuf,
+    /// New files go here when configured; files already on the local disk stay readable.
+    object_store: Option<ObjectStore>,
     public_base_url: String,
     key_prefix: String,
     url_ttl_secs: u64,
@@ -224,6 +231,7 @@ pub struct AttachmentResponseItem {
 pub struct UploadedAttachmentRecord {
     pub id: Uuid,
     pub user_id: Uuid,
+    pub storage_backend: String,
     pub storage_key: String,
     pub original_name: String,
     pub content_type: String,
@@ -261,7 +269,7 @@ impl AttachmentService {
             .clone()
             .or_else(|| config.public_api_url.clone())
             .unwrap_or_else(|| "http://localhost:3001".to_string());
-        Self::new_local(
+        let service = Self::new_local(
             PathBuf::from(config.attachments_local_dir.clone()),
             key_prefix,
             url_ttl_secs,
@@ -271,7 +279,35 @@ impl AttachmentService {
             scanner,
             public_base_url,
         )
-        .await
+        .await?;
+        let (endpoint, bucket) = match (
+            config.attachments_s3_endpoint.clone(),
+            config.attachments_s3_bucket.clone(),
+        ) {
+            (Some(endpoint), Some(bucket)) => (endpoint, bucket),
+            (None, None) => return Ok(service),
+            _ => {
+                return Err(AppError::Validation(
+                    "ATTACHMENTS_S3_ENDPOINT and ATTACHMENTS_S3_BUCKET must be set together".into(),
+                ))
+            }
+        };
+        Ok(
+            service.with_object_store(ObjectStore::new(ObjectStoreConfig {
+                endpoint,
+                bucket,
+                region: config.attachments_s3_region.clone(),
+                access_key: config.attachments_s3_access_key.clone().unwrap_or_default(),
+                secret_key: config.attachments_s3_secret_key.clone().unwrap_or_default(),
+                virtual_host: config.attachments_s3_virtual_host,
+            })?),
+        )
+    }
+
+    /// Stores new files in `store`.
+    pub fn with_object_store(mut self, store: ObjectStore) -> Self {
+        self.object_store = Some(store);
+        self
     }
 
     pub async fn new_local_for_tests(base_dir: PathBuf) -> Result<Self, AppError> {
@@ -342,6 +378,7 @@ impl AttachmentService {
 
         Ok(Self {
             local_storage_root,
+            object_store: None,
             public_base_url: public_base_url.trim_end_matches('/').to_string(),
             key_prefix: normalized_key_prefix,
             url_ttl_secs: url_ttl_secs.max(60),
@@ -486,7 +523,7 @@ impl AttachmentService {
         let mut by_id = HashMap::new();
         if !ids.is_empty() {
             let rows = sqlx::query_as::<_, UploadedAttachmentRecord>(
-                r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+                r#"SELECT id, user_id, storage_backend, storage_key, original_name, content_type, size_bytes, sha256
                    FROM uploaded_attachments
                    WHERE id = ANY($1) AND scan_status = 'clean'"#,
             )
@@ -498,7 +535,7 @@ impl AttachmentService {
         let mut by_storage_key = HashMap::new();
         if !storage_keys.is_empty() {
             let rows = sqlx::query_as::<_, UploadedAttachmentRecord>(
-                r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+                r#"SELECT id, user_id, storage_backend, storage_key, original_name, content_type, size_bytes, sha256
                    FROM uploaded_attachments
                    WHERE storage_key = ANY($1) AND scan_status = 'clean'"#,
             )
@@ -570,6 +607,47 @@ impl AttachmentService {
             .map_err(|e| AppError::NotFound(format!("Attachment file missing: {e}")))
     }
 
+    /// Reads a stored file from the place its record names.
+    pub async fn read_attachment_bytes(
+        &self,
+        storage_backend: &str,
+        storage_key: &str,
+    ) -> Result<Vec<u8>, AppError> {
+        if storage_backend != "s3" {
+            return self.read_local_attachment_bytes(storage_key).await;
+        }
+        LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
+        let bytes = self
+            .required_object_store()?
+            .get(storage_key)
+            .await?
+            .bytes()
+            .await
+            .map_err(|_| AppError::Internal("Object storage read failed".into()))?;
+        Ok(bytes.to_vec())
+    }
+
+    /// A response body that streams a stored file.
+    pub async fn attachment_body(
+        &self,
+        storage_backend: &str,
+        storage_key: &str,
+    ) -> Result<axum::body::Body, AppError> {
+        if storage_backend != "s3" {
+            let file = self.open_local_attachment_file(storage_key).await?;
+            return Ok(axum::body::Body::from_stream(ReaderStream::new(file)));
+        }
+        LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
+        let response = self.required_object_store()?.get(storage_key).await?;
+        Ok(axum::body::Body::from_stream(response.bytes_stream()))
+    }
+
+    fn required_object_store(&self) -> Result<&ObjectStore, AppError> {
+        self.object_store.as_ref().ok_or_else(|| {
+            AppError::Internal("This file is in object storage, which is not configured".into())
+        })
+    }
+
     async fn find_attachment_by_id_for_owner(
         &self,
         db: &sqlx::PgPool,
@@ -577,7 +655,8 @@ impl AttachmentService {
         owner_id: Uuid,
     ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
         let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
-            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+            r#"SELECT id, user_id, storage_backend, storage_key, original_name, content_type,
+                      size_bytes, sha256
                FROM uploaded_attachments
                WHERE id = $1 AND user_id = $2 AND scan_status = 'clean'
                LIMIT 1"#,
@@ -596,7 +675,8 @@ impl AttachmentService {
         owner_id: Uuid,
     ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
         let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
-            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+            r#"SELECT id, user_id, storage_backend, storage_key, original_name, content_type,
+                      size_bytes, sha256
                FROM uploaded_attachments
                WHERE storage_key = $1 AND user_id = $2 AND scan_status = 'clean'
                LIMIT 1"#,
@@ -614,7 +694,8 @@ impl AttachmentService {
         attachment_id: Uuid,
     ) -> Result<Option<UploadedAttachmentRecord>, AppError> {
         let row = sqlx::query_as::<_, UploadedAttachmentRecord>(
-            r#"SELECT id, user_id, storage_key, original_name, content_type, size_bytes, sha256
+            r#"SELECT id, user_id, storage_backend, storage_key, original_name, content_type,
+                      size_bytes, sha256
                FROM uploaded_attachments
                WHERE id = $1 AND scan_status = 'clean'
                LIMIT 1"#,
@@ -771,6 +852,17 @@ impl AttachmentService {
         let storage_key =
             LocalAttachmentStorageKey::new(now.year() as u16, now.month() as u8, Uuid::new_v4());
         let key = storage_key.storage_key(&self.key_prefix);
+        if let Some(store) = &self.object_store {
+            store.put(&key, bytes, &content_type).await?;
+            return Ok(StoredAttachment {
+                storage_backend: "s3",
+                storage_key: key,
+                original_name,
+                content_type,
+                size_bytes,
+                sha256,
+            });
+        }
         let path = self.resolve_local_path(storage_key);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
@@ -788,10 +880,15 @@ impl AttachmentService {
         })
     }
 
-    pub async fn delete_local_file_by_storage_key(
-        &self,
-        storage_key: &str,
-    ) -> Result<(), AppError> {
+    /// Removes a file wherever it is; a file that is already gone counts as removed.
+    pub async fn delete_file_by_storage_key(&self, storage_key: &str) -> Result<(), AppError> {
+        if let Some(store) = &self.object_store {
+            store.delete(storage_key).await?;
+        }
+        self.delete_local_file_by_storage_key(storage_key).await
+    }
+
+    async fn delete_local_file_by_storage_key(&self, storage_key: &str) -> Result<(), AppError> {
         let storage_key = LocalAttachmentStorageKey::parse(storage_key, &self.key_prefix)?;
         let path = self.resolve_local_path(storage_key);
         match fs::remove_file(path).await {

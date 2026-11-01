@@ -250,13 +250,13 @@ Uniqueness (case-insensitive):
 - `last_claimed_at`: when the file was last uploaded (an identical re-upload reuses the row and updates it).
 - `release_check_at`: when the server next checks whether the upload is still used; `NULL` once it was found in use.
 - Unused uploads are released (migration `055`). Triggers on `messages` and `dm_messages` set `release_check_at` for the files of every deleted message, including messages removed with their channel, server or DM. A periodic job (every 10 minutes, and right after a message delete) deletes uploads that no message references and that were last uploaded more than 24 hours ago, subtracts their size from `users.storage_used_bytes` in the same transaction and removes the files after the commit. Unsent uploads therefore stay usable for 24 hours.
-- Local files are removed after the commit through `pending_file_deletions` (below), so a failed removal is retried.
+- `storage_backend` says where the file is: `local` or `s3`. Files are removed after the commit through `pending_file_deletions` (below), so a failed removal is retried.
 - Message `attachments` reference uploads by `id`; migration `055` added the id to older references that only had a URL. GIN indexes on `messages.attachments` and `dm_messages.attachments` serve the "still in use" and attachment-access lookups.
 
 ### `pending_file_deletions`
 
 - `storage_key` (primary key), `attempts`, `last_attempt_at`, `created_at`
-- Account deletion and the unused-upload release queue the local files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`).
+- Account deletion and the unused-upload release queue the files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`).
 
 ## Transactional Write Invariants
 

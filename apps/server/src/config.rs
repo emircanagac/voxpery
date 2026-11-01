@@ -73,6 +73,13 @@ pub struct Config {
     pub attachments_public_base_url: Option<String>,
     /// Local attachment directory for uploaded files.
     pub attachments_local_dir: String,
+    /// S3 compatible storage for new attachments; unset keeps them on the local disk.
+    pub attachments_s3_endpoint: Option<String>,
+    pub attachments_s3_bucket: Option<String>,
+    pub attachments_s3_region: String,
+    pub attachments_s3_access_key: Option<String>,
+    pub attachments_s3_secret_key: Option<String>,
+    pub attachments_s3_virtual_host: bool,
     /// Prefix used for stored attachment object keys.
     pub attachments_key_prefix: String,
     /// Per-file upload size limit for attachment uploads.
@@ -276,6 +283,21 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             attachments_local_dir: std::env::var("ATTACHMENTS_LOCAL_DIR")
                 .unwrap_or_else(|_| "./storage/attachments".into()),
+            attachments_s3_endpoint: std::env::var("ATTACHMENTS_S3_ENDPOINT")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            attachments_s3_bucket: std::env::var("ATTACHMENTS_S3_BUCKET")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            attachments_s3_region: std::env::var("ATTACHMENTS_S3_REGION")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "auto".into()),
+            attachments_s3_access_key: std::env::var("ATTACHMENTS_S3_ACCESS_KEY").ok(),
+            attachments_s3_secret_key: std::env::var("ATTACHMENTS_S3_SECRET_KEY").ok(),
+            attachments_s3_virtual_host: std::env::var("ATTACHMENTS_S3_VIRTUAL_HOST")
+                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
             attachments_key_prefix: std::env::var("ATTACHMENTS_KEY_PREFIX")
                 .unwrap_or_else(|_| "attachments".into())
                 .trim_matches('/')

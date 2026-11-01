@@ -75,14 +75,22 @@ LiveKit note:
 
 Attachments note:
 
-- Uploads are local-only and served via signed URLs under `/api/attachments/content/*`.
+- Uploads are stored on the local disk by default, or in an S3 compatible bucket, and are always served via signed URLs under `/api/attachments/content/*`.
 - Configure with:
   - `ATTACHMENTS_LOCAL_DIR`
   - `ATTACHMENTS_KEY_PREFIX`
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
 
-`ATTACHMENTS_KEY_PREFIX` is part of the persisted local storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
+`ATTACHMENTS_KEY_PREFIX` is part of the persisted storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
+
+S3 compatible storage is optional:
+
+- Set `ATTACHMENTS_S3_ENDPOINT`, `ATTACHMENTS_S3_BUCKET`, `ATTACHMENTS_S3_ACCESS_KEY` and `ATTACHMENTS_S3_SECRET_KEY`, plus `ATTACHMENTS_S3_REGION` where the provider needs one (default `auto`). `ATTACHMENTS_S3_VIRTUAL_HOST=true` selects `bucket.host` addresses for providers that do not offer `host/bucket`. Setting only one of the endpoint and the bucket stops the server at startup.
+- Create the bucket first and keep it private. Browsers never reach it: the server reads each file, so signed links, viewer permissions, magic-byte checks and ClamAV work the same in both modes.
+- New uploads go to the bucket. Each file's record names where it is, so existing local files keep working and the two modes can run side by side. Keep `attachments_data` until no record has `storage_backend = 'local'`.
+- To move existing files, copy each one from `<ATTACHMENTS_LOCAL_DIR>/YYYY/MM/<id>` to the object `<ATTACHMENTS_KEY_PREFIX>/YYYY/MM/<id>`, then run `UPDATE uploaded_attachments SET storage_backend = 's3' WHERE storage_backend = 'local'` once the copy is complete.
+- Removing files needs the provider's delete permission. A failed removal stays queued and is retried every 10 minutes.
 
 Optional integrations note:
 
@@ -209,7 +217,7 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
 - REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.
 - Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`. Instances share a Redis record of each voice join that lasts an hour at most, so a LiveKit webhook handled by another instance does not remove a participant that joined properly.
-- Local attachment storage is per-instance. For multiple backend instances, mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` or move attachments to a shared object storage backend before scaling writes.
+- Local attachment storage is per-instance. For multiple backend instances, use S3 compatible storage or mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
 
 ## 5) Validation Checklist

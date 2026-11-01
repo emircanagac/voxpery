@@ -270,6 +270,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
   - Docker Compose keeps ClamAV disabled by default; enable it explicitly with `--profile security`
 - **Storage backends**:
   - Local filesystem (`ATTACHMENTS_LOCAL_DIR` + `ATTACHMENTS_KEY_PREFIX`)
+  - Optional S3 compatible bucket (`ATTACHMENTS_S3_*`), which stays private: the server signs every request with AWS Signature Version 4, follows no redirects and accepts only server-generated keys. Files reach clients through the same signed, permission-checked API route as local files
   - Local files are written to a same-directory temporary path, flushed, and atomically renamed so partially written files are never exposed under final storage keys
   - Local storage keys must match the configured prefix plus a fixed `YYYY/MM/canonical-UUID` layout. The filesystem path is reconstructed from those parsed values beneath a canonical storage root; keys with a foreign prefix, traversal input, malformed date/UUID components, or symlink escapes cannot be served
   - Upload metadata persisted in `uploaded_attachments`
