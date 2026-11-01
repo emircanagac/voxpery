@@ -256,7 +256,7 @@ Uniqueness (case-insensitive):
 ### `pending_file_deletions`
 
 - `storage_key` (primary key), `attempts`, `last_attempt_at`, `created_at`
-- Account deletion and the unused-upload release queue the files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`).
+- Account deletion and the unused-upload release queue the files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`), which locks each entry with `FOR UPDATE SKIP LOCKED` so instances never work on the same one.
 
 ## Transactional Write Invariants
 

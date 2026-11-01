@@ -236,22 +236,56 @@ pub async fn delete_queued_files(
     pending
 }
 
-/// Retries queued file removals that failed before (bounded per call).
+/// Retries queued file removals that failed before (bounded per call). An entry stays locked
+/// while its file is removed, so instances sharing the queue never work on the same entry.
 pub async fn retry_pending_file_deletions(
     db: &PgPool,
     attachment_service: &AttachmentService,
 ) -> Result<usize, AppError> {
-    let storage_keys = sqlx::query_scalar::<_, String>(
-        r#"SELECT storage_key
-           FROM pending_file_deletions
-           ORDER BY last_attempt_at NULLS FIRST, created_at
-           LIMIT $1"#,
-    )
-    .bind(RELEASE_BATCH_SIZE as i64)
-    .fetch_all(db)
-    .await?;
-    let pending = delete_queued_files(db, attachment_service, &storage_keys).await;
-    Ok(storage_keys.len() - pending)
+    let started: DateTime<Utc> = sqlx::query_scalar("SELECT NOW()").fetch_one(db).await?;
+    let mut removed = 0;
+    for _ in 0..RELEASE_BATCH_SIZE {
+        let mut tx = db.begin().await?;
+        let storage_key = sqlx::query_scalar::<_, String>(
+            r#"SELECT storage_key
+               FROM pending_file_deletions
+               WHERE last_attempt_at IS NULL OR last_attempt_at < $1
+               ORDER BY last_attempt_at NULLS FIRST, created_at
+               LIMIT 1
+               FOR UPDATE SKIP LOCKED"#,
+        )
+        .bind(started)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(storage_key) = storage_key else {
+            break;
+        };
+        match attachment_service
+            .delete_file_by_storage_key(&storage_key)
+            .await
+        {
+            Ok(()) => {
+                sqlx::query("DELETE FROM pending_file_deletions WHERE storage_key = $1")
+                    .bind(&storage_key)
+                    .execute(&mut *tx)
+                    .await?;
+                removed += 1;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "File removal failed; it will be retried");
+                sqlx::query(
+                    r#"UPDATE pending_file_deletions
+                       SET attempts = attempts + 1, last_attempt_at = NOW()
+                       WHERE storage_key = $1"#,
+                )
+                .bind(&storage_key)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+    }
+    Ok(removed)
 }
 
 /// Releases unused uploads until no full batch is left (bounded per call).
