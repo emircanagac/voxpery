@@ -95,6 +95,7 @@ Optional integrations note:
 - Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
 - SMTP delivery uses STARTTLS on submission port 587 and forces an IPv4 outbound connection, matching hosts that do not provide Docker IPv6 routing.
 - Password reset and email verification depend on email delivery.
+- Redis 8 reads the data of existing Redis 7.4 installations without a migration step. Data written by Redis 8 cannot be loaded by Redis 7.4, so back up the `redis_data` volume before upgrading if you may need to roll back. Sign-outs are stored there, so do not start with an empty volume.
 - Set `FRONTEND_URL` to the public web origin, for example `https://voxpery.com`, so email links do not depend on `CORS_ORIGINS` ordering.
 - The official server image prefers IPv4 for outbound SMTP resolution. This avoids IPv6-only DNS answers causing `Network is unreachable` on hosts or Docker networks without IPv6 routing.
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.

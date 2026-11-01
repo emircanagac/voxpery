@@ -50,7 +50,7 @@ services:
     logging: *default-logging
 
   redis:
-    image: redis:7.4.11-alpine
+    image: redis:8.10.3-alpine
     container_name: voxpery-redis
     restart: unless-stopped
     # Bounded memory; noeviction keeps sessions and the token blacklist instead of evicting them.

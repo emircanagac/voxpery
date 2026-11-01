@@ -30,7 +30,7 @@ be reviewed and smoke-tested deliberately:
 | --- | --- |
 | LiveKit | `livekit/livekit-server:v1.13.11` |
 | PostgreSQL | `postgres:16.15-alpine3.24` |
-| Redis | `redis:7.4.11-alpine` |
+| Redis | `redis:8.10.3-alpine` |
 | ClamAV | `clamav/clamav:1.4.6` |
 
 Before changing a pin, test the candidate with `docker compose config`, the

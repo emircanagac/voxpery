@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
 - Voice and screen sharing run on LiveKit server v1.13.11, which brings stability fixes for connections and reconnects.
 - Message search stays fast in large channels: searching one million messages for a rare word took about 4 ms instead of 240 ms in a local test.
+- Self-hosting: Redis moves to version 8, which is open source under the AGPL. Existing Redis 7.4 data loads as is, but data written by Redis 8 cannot be read by Redis 7.4 afterwards, so take a backup before upgrading.
 
 ### Fixed
 - Markdown (`.md`) files can be uploaded as attachments.
