@@ -1,6 +1,6 @@
 # Data Subject Request Process
 
-The in-app ZIP is a bounded convenience export: it includes the latest 20,000 authored server messages and 20,000 authored DMs plus eligible user-owned files. It is not a complete GDPR/KVKK access response.
+The in-app ZIP is a bounded convenience export: it includes the latest 20,000 authored server messages and 20,000 authored DMs, personal notes and eligible user-owned files. It is not a complete GDPR/KVKK access response.
 
 ## Hosted-service requests
 

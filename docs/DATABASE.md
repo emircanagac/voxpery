@@ -165,7 +165,7 @@ Uniqueness (case-insensitive):
 ### `dm_channels`
 
 - `id`, `created_at`, `is_group`, `name`, `owner_id`
-- One-to-one DMs have `is_group = FALSE` and exactly two members. Group DMs (`is_group = TRUE`) have up to 8 members, an optional `name` (1-64 characters) and an `owner_id` that falls back to the longest-standing member when the owner leaves.
+- One-to-one DMs have `is_group = FALSE` and exactly two members. Group DMs (`is_group = TRUE`) have up to 8 members, an optional `name` (1-64 characters) and an `owner_id` that falls back to the longest-standing member when the owner leaves or deletes their account.
 
 ### `dm_channel_members`
 
