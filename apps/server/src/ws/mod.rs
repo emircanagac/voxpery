@@ -3,6 +3,7 @@ mod audience;
 pub mod bus;
 pub mod cluster;
 pub mod handler;
+mod voice_commands;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
