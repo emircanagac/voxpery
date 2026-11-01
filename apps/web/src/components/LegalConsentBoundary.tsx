@@ -145,7 +145,7 @@ function LegalConsentGate() {
           Please review the current documents before continuing to your account.
         </p>
 
-        <LegalAcknowledgements terms={termsAccepted} privacy={privacyAcknowledged} kvkk={kvkkAcknowledged}
+        <LegalAcknowledgements documents={status} terms={termsAccepted} privacy={privacyAcknowledged} kvkk={kvkkAcknowledged}
           onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} onKvkk={setKvkkAcknowledged} disabled={submitting} />
 
         {submitError && <div className="pw-hint pw-hint-warn" role="alert">{submitError}</div>}

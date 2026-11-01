@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
+import { authApi, type LegalConsentStatus } from '../api'
 import { PUBLISHED_LEGAL_VERSION } from '../legal'
 import { ROUTES } from '../routes'
 import { usePublicPageMetadata } from './publicPageMetadata'
@@ -128,6 +130,8 @@ const DOCUMENTS = [
     path: ROUTES.terms,
     label: 'Terms',
     lang: 'en',
+    name: 'Terms of Service',
+    urlKey: 'terms_url',
     title: 'Terms of Service | Voxpery',
     description: 'Terms of Service for the official hosted Voxpery service.',
     Content: TermsOfService,
@@ -136,6 +140,8 @@ const DOCUMENTS = [
     path: ROUTES.privacy,
     label: 'Privacy',
     lang: 'en',
+    name: 'Privacy Notice',
+    urlKey: 'privacy_url',
     title: 'Privacy Notice | Voxpery',
     description: 'How the official hosted Voxpery service processes personal data.',
     Content: EnglishPrivacyNotice,
@@ -144,14 +150,35 @@ const DOCUMENTS = [
     path: ROUTES.kvkk,
     label: 'KVKK',
     lang: 'tr',
+    name: 'KVKK Aydınlatma Metni',
+    urlKey: 'kvkk_url',
     title: 'KVKK Aydınlatma Metni | Voxpery',
     description: 'Voxpery barındırılan hizmeti için KVKK aydınlatma metni.',
     Content: KvkkNotice,
   },
 ] as const
 
+/** Shown by a server that is not voxpery.com: the hosted documents do not describe it. */
+function SelfHostedNotice({ name, url }: { name: string, url?: string | null }) {
+  return <>
+    <h1>{name}</h1>
+    <p>This server is run independently of voxpery.com. Its operator is the data controller and decides how your data is processed. The documents of the official Voxpery service do not apply here.</p>
+    {url
+      ? <p><a href={url} target="_blank" rel="noreferrer">Read this server's {name}</a></p>
+      : <p>The operator of this server has not published this document here. Ask them for it before you share personal data.</p>}
+  </>
+}
+
 export default function LegalPage() {
   const { pathname } = useLocation()
+  const [documents, setDocuments] = useState<LegalConsentStatus | null>(null)
+  useEffect(() => {
+    let active = true
+    authApi.getLegalDocuments()
+      .then((status) => { if (active) setDocuments(status) })
+      .catch(() => { /* The hosted text stays; this page must render without the API. */ })
+    return () => { active = false }
+  }, [])
   const active = DOCUMENTS.find(doc => doc.path === pathname) ?? DOCUMENTS[1]
   usePublicPageMetadata(active.path, active.title, active.description)
   return <main
@@ -171,6 +198,10 @@ export default function LegalPage() {
         ))}
       </nav>
     </header>
-    <article className="legal-document" lang={active.lang}><active.Content /></article>
+    <article className="legal-document" lang={documents?.operator === 'self_hosted' ? 'en' : active.lang}>
+      {documents?.operator === 'self_hosted'
+        ? <SelfHostedNotice name={active.name} url={documents[active.urlKey]} />
+        : <active.Content />}
+    </article>
   </main>
 }

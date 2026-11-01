@@ -58,6 +58,7 @@ Important behavior:
   - Available even when acknowledgement is missing so the client can display the form. Missing/revoked credentials return `401`; protected application routes retain their independent legal gate. `/me` keeps its existing response for compatibility.
 - `GET /api/auth/legal-documents`
   - Public current Terms, Privacy Notice, and KVKK version metadata; no account status or invented acceptance.
+  - `operator` is `hosted` on the official service and `self_hosted` elsewhere; `terms_url`, `privacy_url` and `kvkk_url` are the documents a self-hosted operator published, or `null`. `GET /api/auth/session` and `/api/auth/legal-consent` return the same fields.
 - `GET /api/auth/legal-consent`
   - Returns whether the authenticated account must acknowledge newer legal documents and the current Terms, Privacy Notice, and KVKK versions.
 - `POST /api/auth/legal-consent`

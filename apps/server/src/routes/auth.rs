@@ -37,9 +37,9 @@ use crate::{
     services::avatar_images::validate_profile_avatar_url,
     services::client_ip::resolve_client_ip,
     services::privacy::{
-        has_current_legal_consent, record_privacy_event, validate_current_legal_documents,
-        CURRENT_KVKK_NOTICE_VERSION, CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION,
-        DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT, DATA_EXPORT_REAUTH_MAX_AGE_SECS,
+        current_kvkk_notice_version, current_privacy_notice_version, current_terms_version,
+        has_current_legal_consent, legal_documents, record_privacy_event,
+        validate_current_legal_documents, DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT, DATA_EXPORT_REAUTH_MAX_AGE_SECS,
     },
     services::rate_limit::enforce_rate_limit,
     services::server_membership,
@@ -650,9 +650,9 @@ async fn register(
     .bind(username)
     .bind(&email)
     .bind(&password_hash)
-    .bind(CURRENT_TERMS_VERSION)
-    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
-    .bind(CURRENT_KVKK_NOTICE_VERSION)
+    .bind(current_terms_version())
+    .bind(current_privacy_notice_version())
+    .bind(current_kvkk_notice_version())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -660,9 +660,9 @@ async fn register(
         &mut tx,
         user.id,
         "account_registered",
-        Some(CURRENT_TERMS_VERSION),
-        Some(CURRENT_PRIVACY_NOTICE_VERSION),
-        Some(CURRENT_KVKK_NOTICE_VERSION),
+        Some(current_terms_version()),
+        Some(current_privacy_notice_version()),
+        Some(current_kvkk_notice_version()),
     )
     .await?;
     tx.commit().await?;
@@ -1099,6 +1099,10 @@ struct LegalConsentStatus {
     current_terms_version: &'static str,
     current_privacy_notice_version: &'static str,
     current_kvkk_notice_version: &'static str,
+    operator: &'static str,
+    terms_url: Option<&'static str>,
+    privacy_url: Option<&'static str>,
+    kvkk_url: Option<&'static str>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1132,9 +1136,9 @@ async fn get_session(
     )
     .bind(claims.sub)
     .bind(claims.ver)
-    .bind(CURRENT_TERMS_VERSION)
-    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
-    .bind(CURRENT_KVKK_NOTICE_VERSION)
+    .bind(current_terms_version())
+    .bind(current_privacy_notice_version())
+    .bind(current_kvkk_notice_version())
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::Unauthorized)?;
@@ -1155,11 +1159,20 @@ async fn get_session(
 
 impl LegalConsentStatus {
     fn new(required: bool) -> Self {
+        let documents = legal_documents();
         Self {
             required,
-            current_terms_version: CURRENT_TERMS_VERSION,
-            current_privacy_notice_version: CURRENT_PRIVACY_NOTICE_VERSION,
-            current_kvkk_notice_version: CURRENT_KVKK_NOTICE_VERSION,
+            current_terms_version: current_terms_version(),
+            current_privacy_notice_version: current_privacy_notice_version(),
+            current_kvkk_notice_version: current_kvkk_notice_version(),
+            operator: if documents.hosted {
+                "hosted"
+            } else {
+                "self_hosted"
+            },
+            terms_url: documents.terms_url.as_deref(),
+            privacy_url: documents.privacy_url.as_deref(),
+            kvkk_url: documents.kvkk_url.as_deref(),
         }
     }
 }
@@ -1223,9 +1236,9 @@ async fn acknowledge_legal_consent(
            RETURNING id"#,
     )
     .bind(claims.sub)
-    .bind(CURRENT_TERMS_VERSION)
-    .bind(CURRENT_PRIVACY_NOTICE_VERSION)
-    .bind(CURRENT_KVKK_NOTICE_VERSION)
+    .bind(current_terms_version())
+    .bind(current_privacy_notice_version())
+    .bind(current_kvkk_notice_version())
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -1234,9 +1247,9 @@ async fn acknowledge_legal_consent(
             &mut tx,
             claims.sub,
             "legal_documents_acknowledged",
-            Some(CURRENT_TERMS_VERSION),
-            Some(CURRENT_PRIVACY_NOTICE_VERSION),
-            Some(CURRENT_KVKK_NOTICE_VERSION),
+            Some(current_terms_version()),
+            Some(current_privacy_notice_version()),
+            Some(current_kvkk_notice_version()),
         )
         .await?;
     }

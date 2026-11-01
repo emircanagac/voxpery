@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sending a message with a file uploaded more than a day ago can no longer lose the file to the cleanup of unused uploads: the file stays with the message, or the send fails with a clear error.
 - Data export: WebP and GIF profile pictures are now in the ZIP archive next to PNG and JPEG ones, and the archive says when a profile picture is an external link that could not be included.
 - AutoMod link filter: links without `https://` are caught for common domain endings such as `example.io`, `site.dev` and `foo.gg`, and text like `object.compare` or `v1.2` is no longer blocked. An email address alone no longer counts as a link.
+- Self-hosted servers: registration and the acknowledgement prompt no longer show the documents of voxpery.com. Operators name their own with `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` and `LEGAL_DOCUMENTS_VERSION`, the legal pages say who is responsible for the server, and updates to the hosted documents no longer ask people on other servers to acknowledge them.
 
 ## [0.4.11] - 2026-10-31
 

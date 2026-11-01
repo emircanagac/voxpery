@@ -299,9 +299,9 @@ pub(super) async fn complete(
         form.kvkk_notice_version.trim(),
     ) {
         drop(tx);
-        let current_versions = form.terms_version.trim() == CURRENT_TERMS_VERSION
-            && form.privacy_notice_version.trim() == CURRENT_PRIVACY_NOTICE_VERSION
-            && form.kvkk_notice_version.trim() == CURRENT_KVKK_NOTICE_VERSION;
+        let current_versions = form.terms_version.trim() == current_terms_version()
+            && form.privacy_notice_version.trim() == current_privacy_notice_version()
+            && form.kvkk_notice_version.trim() == current_kvkk_notice_version();
         return Ok(page(
             &state,
             &pending,
@@ -439,7 +439,7 @@ async fn create_account(
     let password_hash = hash_password_async(&form.password).await?;
     let user = sqlx::query_as::<_, User>("INSERT INTO users (id,username,email,password_hash,status,dm_privacy,email_verified,created_at,terms_version,terms_accepted_at,privacy_notice_version,privacy_notice_acknowledged_at,kvkk_notice_version,kvkk_notice_acknowledged_at) VALUES ($1,$2,$3,$4,'online','everyone',FALSE,NOW(),$5,NOW(),$6,NOW(),$7,NOW()) RETURNING *")
         .bind(Uuid::new_v4()).bind(username).bind(&email).bind(password_hash)
-        .bind(CURRENT_TERMS_VERSION).bind(CURRENT_PRIVACY_NOTICE_VERSION).bind(CURRENT_KVKK_NOTICE_VERSION)
+        .bind(current_terms_version()).bind(current_privacy_notice_version()).bind(current_kvkk_notice_version())
         .fetch_one(&mut **tx)
         .await
         .map_err(|error| {
@@ -458,9 +458,9 @@ async fn create_account(
         tx,
         user.id,
         "account_registered",
-        Some(CURRENT_TERMS_VERSION),
-        Some(CURRENT_PRIVACY_NOTICE_VERSION),
-        Some(CURRENT_KVKK_NOTICE_VERSION),
+        Some(current_terms_version()),
+        Some(current_privacy_notice_version()),
+        Some(current_kvkk_notice_version()),
     )
     .await?;
     Ok(user)

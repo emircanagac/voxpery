@@ -14,4 +14,6 @@ Before opening a deployment to users, replace every bracketed item and obtain ju
 8. Terms/notice versioning and proof of the versions shown at registration.
 9. Local rules such as KVKK, GDPR/ePrivacy, 5651, VERBİS, consumer law, and child-safety requirements.
 
-Self-host operators should update the registration links to their own documents and must not present Voxpery's hosted-service operator as their controller.
+Publish the finished documents and name them in the server environment: `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` (http or https) and `LEGAL_DOCUMENTS_VERSION` (up to 32 letters, digits, `.`, `-` or `_`). Registration and the acknowledgement prompt then link these documents, and the server asks everyone to acknowledge them again whenever the version changes. Until a document is named, its page says that the operator has not published it. Voxpery's hosted documents are never shown on a self-hosted server, and updates to them do not change what its users acknowledged.
+
+Self-host operators must not present Voxpery's hosted-service operator as their controller.

@@ -1579,6 +1579,21 @@ async fn data_export_returns_user_profile_and_messages() {
 }
 
 #[tokio::test]
+async fn a_self_hosted_server_describes_its_legal_documents() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let (status, documents) =
+        api_json(&mut app, "GET", "/api/auth/legal-documents", "", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(documents["operator"], "self_hosted");
+    assert_eq!(documents["current_terms_version"], CURRENT_TERMS_VERSION);
+    assert!(documents["terms_url"].is_null());
+}
+
+#[tokio::test]
 async fn data_export_includes_every_stored_avatar_format() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");

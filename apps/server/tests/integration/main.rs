@@ -47,12 +47,15 @@ use voxpery_server::{
     services::{
         auth::generate_token,
         image_proxy_grant,
-        privacy::{
-            CURRENT_KVKK_NOTICE_VERSION, CURRENT_PRIVACY_NOTICE_VERSION, CURRENT_TERMS_VERSION,
-        },
+        privacy::SELF_HOSTED_DEFAULT_LEGAL_VERSION,
     },
     AppState,
 };
+
+// The test server is not the official service, so it asks for the self-hosted versions.
+const CURRENT_TERMS_VERSION: &str = SELF_HOSTED_DEFAULT_LEGAL_VERSION;
+const CURRENT_PRIVACY_NOTICE_VERSION: &str = SELF_HOSTED_DEFAULT_LEGAL_VERSION;
+const CURRENT_KVKK_NOTICE_VERSION: &str = SELF_HOSTED_DEFAULT_LEGAL_VERSION;
 
 fn test_db_url() -> Option<String> {
     dotenvy::dotenv().ok();

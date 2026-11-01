@@ -45,7 +45,8 @@ pub(super) fn pending_cookie_hash(headers: &HeaderMap, name: &str) -> Result<Str
     Ok(BASE64URL.encode(Sha256::digest(secret.as_bytes())))
 }
 
-/// Public web origin that serves /terms, /privacy and /kvkk.
+/// Public web origin that serves /terms, /privacy and /kvkk. A self-hosted server's own
+/// documents take their place when its operator published them.
 pub(super) fn legal_links_origin(state: &AppState) -> &str {
     state
         .frontend_url
@@ -62,36 +63,42 @@ pub(super) fn legal_links_origin(state: &AppState) -> &str {
 
 /// Checkbox and hidden-version inputs for the three current legal documents.
 pub(super) fn legal_acknowledgement_inputs(state: &AppState, accepted: [bool; 3]) -> String {
-    let legal_origin = escape_html_attribute(legal_links_origin(state));
+    let legal_origin = legal_links_origin(state);
+    let documents = legal_documents();
     [
         (
             "terms_accepted",
             "terms_version",
             "terms",
             "I accept the Terms of Service",
-            CURRENT_TERMS_VERSION,
+            current_terms_version(),
+            documents.terms_url.as_deref(),
         ),
         (
             "privacy_notice_acknowledged",
             "privacy_notice_version",
             "privacy",
             "I have read the Privacy Notice",
-            CURRENT_PRIVACY_NOTICE_VERSION,
+            current_privacy_notice_version(),
+            documents.privacy_url.as_deref(),
         ),
         (
             "kvkk_notice_acknowledged",
             "kvkk_notice_version",
             "kvkk",
             "I have read the KVKK Notice",
-            CURRENT_KVKK_NOTICE_VERSION,
+            current_kvkk_notice_version(),
+            documents.kvkk_url.as_deref(),
         ),
     ]
     .iter()
     .enumerate()
-    .map(|(index, (name, version_name, path, label, version))| {
+    .map(|(index, (name, version_name, path, label, version, url))| {
+        let href = url.map_or_else(|| format!("{legal_origin}/{path}"), str::to_string);
         format!(
-            "<label class=check><input type=checkbox name={name} value=true required {}><a href=\"{legal_origin}/{path}\" target=_blank rel=noreferrer>{label}</a></label><input type=hidden name={version_name} value=\"{}\">",
+            "<label class=check><input type=checkbox name={name} value=true required {}><a href=\"{}\" target=_blank rel=noreferrer>{label}</a></label><input type=hidden name={version_name} value=\"{}\">",
             if accepted[index] { "checked" } else { "" },
+            escape_html_attribute(&href),
             escape_html_attribute(version),
         )
     })

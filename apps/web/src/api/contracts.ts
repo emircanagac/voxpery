@@ -82,6 +82,10 @@ export interface LegalConsentStatus {
     current_terms_version: string
     current_privacy_notice_version: string
     current_kvkk_notice_version: string
+    operator?: 'hosted' | 'self_hosted'
+    terms_url?: string | null
+    privacy_url?: string | null
+    kvkk_url?: string | null
 }
 
 export interface SessionResponse {
