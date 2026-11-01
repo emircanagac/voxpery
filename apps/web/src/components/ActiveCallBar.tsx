@@ -410,6 +410,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     if (!video || !state.cameraStream) return
     cameraKeepaliveCleanupRef.current = attachMediaStreamPreview(video, state.cameraStream)
   }, [state.cameraStream])
+  // Keeps the stream, not a flag, so the next share starts with its preview on again.
+  const [pausedPreviewStream, setPausedPreviewStream] = useState<MediaStream | null>(null)
+  const isScreenPreviewPaused = !!state.screenStream && pausedPreviewStream === state.screenStream
   const attachScreenPreviewElement = useCallback((video: HTMLVideoElement | null) => {
     screenPreviewCleanupRef.current?.()
     screenPreviewCleanupRef.current = null
@@ -1873,7 +1876,16 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
               )}
               {state.isScreenSharing && state.screenStream && (
                 <VoiceMediaPreview kind="screen" className={`voice-stage-share-tile${theaterStreamKey === 'local-screen' ? ' is-theater-focused' : ''}`} data-fullscreen-key="screen" style={screenTileFrameStyle('screen')} onMouseMove={handleTileMouseMove} onMouseLeave={handleTileMouseLeave} onDoubleClick={theaterStreamKey === 'local-screen' ? toggleTileFullscreen : undefined}>
-                  <video autoPlay muted playsInline ref={attachScreenPreviewElement} />
+                  {isScreenPreviewPaused ? (
+                    <div className="screen-share-preview-paused">
+                      <div className="voice-stage-hidden-media-title">Your stream is still running</div>
+                      <div className="voice-stage-hidden-media-sub">Viewers see it as usual. Only your preview is paused.</div>
+                      <button type="button" className="voice-stage-hidden-media-show" onClick={() => setPausedPreviewStream(null)}>
+                        <Eye size={14} />
+                        Resume preview
+                      </button>
+                    </div>
+                  ) : <video autoPlay muted playsInline ref={attachScreenPreviewElement} />}
                   {showTheaterStrip && theaterStreamKey !== 'local-screen' && (
                     <button type="button" className="screen-share-strip-focus" aria-label="Focus your screen share" onClick={() => toggleTheaterStream('local-screen')} />
                   )}
@@ -1882,6 +1894,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                   <div className="screen-share-controls-bar">
                     <div className="screen-share-controls-left" />
                     <div className="screen-share-controls-right">
+                      {!isScreenPreviewPaused && (
+                        <button
+                          type="button"
+                          className="screen-share-controls-btn"
+                          title="Pause preview"
+                          aria-label="Pause preview"
+                          onClick={() => setPausedPreviewStream(state.screenStream)}
+                        >
+                          <EyeOff size={16} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="screen-share-controls-btn screen-share-focus-btn"

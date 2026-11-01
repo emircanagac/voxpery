@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Security updates.
 
+### Added
+- Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
+
 ### Fixed
 - Group DMs: when the owner deletes their account, the longest-standing member becomes the owner and the remaining members see the change right away. Groups already left without an owner are repaired, so members can manage them again.
 - Sending a message with a file uploaded more than a day ago can no longer lose the file to the cleanup of unused uploads: the file stays with the message, or the send fails with a clear error.

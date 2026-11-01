@@ -11104,6 +11104,24 @@ button.message-author {
   background: #000;
 }
 
+.screen-share-preview-paused {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: #000;
+}
+
+.screen-share-stage--strip .screen-share-preview-paused .voice-stage-hidden-media-sub {
+  display: none;
+}
+
 .screen-share-preview.camera-preview video,
 .screen-share-preview[data-media-kind="camera"] video {
   object-fit: cover;
