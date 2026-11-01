@@ -13,7 +13,7 @@ interface StatusIconProps {
   status: StatusValue
   /** 'badge' = on avatar corner with circle bg; 'inline' = icon only next to text */
   variant: 'badge' | 'inline'
-  /** Icon size in px (or CSS value). Defaults to CSS vars in index.css */
+  /** Icon size in px (or CSS value). Defaults to CSS vars in styles/tokens.css */
   size?: number | string
   className?: string
   ariaHidden?: boolean

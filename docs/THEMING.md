@@ -12,7 +12,7 @@ The appearance setting styles only the signed-in app (`/social` and `/servers`).
 
 ## Styling Rules
 
-- Build core surfaces from the semantic variables in `apps/web/src/index.css`, such as `--bg-chat`, `--bg-surface`, `--bg-input`, `--text-primary`, and `--border-subtle`.
+- Build core surfaces from the semantic variables in `apps/web/src/styles/tokens.css`, such as `--bg-chat`, `--bg-surface`, `--bg-input`, `--text-primary`, and `--border-subtle`.
 - Build selected and focus states from `--accent-primary` instead of fixed blue, pink, or purple values.
 - Use `rgba(var(--ui-contrast-rgb), alpha)` for neutral overlays that must work on both dark and light surfaces.
 - Keep status, warning, and destructive colors semantic; they are not user accent colors.

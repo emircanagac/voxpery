@@ -1,0 +1,1307 @@
+/* Left-bottom panel: User bar only (callbar moved to chat overlay) */
+.left-bottom-panel {
+  position: fixed;
+  left: var(--server-bar-width);
+  width: var(--channel-sidebar-width);
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  padding-bottom: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.left-bottom-panel>* {
+  pointer-events: auto;
+}
+
+/* ── Call bar overlay — fixed to bottom of chat content area, aligned with user-bar-wrap ── */
+.callbar-overlay {
+  position: fixed;
+  left: calc(var(--server-bar-width) + var(--channel-sidebar-width));
+  right: var(--member-sidebar-width);
+  bottom: 0;
+  height: 80px;              /* match user-bar-wrap height */
+  z-index: 130;
+  pointer-events: none;
+  padding: 0 12px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.support-dock {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: var(--member-sidebar-width);
+  height: 80px;
+  z-index: 131;
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border-top: var(--border-subtle);
+  border-left: var(--border-subtle);
+}
+
+
+
+.callbar-overlay > * {
+  pointer-events: auto;
+}
+
+.callbar-overlay .callbar-wrap {
+  position: static;
+  width: 100%;
+}
+
+.callbar-overlay .callbar-frame {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.callbar-idle {
+  width: 100%;
+}
+
+.callbar-idle::after {
+  content: '';
+  flex: 1 1 0%;
+}
+
+.callbar-control-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Profile: anchored to bottom, clearly separated from content above */
+.user-bar-wrap {
+  height: 80px; /* Force consistent height */
+  min-height: 80px;
+  background: var(--bg-surface);
+  border-radius: 0;
+  border: none;
+  border-top: var(--border-subtle);
+  border-right: var(--border-subtle);
+  padding: 10px 12px 12px;
+  flex-shrink: 0;
+  position: relative;
+  --status-badge-bg: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* This pushes the settings icon to the far right */
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Same as channel-sidebar in Servers: full-height column, padding-bottom so content doesn't sit under User panel */
+.unified-content-friends .social-sidebar {
+  padding-bottom: 80px;
+  /* match channel-sidebar: space for fixed User panel */
+}
+
+
+.screen-share-stage {
+  position: fixed;
+  left: calc(var(--server-bar-width) + var(--channel-sidebar-width) + var(--voice-stage-gap));
+  right: calc(var(--member-sidebar-width) + var(--voice-stage-gap));
+  top: calc(var(--header-height) + 64px);
+  bottom: calc(80px + var(--voice-stage-gap));
+  z-index: 70;
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  --stage-gap: 12px;
+  gap: var(--stage-gap);
+  align-content: stretch;
+  align-items: stretch;
+  justify-items: stretch;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  pointer-events: auto;
+}
+
+/* With the member list hidden, the voice stage uses the freed space like the chat does. */
+@media (min-width: 960px) {
+  body:has(.member-sidebar--collapsed) .screen-share-stage {
+    right: var(--voice-stage-gap);
+  }
+}
+
+.screen-share-stage[data-stage-density="crowded"] {
+  --stage-gap: 10px;
+}
+
+.screen-share-stage[data-stage-density="dense"] {
+  --stage-gap: 8px;
+}
+
+.screen-share-mini-player {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  width: 360px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+/* Frames are drawn over the video so the box keeps the stream's exact aspect ratio. */
+.screen-share-mini-player::after,
+.screen-share-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 56%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.screen-share-mini-player-open {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: #000;
+  cursor: grab;
+  touch-action: none;
+}
+
+.screen-share-mini-player-open:active { cursor: grabbing; }
+
+.screen-share-mini-player-open video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.screen-share-mini-player-open:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -3px;
+}
+
+.screen-share-mini-player-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  padding: 8px 24px;
+  color: #f8fafc;
+  background: transparent;
+  text-shadow: 0 1px 2px #000, 0 0 1px #000;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.screen-share-mini-player-toolbar {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+/* Screen-share and media overlays always sit on video or a dark scrim, so their white text and borders are intentional in every theme. */
+.screen-share-mini-player-toolbar button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, 0.74);
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.screen-share-mini-player-toolbar button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.screen-share-mini-player-stop:hover {
+  background: rgba(185, 28, 28, 0.92);
+}
+
+.screen-share-mini-player-resize {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  opacity: 0.55;
+}
+
+.screen-share-mini-player-resize:hover,
+.screen-share-mini-player-resize:focus-visible { opacity: 1; }
+.screen-share-mini-player-resize:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.screen-share-mini-player-resize--bottom-left { left: 0; bottom: 0; cursor: nesw-resize; }
+.screen-share-mini-player-resize--top-left { left: 0; top: 0; cursor: nwse-resize; }
+.screen-share-mini-player-resize--top-right { right: 0; top: 0; cursor: nesw-resize; }
+.screen-share-mini-player-resize--bottom-right { right: 0; bottom: 0; cursor: nwse-resize; }
+
+.voice-stage-media-avatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: var(--btn-primary-text);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.voice-stage-media-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.voice-stage-media-avatar--compact { width: 28px; height: 28px; font-size: 13px; }
+
+/* Focus view keeps a selected screen share prominent without browser fullscreen. The bottom
+   padding is the band for the participant strip toggle, so it never covers stream controls. */
+.screen-share-stage--theater {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px 12px 52px;
+}
+
+.screen-share-stage--theater .screen-share-preview.is-theater-focused {
+  position: relative;
+  top: auto;
+  left: auto;
+  /* The stage measures the largest frame with the stream's own aspect, so it fills edge to edge. */
+  width: var(--stage-tile-width, min(100%, 1280px));
+  height: var(--stage-tile-height, min(100%, 720px));
+  min-height: 0;
+  aspect-ratio: var(--stage-tile-aspect, 16 / 9);
+  margin: 0;
+  transform: none;
+}
+
+.screen-share-stage--theater .screen-share-preview.is-theater-focused[data-media-kind="camera"] video {
+  object-fit: cover;
+}
+
+.screen-share-stage--theater .voice-stage-tile,
+.screen-share-stage--theater .voice-stage-hidden-media-tile,
+.screen-share-stage--theater .screen-share-preview:not(.is-theater-focused) {
+  display: none;
+}
+
+/* Focus view with the participant strip, like Discord: the focused stream on its own line and
+   one line of 160x90 tiles underneath; tiles that do not fit are summed up in a "+N" tile. The
+   line break below is a zero-height flex line, so the gap is a tile margin instead of row-gap
+   (row-gap would add a second gap around that line and overflow the stage). */
+.screen-share-stage.screen-share-stage--strip {
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 0;
+  overflow: hidden;
+}
+
+.screen-share-stage--strip > :not(.is-theater-focused) {
+  margin-top: var(--stage-gap);
+}
+
+.screen-share-stage--strip > [data-strip-overflow] {
+  display: none !important;
+}
+
+.screen-share-stage--strip > * {
+  order: 0;
+}
+
+.screen-share-stage--strip > .is-theater-focused {
+  order: -2;
+}
+
+.screen-share-stage--strip::before {
+  content: '';
+  order: -1;
+  flex-basis: 100%;
+  height: 0;
+}
+
+.screen-share-stage--strip .voice-stage-tile,
+.screen-share-stage--strip .voice-stage-hidden-media-tile,
+.screen-share-stage--strip .screen-share-preview:not(.is-theater-focused) {
+  display: flex;
+  flex: 0 0 160px;
+  width: 160px;
+  height: 90px;
+  min-height: 0;
+}
+
+.screen-share-stage--strip .voice-stage-tile,
+.screen-share-stage--strip .voice-stage-hidden-media-tile {
+  gap: 4px;
+  padding: 6px;
+}
+
+.screen-share-stage--strip .voice-stage-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+}
+
+.screen-share-stage--strip .voice-stage-name,
+.screen-share-stage--strip .voice-stage-hidden-media-title {
+  font-size: 12px;
+}
+
+.screen-share-stage--strip .voice-stage-sub,
+.screen-share-stage--strip .voice-stage-hidden-media-sub,
+.screen-share-stage--strip .voice-stage-hidden-media-tile .screen-share-viewers,
+.screen-share-stage--strip .screen-share-preview:not(.is-theater-focused) .screen-share-controls-bar,
+.screen-share-stage--strip .screen-share-preview:not(.is-theater-focused) .screen-share-viewers {
+  display: none;
+}
+
+.screen-share-strip-focus {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.screen-share-strip-focus:focus-visible {
+  outline: 2px solid var(--focus-outline, var(--accent-primary));
+  outline-offset: -2px;
+}
+
+.screen-share-strip-more {
+  order: 1;
+  flex: 0 0 160px;
+  width: 160px;
+  height: 90px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--btn-secondary-border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.screen-share-strip-more:hover {
+  background: var(--bg-surface-hover);
+}
+
+.screen-share-strip-more:focus-visible {
+  outline: 2px solid var(--focus-outline, var(--accent-primary));
+  outline-offset: -2px;
+}
+
+.screen-share-strip-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--btn-secondary-border);
+  border-radius: 8px;
+  background: var(--btn-secondary-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.screen-share-strip-toggle:hover {
+  background: var(--bg-surface-hover);
+}
+
+.screen-share-strip-toggle:focus-visible {
+  outline: 2px solid var(--focus-outline, var(--accent-primary));
+  outline-offset: 2px;
+}
+
+.screen-share-preview {
+  width: 100%;
+  /* Preserve the shared source aspect ratio without exposing the app theme in letterbox space. */
+  background: #000 !important;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  pointer-events: auto;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.screen-share-preview::after {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.screen-share-preview:fullscreen::after {
+  display: none;
+}
+
+.screen-share-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
+.screen-share-preview-paused {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: #000;
+}
+
+.screen-share-stage--strip .screen-share-preview-paused .voice-stage-hidden-media-sub {
+  display: none;
+}
+
+.screen-share-preview.camera-preview video,
+.screen-share-preview[data-media-kind="camera"] video {
+  object-fit: cover;
+}
+
+/* Fullscreen: fill the fullscreen element (viewport units can lag behind it in desktop webviews). */
+.screen-share-preview:fullscreen video,
+.screen-share-preview[data-media-kind="screen"] video:fullscreen {
+  object-fit: contain;
+  background: #000;
+  width: 100%;
+  height: 100%;
+}
+
+.screen-share-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #d9e1f6;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.62));
+  pointer-events: none;
+}
+
+.remote-screen-preview::after {
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+}
+
+/* YouTube-style hover control bar */
+.screen-share-controls-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.screen-share-preview:hover .screen-share-controls-bar,
+.screen-share-preview:focus-within .screen-share-controls-bar,
+.screen-share-preview:fullscreen:hover .screen-share-controls-bar,
+.screen-share-preview:fullscreen:focus-within .screen-share-controls-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.screen-share-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.screen-share-controls-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.screen-share-volume-container {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.85);
+  margin-right: 4px;
+}
+
+/* Slider hidden by default; show when hovering over the speaker icon (volume container) */
+.screen-share-volume-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  min-width: 0;
+  transition: max-width 0.2s ease, margin-left 0.2s ease, opacity 0.15s ease;
+}
+
+.screen-share-volume-container:hover .screen-share-volume-slider-wrap {
+  max-width: 140px;
+  margin-left: 8px;
+  opacity: 1;
+}
+
+.screen-share-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.screen-share-controls-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.screen-share-controls-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.screen-share-controls-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* Fullscreen: container fills the screen without a frame */
+.screen-share-preview:fullscreen {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  background: #000;
+}
+
+.screen-share-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+  cursor: pointer;
+}
+
+.screen-share-volume-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.screen-share-volume-btn:hover {
+  opacity: 1;
+}
+
+.screen-share-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+
+.screen-share-volume-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+
+.screen-share-volume-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.screen-share-info-overlay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0) 100%);
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.screen-share-info-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.screen-share-viewers {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, 0.72);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.screen-share-viewers-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.screen-share-viewers-avatars {
+  display: flex;
+  flex-direction: row-reverse;
+  padding-left: 3px;
+}
+
+.screen-share-viewer-avatar {
+  width: 22px;
+  height: 22px;
+  margin-left: -5px;
+  border: 2px solid rgba(8, 12, 24, 0.9);
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #3f73d6;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.screen-share-viewer-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.screen-share-viewer-avatar--count {
+  background: #2c3653;
+}
+
+.voice-stage-hidden-media-tile .screen-share-viewers {
+  position: static;
+  margin-top: 4px;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.screen-share-preview:hover .screen-share-viewers,
+.screen-share-preview:focus-within .screen-share-viewers,
+.screen-share-preview:fullscreen:hover .screen-share-viewers,
+.screen-share-preview:fullscreen:focus-within .screen-share-viewers {
+  opacity: 1;
+  transform: none;
+}
+
+.screen-share-preview:hover .screen-share-info-overlay,
+.screen-share-preview:focus-within .screen-share-info-overlay,
+.screen-share-preview:fullscreen:hover .screen-share-info-overlay,
+.screen-share-preview:fullscreen:focus-within .screen-share-info-overlay {
+  opacity: 1;
+}
+
+.screen-share-preview.is-mouse-idle {
+  cursor: none;
+}
+
+.screen-share-preview.is-mouse-idle .screen-share-controls-bar,
+.screen-share-preview.is-mouse-idle .screen-share-info-overlay {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.screen-share-preview.is-mouse-idle .screen-share-viewers {
+  opacity: 0 !important;
+  transform: translateY(-4px);
+}
+
+@media (hover: none) {
+  .screen-share-preview .screen-share-controls-bar,
+  .screen-share-preview:fullscreen .screen-share-controls-bar,
+  .screen-share-preview.is-mouse-idle .screen-share-controls-bar {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  .screen-share-preview .screen-share-info-overlay,
+  .screen-share-preview:fullscreen .screen-share-info-overlay,
+  .screen-share-preview.is-mouse-idle .screen-share-info-overlay {
+    opacity: 1 !important;
+  }
+
+  .screen-share-preview.is-mouse-idle {
+    cursor: auto;
+  }
+}
+
+/* Voice stage tiles use a fixed dark gradient; the white border is intentional in every theme. */
+.voice-stage-tile {
+  background: linear-gradient(180deg, rgba(30, 39, 70, 0.9), rgba(20, 28, 52, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.voice-stage-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-gradient-text);
+  font-weight: 700;
+  font-size: 24px;
+  overflow: hidden;
+  transition: box-shadow 220ms ease, transform 220ms ease, filter 220ms ease;
+}
+
+.voice-stage-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.voice-stage-avatar.is-speaking {
+  box-shadow:
+    0 0 0 3px rgba(45, 212, 191, 0.92),
+    0 0 0 6px rgba(45, 212, 191, 0.16),
+    0 0 20px rgba(45, 212, 191, 0.16),
+    0 2px 6px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+/* Camera tiles of whoever is speaking get the same ring as the avatar tiles. */
+.voice-stage-share-tile.is-speaking {
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.92), 0 0 16px rgba(45, 212, 191, 0.2);
+}
+
+.voice-stage-name {
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  transition: color var(--transition-fast), text-shadow var(--transition-fast);
+}
+
+.voice-stage-name.is-speaking {
+  color: rgba(45, 212, 191, 0.98);
+  text-shadow: 0 0 10px rgba(45, 212, 191, 0.22);
+}
+
+.voice-stage-sub {
+  color: var(--text-secondary);
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.voice-stage-share-tile {
+  order: -1;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  min-height: 0;
+}
+
+.voice-stage-hidden-media-tile {
+  min-height: 0;
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(24, 32, 58, 0.78), rgba(17, 24, 43, 0.88));
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  pointer-events: auto;
+}
+
+.voice-stage-hidden-media-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voice-stage-hidden-media-sub {
+  font-size: 12px;
+}
+
+.voice-stage-hidden-media-show {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 36%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  color: rgba(219, 234, 254, 0.95);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.voice-stage-hidden-media-show:hover {
+  background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  border-color: rgba(147, 197, 253, 0.48);
+}
+
+.screen-share-stage[data-stage-density="crowded"] .voice-stage-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+}
+
+.screen-share-stage[data-stage-density="crowded"] .voice-stage-tile {
+  gap: 6px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 17px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-tile {
+  gap: 4px;
+  padding: 8px;
+}
+
+.screen-share-stage[data-stage-density="dense"] .voice-stage-sub {
+  display: none;
+}
+
+.callbar-frame {
+  min-height: 48px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(67, 181, 129, 0.28);
+  background: linear-gradient(180deg, rgba(20, 24, 42, 0.96) 0%, rgba(17, 21, 36, 0.98) 100%);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(67, 181, 129, 0.07) inset;
+  pointer-events: auto;
+  min-width: 0;
+  position: relative;
+}
+
+.callbar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  min-width: 0;
+  flex: 1 1 0%;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.active-call-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  opacity: 0.96;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active-call-title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  background: color-mix(in srgb, var(--text-link) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-link) 34%, transparent);
+  border-radius: 6px;
+  padding: 4px 5px 4px 7px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: rgba(160, 176, 210, 0.92);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.active-call-title-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active-call-title-btn:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-link) 16%, transparent);
+  border-color: color-mix(in srgb, var(--text-link) 58%, transparent);
+}
+
+.active-call-title-btn:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.callbar-connection-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* The call bar frame is always dark (see .callbar-frame); its white chips and controls are intentional in every theme. */
+.callbar-ping-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 74px;
+  padding: 0 8px;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+.callbar-ping-inline-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.callbar-ping-value {
+  min-width: 32px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.callbar-ping-chip.is-good .callbar-ping-inline-icon,
+.callbar-ping-chip.is-good .callbar-ping-value {
+  color: var(--text-positive);
+}
+
+.callbar-ping-chip.is-mid .callbar-ping-inline-icon,
+.callbar-ping-chip.is-mid .callbar-ping-value {
+  color: var(--text-warning);
+}
+
+.callbar-ping-chip.is-bad .callbar-ping-inline-icon,
+.callbar-ping-chip.is-bad .callbar-ping-value {
+  color: var(--text-danger);
+}
+
+.callbar-ping-chip.is-unknown .callbar-ping-inline-icon,
+.callbar-ping-chip.is-unknown .callbar-ping-value {
+  color: var(--text-muted);
+}
+
+
+/* Center zone — media controls */
+.callbar-controls-center {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Right zone — connection status + disconnect button */
+.callbar-controls-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 1 1 0%;
+  padding-left: 12px;
+}
+
+.callbar-control-btn {
+  height: 36px;
+  width: 36px;
+  min-width: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Not `all`: animating size made controls overflow mid-resize. */
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.callbar-control-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.callbar-control-btn.is-off:disabled {
+  opacity: 1;
+}
+
+.callbar-control-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.callbar-control-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.callbar-control-btn.is-live {
+  background: rgba(233, 69, 96, 0.35);
+  border-color: rgba(233, 69, 96, 0.6);
+  color: #e94560;
+  box-shadow: 0 0 12px rgba(233, 69, 96, 0.25);
+}
+
+.callbar-control-btn.is-live:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.45);
+  border-color: rgba(233, 69, 96, 0.8);
+  box-shadow: 0 0 16px rgba(233, 69, 96, 0.35);
+}
+
+.callbar-control-btn.media-control.is-live {
+  background: rgba(67, 181, 129, 0.2);
+  border-color: rgba(67, 181, 129, 0.62);
+  color: var(--text-positive);
+  box-shadow: 0 0 10px rgba(67, 181, 129, 0.22);
+}
+
+.callbar-control-btn.media-control.is-live:hover:not(:disabled) {
+  background: rgba(67, 181, 129, 0.3);
+  border-color: rgba(67, 181, 129, 0.78);
+  box-shadow: 0 0 14px rgba(67, 181, 129, 0.28);
+}
+
+.callbar-control-btn.is-off {
+  background: rgba(240, 71, 71, 0.28);
+  border-color: rgba(240, 71, 71, 0.6);
+  color: #f04747;
+  box-shadow: 0 0 10px rgba(240, 71, 71, 0.2);
+}
+
+.callbar-control-btn.is-off:hover:not(:disabled) {
+  background: rgba(240, 71, 71, 0.38);
+  border-color: rgba(240, 71, 71, 0.75);
+  box-shadow: 0 0 14px rgba(240, 71, 71, 0.3);
+}
+
+.callbar-control-btn.is-server-off {
+  background: rgba(245, 158, 11, 0.24);
+  border-color: rgba(245, 158, 11, 0.58);
+  color: #ffd58a;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+.callbar-control-btn.is-server-off:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.34);
+  border-color: rgba(245, 158, 11, 0.72);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.28);
+}
+
+.callbar-control-btn.danger {
+  margin-left: 0;
+  width: 36px;
+  min-width: 36px;
+  background: rgba(240, 71, 71, 0.2);
+  border-color: rgba(240, 71, 71, 0.65);
+  color: #f04747;
+  flex-shrink: 0;
+}
+
+.callbar-control-btn-disconnect {
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.24) inset, 0 0 10px rgba(240, 71, 71, 0.2);
+}
+
+.callbar-control-btn-disconnect.is-disconnect-state {
+  background: rgba(233, 69, 96, 0.34);
+  border-color: rgba(233, 69, 96, 0.68);
+  color: #ff8da0;
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.3) inset, 0 0 12px rgba(240, 71, 71, 0.3);
+}
+
+.callbar-control-btn-disconnect.is-disconnect-state:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.42);
+  border-color: rgba(233, 69, 96, 0.8);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.34) inset, 0 0 16px rgba(240, 71, 71, 0.36);
+}
+
+.callbar-control-btn-disconnect.is-live:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.callbar-control-btn-disconnect.is-disconnect-state:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.callbar-control-btn-disconnect.is-disconnect-pending {
+  background: rgba(233, 69, 96, 0.2);
+  border-color: rgba(233, 69, 96, 0.48);
+  color: rgba(255, 141, 160, 0.78);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.22) inset, 0 0 8px rgba(240, 71, 71, 0.2);
+}
+
+.callbar-control-btn-disconnect.is-disconnect-pending:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.26);
+  border-color: rgba(233, 69, 96, 0.58);
+  box-shadow: 0 0 0 1px rgba(240, 71, 71, 0.28) inset, 0 0 10px rgba(240, 71, 71, 0.24);
+}
+
+.callbar-control-btn.danger:hover:not(:disabled) {
+  background: rgba(240, 71, 71, 0.35);
+  border-color: rgba(240, 71, 71, 0.7);
+  box-shadow: 0 0 12px rgba(240, 71, 71, 0.25);
+}

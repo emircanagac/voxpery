@@ -1,0 +1,452 @@
+/* ============================================
+   Server Sidebar (Left Icon Bar)
+   ============================================ */
+
+.server-sidebar {
+  width: var(--server-bar-width);
+  --server-drop-line-height: 3px;
+  --server-drop-line-color: #77a9ec;
+  --server-drop-line-shadow: none;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  flex-shrink: 0;
+  border-right: var(--border-subtle);
+}
+
+.server-sidebar-scroll {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0;
+  box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.server-sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.server-sidebar-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.server-sidebar-scroll::-webkit-scrollbar-track,
+.server-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.server-sidebar:hover .server-sidebar-scroll,
+.server-sidebar:focus-within .server-sidebar-scroll,
+.server-sidebar.is-dragging .server-sidebar-scroll {
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+.server-sidebar:hover .server-sidebar-scroll::-webkit-scrollbar-thumb,
+.server-sidebar:focus-within .server-sidebar-scroll::-webkit-scrollbar-thumb,
+.server-sidebar.is-dragging .server-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+}
+
+@supports selector(::-webkit-scrollbar) {
+  /* Non-auto standard colors override Chromium's custom scrollbar dimensions. */
+  .server-sidebar-scroll,
+  .server-sidebar:hover .server-sidebar-scroll,
+  .server-sidebar:focus-within .server-sidebar-scroll,
+  .server-sidebar.is-dragging .server-sidebar-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
+
+.server-sidebar-actions {
+  width: 100%;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 2px;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg-secondary) 78%, transparent) 38%, var(--bg-secondary) 100%);
+  border-top: 1px solid rgba(var(--ui-contrast-rgb), 0.05);
+}
+
+.server-icon {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border: none;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 18px;
+  position: relative;
+  overflow: visible;
+  padding: 0;
+  font-family: inherit;
+}
+
+.server-icon::after {
+  content: none;
+}
+
+.server-icon.drag-over-before::after {
+  content: none;
+}
+
+.server-icon.drag-over-after::after {
+  content: none;
+}
+
+.server-icon.is-draggable {
+  cursor: grab;
+}
+
+.server-icon.is-draggable:active {
+  cursor: grabbing;
+}
+
+.server-icon.has-notify {
+  box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.35), 0 0 10px rgba(233, 69, 96, 0.2);
+}
+
+.server-icon.is-muted {
+  filter: saturate(0.7);
+  opacity: 0.85;
+}
+
+.server-icon-skeleton {
+  cursor: default;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(var(--ui-contrast-rgb), 0.04) 0%, rgba(var(--ui-contrast-rgb), 0.1) 50%, rgba(var(--ui-contrast-rgb), 0.04) 100%),
+    var(--bg-surface);
+  background-size: 200% 100%;
+  animation: server-skeleton-shimmer 1.3s linear infinite;
+}
+
+@keyframes server-skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Fixed white on the dark badge fill (rgba(17, 24, 39)); intentionally not theme-tokenized. */
+.server-muted-indicator {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+
+.server-muted-indicator::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 4px;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.85);
+  transform: rotate(-32deg);
+  transform-origin: center;
+}
+
+.server-icon-wrapper {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.server-icon-wrapper.is-drag-source .server-icon {
+  opacity: 0.45;
+}
+
+.server-mention-badge {
+  pointer-events: none;
+}
+
+.server-unread-dot {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(var(--ui-contrast-rgb), 0.96);
+  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.55);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.server-icon-wrapper.has-unread .server-icon.active + .server-unread-dot {
+  opacity: 0.8;
+}
+
+.server-icon-wrapper.drag-over-before::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: -6px;
+  height: var(--server-drop-line-height);
+  border-radius: 999px;
+  background: var(--server-drop-line-color);
+  box-shadow: var(--server-drop-line-shadow);
+  pointer-events: none;
+  opacity: 1;
+  z-index: 20;
+  transform: translateZ(0);
+}
+
+.server-icon-wrapper.drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -6px;
+  height: var(--server-drop-line-height);
+  border-radius: 999px;
+  background: var(--server-drop-line-color);
+  box-shadow: var(--server-drop-line-shadow);
+  pointer-events: none;
+  opacity: 1;
+  z-index: 20;
+  transform: translateZ(0);
+}
+
+.server-voice-indicator {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--voice-online, #22c55e);
+  border: 1.5px solid var(--bg-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+  color: white;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.server-voice-indicator svg {
+  width: 8px;
+  height: 8px;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.35));
+}
+
+.server-icon:hover {
+  background: var(--accent-primary);
+  color: white;
+  box-shadow: var(--accent-glow);
+}
+
+.server-icon.active {
+  /* Selection shown only by left bar (::before), not red background – keeps logo readable */
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  overflow: visible;
+  /* allow left bar (::before) to show; default overflow:hidden clips it */
+}
+
+.server-icon.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  width: 4px;
+  height: 36px;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent-primary);
+}
+
+.server-sidebar.is-dragging .server-icon.active::before {
+  content: none;
+}
+
+/* Keep the whole Servers column as a continuous drop surface while dragging.
+   This avoids browser "not-allowed" cursor flicker over non-drop UI parts. */
+.server-sidebar.is-dragging .server-add,
+.server-sidebar.is-dragging .server-separator,
+.server-sidebar.is-dragging .server-action-label {
+  pointer-events: none;
+}
+
+.server-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+
+.server-unread-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--badge-danger-bg);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid var(--bg-secondary);
+}
+
+.server-icon.has-active-voice {
+  box-shadow:
+    0 0 0 1px rgba(62, 207, 142, 0.3),
+    0 0 18px rgba(62, 207, 142, 0.12);
+}
+
+.server-voice-indicator {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 24px;
+  height: 18px;
+  padding: 0 5px 0 4px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-positive);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 2px solid var(--bg-secondary);
+  box-shadow:
+    0 0 0 1px rgba(17, 24, 39, 0.2),
+    0 8px 18px rgba(6, 10, 20, 0.24);
+  pointer-events: none;
+  z-index: 12;
+}
+
+.server-voice-indicator-count {
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+.server-voice-indicator svg {
+  flex: 0 0 auto;
+  color: #41d890;
+}
+
+.server-separator {
+  width: 32px;
+  height: 2px;
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+  border-radius: 1px;
+  margin: 2px 0;
+}
+
+.server-add {
+  background: transparent;
+  border: 2px dashed rgba(var(--ui-contrast-rgb), 0.18);
+  color: var(--accent-primary);
+}
+
+.server-sidebar button.server-icon:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.server-context-menu {
+  position: fixed;
+  min-width: 160px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-high);
+  padding: 4px 0;
+  z-index: 10000;
+}
+
+.server-context-menu-item {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+  transition: background var(--transition-fast);
+}
+
+.server-context-menu-item:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.06);
+}
+
+.server-context-menu-item.danger {
+  color: var(--text-danger);
+}
+
+.server-context-menu-item.danger:hover {
+  background: rgba(240, 71, 71, 0.15);
+}
+
+.server-add:hover {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.server-action-label {
+  margin-top: -6px;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
