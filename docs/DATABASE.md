@@ -40,6 +40,7 @@ Key columns:
 - `email_verified` (`BOOLEAN`)
 - `token_version` (session invalidation counter)
 - `avatar_url`
+- `avatar_file_backend`, `avatar_file_key`: where an uploaded avatar is stored (migration `064`). Uploaded avatars are files in the attachment storage and `avatar_url` holds `file:<version>`; a background job moves older data URLs there and keeps their version.
 - `avatar_version` (generated: the first 16 hex characters of the MD5 of `avatar_url` when it is a data URL, otherwise `NULL`). `public_avatar_url(id, avatar_version, avatar_url)` turns it into the `/api/images/users/:user_id/avatar?v=` path that list queries return instead of the inline image.
 - `status` (string; runtime uses `online`/`dnd`/`offline`)
 - `dm_privacy` (`everyone` or `friends`; new accounts default to `everyone`)
@@ -157,6 +158,10 @@ Uniqueness (case-insensitive):
 - `author_id`, `target_user_id`, `note` (1-1,000 characters), `created_at`, `updated_at`
 - Primary key `(author_id, target_user_id)`; a user has one private note per other user. Both references cascade, so a note disappears with either account.
 
+### Message search
+
+- `idx_messages_content_trgm` and `idx_dm_messages_content_trgm` (migration `063`) are `pg_trgm` GIN indexes for substring search. Terms shorter than three characters cannot use them and fall back to the channel index.
+
 ### `dm_friendship_ends`
 
 - `user_a`, `user_b` (canonicalized like `friendships`), `ended_at`
@@ -246,13 +251,13 @@ Uniqueness (case-insensitive):
 - `last_claimed_at`: when the file was last uploaded (an identical re-upload reuses the row and updates it).
 - `release_check_at`: when the server next checks whether the upload is still used; `NULL` once it was found in use.
 - Unused uploads are released (migration `055`). Triggers on `messages` and `dm_messages` set `release_check_at` for the files of every deleted message, including messages removed with their channel, server or DM. A periodic job (every 10 minutes, and right after a message delete) deletes uploads that no message references and that were last uploaded more than 24 hours ago, subtracts their size from `users.storage_used_bytes` in the same transaction and removes the files after the commit. Unsent uploads therefore stay usable for 24 hours.
-- Local files are removed after the commit through `pending_file_deletions` (below), so a failed removal is retried.
+- `storage_backend` says where the file is: `local` or `s3`. Files are removed after the commit through `pending_file_deletions` (below), so a failed removal is retried.
 - Message `attachments` reference uploads by `id`; migration `055` added the id to older references that only had a URL. GIN indexes on `messages.attachments` and `dm_messages.attachments` serve the "still in use" and attachment-access lookups.
 
 ### `pending_file_deletions`
 
 - `storage_key` (primary key), `attempts`, `last_attempt_at`, `created_at`
-- Account deletion and the unused-upload release queue the local files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`).
+- Account deletion and the unused-upload release queue the files of the rows they delete in the same transaction and remove them after the commit. An entry is dropped once its file is gone; failed removals are retried by the 10-minute release job (migration `059`), which locks each entry with `FOR UPDATE SKIP LOCKED` so instances never work on the same one.
 
 ## Transactional Write Invariants
 

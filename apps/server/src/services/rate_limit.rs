@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::services::shared_redis::SharedRedis;
 
 const RATE_LIMIT_SCRIPT: &str = r#"
 local key = KEYS[1]
@@ -70,14 +71,14 @@ fn now_epoch_millis() -> i64 {
 /// - Uses a Redis Lua script so cleanup, count, insert, and expiry are atomic.
 /// - Stores a unique member for each hit so same-millisecond requests cannot collapse.
 pub async fn enforce_rate_limit(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     key: String,
     max_requests: usize,
     window: Duration,
     message: &str,
 ) -> Result<(), AppError> {
     let mut conn = redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Rate limit Redis connection failed: {e}")))?;
 
@@ -110,11 +111,11 @@ pub async fn enforce_rate_limit(
 /// the window now holds. Like [`enforce_rate_limit`] it runs atomically with a unique member per
 /// event, so concurrent and same-millisecond events are all counted; it never refuses.
 pub async fn record_sliding_window_event(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     redis_key: &str,
     window: Duration,
 ) -> redis::RedisResult<i64> {
-    let mut conn = redis.get_multiplexed_async_connection().await?;
+    let mut conn = redis.connection().await?;
     let now_ms = now_epoch_millis();
     let cutoff = now_ms.saturating_sub(window.as_millis() as i64);
     let ttl_secs = window.as_secs().saturating_add(60).max(1);
@@ -133,9 +134,11 @@ mod tests {
     use super::*;
     use redis::AsyncCommands;
 
-    fn redis_test_client() -> Option<redis::Client> {
+    fn redis_test_client() -> Option<SharedRedis> {
         let url = std::env::var("TEST_REDIS_URL").ok()?;
-        Some(redis::Client::open(url).expect("TEST_REDIS_URL must be a valid Redis URL"))
+        Some(SharedRedis::new(
+            redis::Client::open(url).expect("TEST_REDIS_URL must be a valid Redis URL"),
+        ))
     }
 
     #[test]
@@ -243,7 +246,7 @@ mod tests {
 
         assert_eq!(allowed, max);
 
-        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let mut conn = client.connection().await.unwrap();
         let stored: isize = conn.zcard(rate_limit_key(&key)).await.unwrap();
         assert_eq!(stored, max as isize);
     }
@@ -274,7 +277,7 @@ mod tests {
 
         // Each event saw a distinct count, so none collapsed into another.
         assert_eq!(counts, (1..=32).collect::<Vec<i64>>());
-        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let mut conn = client.connection().await.unwrap();
         let _: () = conn.del(&key).await.unwrap();
     }
 }

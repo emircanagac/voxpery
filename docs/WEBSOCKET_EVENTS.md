@@ -21,7 +21,7 @@ Real-time transport for presence, channel updates, typing, and voice state.
 - Published events carry an instance origin ID so the publishing process does not deliver the Redis echo twice.
 - Targeted user events, such as DM and friend updates, are delivered to local sockets and also published so other instances can deliver them to sockets they own.
 - REST list endpoints that calculate online/offline from active socket maps are still instance-local until presence state is externalized.
-- Voice session/control state remains process-local today. Use sticky `/ws` routing when running multiple backend instances with voice enabled until that state is moved to Redis or another shared coordinator.
+- Voice session and presence state is shared between backend instances, so `/ws` needs no sticky routing when running multiple instances with voice enabled.
 
 ## Protocol Shape
 
@@ -47,6 +47,8 @@ Authorization:
 Limits: duplicate and already-subscribed ids are ignored, at most 1,000 new ids are handled per message and 5,000 channels per connection. Ids outside the user's servers and DMs are dropped before the per-channel permission check. An account can keep at most 10 WebSocket connections open; further upgrades get `429`.
 
 Slow clients: events addressed to one connection wait in a queue of at most 256 events, and a write the client does not take within 20 seconds closes the connection. A client that stops reading is disconnected instead of making the server buffer its events; on reconnect it reloads its state as usual.
+
+Missed events: a connection that falls behind the shared event stream, or whose queue overflows, cannot know what it lost. The server closes it with code `1013`, and the client reconnects and reloads messages, servers, members, friends and voice state, so it never keeps showing stale data.
 
 ### `Unsubscribe`
 

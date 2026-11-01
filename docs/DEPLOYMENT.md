@@ -52,6 +52,7 @@ Edit `.env` and set strong production values at minimum:
 - If a reverse proxy supplies client IP headers, set `TRUSTED_PROXY_CIDRS` to that
   proxy's exact IP or dedicated network CIDR. Leave it empty for direct deployments.
 - `VITE_API_URL` (public backend URL used by frontend build)
+- `WEB_API_URL`, `WEB_LIVEKIT_URL`, `WEB_TURNSTILE_SITE_KEY`, `WEB_GIPHY_API_KEY` (optional: run the prebuilt web image on your own domain without rebuilding it. The container writes `runtime-config.js`, the desktop discovery file and the CSP sources when it starts; invalid values stop the container.)
 - `VITE_GIPHY_API_KEY` (optional public client key for GIPHY search/trending; configure the same repository variable for web and desktop release builds)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` and `LEGAL_DOCUMENTS_VERSION` (self-hosted servers: the operator's own documents and their version; see `docs/SELF_HOST_PRIVACY_TEMPLATE.md`)
@@ -74,19 +75,30 @@ LiveKit note:
 
 Attachments note:
 
-- Uploads are local-only and served via signed URLs under `/api/attachments/content/*`.
+- Uploads are stored on the local disk by default, or in an S3 compatible bucket, and are always served via signed URLs under `/api/attachments/content/*`.
 - Configure with:
   - `ATTACHMENTS_LOCAL_DIR`
   - `ATTACHMENTS_KEY_PREFIX`
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
 
-`ATTACHMENTS_KEY_PREFIX` is part of the persisted local storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
+`ATTACHMENTS_KEY_PREFIX` is part of the persisted storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
+
+Profile pictures are stored the same way as attachments, so back up `attachments_data` or the bucket with the database. A background job moves pictures uploaded before v0.5.0 out of the database after the upgrade.
+
+S3 compatible storage is optional:
+
+- Set `ATTACHMENTS_S3_ENDPOINT`, `ATTACHMENTS_S3_BUCKET`, `ATTACHMENTS_S3_ACCESS_KEY` and `ATTACHMENTS_S3_SECRET_KEY`, plus `ATTACHMENTS_S3_REGION` where the provider needs one (default `auto`). `ATTACHMENTS_S3_VIRTUAL_HOST=true` selects `bucket.host` addresses for providers that do not offer `host/bucket`. Setting only one of the endpoint and the bucket stops the server at startup.
+- Create the bucket first and keep it private. Browsers never reach it: the server reads each file, so signed links, viewer permissions, magic-byte checks and ClamAV work the same in both modes.
+- New uploads go to the bucket. Each file's record names where it is, so existing local files keep working and the two modes can run side by side. Keep `attachments_data` until no record has `storage_backend = 'local'`.
+- To move existing files, copy each one from `<ATTACHMENTS_LOCAL_DIR>/YYYY/MM/<id>` to the object `<ATTACHMENTS_KEY_PREFIX>/YYYY/MM/<id>`, then run `UPDATE uploaded_attachments SET storage_backend = 's3' WHERE storage_backend = 'local'` once the copy is complete.
+- Removing files needs the provider's delete permission. A failed removal stays queued and is retried every 10 minutes.
 
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
 - Cloudflare Turnstile: set `TURNSTILE_SECRET_KEY` on the server and the public site key for the web build (`VITE_TURNSTILE_SITE_KEY`, passed as `TURNSTILE_SITE_KEY_PUBLIC` to the web image). Desktop email registration renders its CAPTCHA from the API, so the server environment must also contain the public site key as `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`). Prebuilt web images do not provide it to the server. With a secret key but no server-side site key, `/api/auth/desktop-registration` refuses to start registration and `/api/auth/captcha-frame` (in-app desktop registration) returns `404`. The Turnstile widget's hostname list must include the API host (for example `api.voxpery.com`), because the desktop CAPTCHA runs on that origin.
+- Set `METRICS_BIND` to enable internal Prometheus metrics; see [OBSERVABILITY.md](OBSERVABILITY.md). Never publish that port.
 - Privacy-safe operational observability is disabled by default. Set `OBSERVABILITY_ENABLED=true`
   only when the deployment needs aggregate reliability counters; see
   [OBSERVABILITY.md](OBSERVABILITY.md) for the fixed event schema and retention policy.
@@ -95,6 +107,7 @@ Optional integrations note:
 - Email delivery is disabled unless `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` are all set.
 - SMTP delivery uses STARTTLS on submission port 587 and forces an IPv4 outbound connection, matching hosts that do not provide Docker IPv6 routing.
 - Password reset and email verification depend on email delivery.
+- Redis 8 reads the data of existing Redis 7.4 installations without a migration step. Data written by Redis 8 cannot be loaded by Redis 7.4, so back up the `redis_data` volume before upgrading if you may need to roll back. Sign-outs are stored there, so do not start with an empty volume.
 - Set `FRONTEND_URL` to the public web origin, for example `https://voxpery.com`, so email links do not depend on `CORS_ORIGINS` ordering.
 - The official server image prefers IPv4 for outbound SMTP resolution. This avoids IPv6-only DNS answers causing `Network is unreachable` on hosts or Docker networks without IPv6 routing.
 - The backend publishes integration availability at `/api/system/features`; web and desktop clients hide unavailable flows.
@@ -204,9 +217,8 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 - The bundled Redis runs with `--maxmemory ${REDIS_MAXMEMORY:-512mb}` and `--maxmemory-policy noeviction`: when full it rejects new writes instead of evicting keys, so revoked tokens and sessions are never dropped silently. An external Redis should use a memory cap and `noeviction` as well.
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
-- REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.
-- Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`. Instances share a Redis record of each voice join that lasts an hour at most, so a LiveKit webhook handled by another instance does not remove a participant that joined properly.
-- Local attachment storage is per-instance. For multiple backend instances, mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` or move attachments to a shared object storage backend before scaling writes.
+- Presence and voice state are shared between instances through Redis, so `/ws` needs no sticky routing. Each instance writes a snapshot every 10 seconds; one that stops writing for 35 seconds is treated as gone and its sessions are cleared.
+- Local attachment storage is per-instance. For multiple backend instances, use S3 compatible storage or mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
 
 ## 5) Validation Checklist

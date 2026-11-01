@@ -1,0 +1,198 @@
+/* ============================================
+   Connection Gate (backend health check screen)
+   ============================================ */
+.connection-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+}
+
+.connection-gate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 48px;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: var(--border-radius-xl, 16px);
+  box-shadow: var(--shadow-high);
+  max-width: 380px;
+  width: 90%;
+  text-align: center;
+}
+
+.connection-gate-logo img {
+  border-radius: 16px;
+  filter: drop-shadow(0 0 24px rgba(255, 140, 50, 0.25));
+}
+
+.connection-gate-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(var(--ui-contrast-rgb), 0.1);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: cg-spin 0.8s linear infinite;
+}
+
+@keyframes cg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.connection-gate-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.connection-gate-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.connection-gate-retry {
+  padding: 8px 24px;
+  border-radius: var(--border-radius-md);
+  border: none;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.connection-gate-retry:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.connection-gate-retry:active {
+  transform: translateY(0);
+}
+
+/* ============================================
+   Chat Links
+   ============================================ */
+.chat-link {
+  color: var(--text-link);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.chat-link:hover {
+  text-decoration: underline;
+}
+
+/* Light-theme compatibility for legacy chrome that still carries dark-only decoration. */
+:root[data-theme='light'] .home-onboarding-card,
+:root[data-theme='light'] .server-welcome-guide,
+:root[data-custom-theme-mode='light'] .home-onboarding-card,
+:root[data-custom-theme-mode='light'] .server-welcome-guide {
+  background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
+:root[data-theme='light'] .mobile-member-sheet,
+:root[data-custom-theme-mode='light'] .mobile-member-sheet {
+  background: color-mix(in srgb, var(--bg-surface) 96%, var(--accent-primary) 4%);
+}
+/* Versioned legal-document gate */
+.legal-consent-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #111729;
+  color: #f7f8fc;
+}
+
+.legal-consent-panel {
+  width: min(100%, 560px);
+  padding: 28px;
+  border: 1px solid #34466d;
+  border-radius: 8px;
+  background: #19233b;
+  box-shadow: 0 18px 54px rgb(2 7 18 / 38%);
+}
+
+.legal-consent-heading-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 1px solid #2cbf9d;
+  border-radius: 50%;
+  color: #69dfc2;
+  background: #102f34;
+}
+
+.legal-consent-eyebrow {
+  margin: 0 0 6px;
+  color: #69dfc2;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.legal-consent-panel h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.legal-consent-panel > p:not(.legal-consent-eyebrow) {
+  margin: 10px 0 0;
+  color: #b5c0d8;
+  line-height: 1.55;
+}
+
+.legal-consent-panel button:focus-visible {
+  outline: 2px solid #f2c14e;
+  outline-offset: 3px;
+}
+
+.legal-consent-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.legal-consent-actions button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .legal-consent-page {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .legal-consent-panel {
+    margin-top: max(8px, env(safe-area-inset-top));
+    padding: 22px 18px;
+  }
+
+  .legal-consent-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

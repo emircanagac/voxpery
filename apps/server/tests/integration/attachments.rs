@@ -480,6 +480,41 @@ async fn repeated_attachment_upload_reuses_storage_and_quota() {
 }
 
 #[tokio::test]
+async fn markdown_files_upload_as_plain_text() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "markdown").await;
+
+    let boundary = format!("----voxperymarkdown{}", Uuid::new_v4());
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"notes.md\"\r\nContent-Type: text/markdown\r\n\r\n# Notes\n\n- one\n\r\n--{boundary}--\r\n"
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body.into_bytes()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "markdown upload failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let uploaded: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(uploaded[0]["name"], "notes.md");
+    assert_eq!(uploaded[0]["type"], "text/plain");
+}
+
+#[tokio::test]
 async fn a_message_and_the_upload_release_cannot_both_win_an_old_upload() {
     use voxpery_server::services::attachment_release::{
         lock_uploads_for_message, release_unused_uploads,
@@ -913,4 +948,251 @@ async fn image_grants_end_with_the_session() {
         StatusCode::UNAUTHORIZED,
         "grant after password change"
     );
+}
+
+/// Runs against a real S3 compatible server when TEST_S3_ENDPOINT is set.
+#[tokio::test]
+async fn attachments_work_end_to_end_on_object_storage() {
+    use voxpery_server::services::object_storage::{ObjectStore, ObjectStoreConfig};
+    let (Some(_), Ok(endpoint)) = (test_db_url(), std::env::var("TEST_S3_ENDPOINT")) else {
+        eprintln!("SKIP: TEST_S3_ENDPOINT not set");
+        return;
+    };
+    let store = ObjectStore::new(ObjectStoreConfig {
+        endpoint,
+        bucket: "voxpery-tests".into(),
+        region: "us-east-1".into(),
+        access_key: std::env::var("TEST_S3_ACCESS_KEY").unwrap(),
+        secret_key: std::env::var("TEST_S3_SECRET_KEY").unwrap(),
+        virtual_host: false,
+    })
+    .unwrap();
+    store.create_bucket().await.unwrap();
+
+    let (mut app, state) = setup_app_with_object_store(store.clone()).await;
+    let (auth, user_id, password) = register_named_user(&mut app, "s3user").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Objects").await;
+
+    let attachment = upload_text_file(&mut app, &auth, "stored.txt", b"bytes in a bucket").await;
+    let (backend, storage_key): (String, String) = sqlx::query_as(
+        "SELECT storage_backend, storage_key FROM uploaded_attachments WHERE id = $1",
+    )
+    .bind(attachment)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(backend, "s3");
+    assert!(state
+        .attachment_service
+        .local_storage_dir()
+        .map(|root| !std::fs::read_dir(root)
+            .unwrap()
+            .any(|entry| entry.unwrap().path().is_file()))
+        .unwrap());
+    send_with_attachment(&mut app, &auth, channel_id, attachment).await;
+
+    let avatar = format!(
+        "data:image/png;base64,{}",
+        BASE64.encode(
+            [
+                &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..],
+                &[7; 64]
+            ]
+            .concat()
+        )
+    );
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/profile",
+        &auth,
+        Some(json!({ "avatar_url": avatar })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "avatar failed: {body}");
+    let avatar_key: String = sqlx::query_scalar("SELECT avatar_file_key FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert!(
+        store.get(&avatar_key).await.is_ok(),
+        "the avatar is an object"
+    );
+
+    // Signed download through the API, not from the bucket.
+    let url = state
+        .attachment_service
+        .signed_content_url(attachment, &state.jwt_secret);
+    let path = url.split_once("3001").unwrap().1.to_string();
+    let request = Request::builder()
+        .uri(path)
+        .header("Authorization", &auth)
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(&body[..], b"bytes in a bucket");
+
+    // The data export reads the object.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "password": password })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut archive = zip::ZipArchive::new(Cursor::new(body.to_vec())).unwrap();
+    let mut text = String::new();
+    archive
+        .by_name("files/attachments/0001-stored.txt")
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    assert_eq!(text, "bytes in a bucket");
+    drop(archive);
+
+    // Deleting the account removes the object.
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &auth,
+        Some(json!({ "confirm": "DELETE", "password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    assert!(
+        store.get(&storage_key).await.is_err(),
+        "object must be gone"
+    );
+    assert!(
+        store.get(&avatar_key).await.is_err(),
+        "the avatar must be gone"
+    );
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+}
+
+fn stored_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+#[tokio::test]
+async fn avatars_live_in_file_storage_and_older_ones_move_there() {
+    use voxpery_server::services::avatar_files::move_data_url_avatars;
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, password) = register_named_user(&mut app, "avatarfile").await;
+    let root = state.attachment_service.local_storage_dir().unwrap();
+    let png = |fill: u8| {
+        let bytes = [
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..],
+            &[fill; 256][..],
+        ]
+        .concat();
+        format!("data:image/png;base64,{}", BASE64.encode(bytes))
+    };
+    let set_avatar = |body: serde_json::Value| {
+        Request::builder()
+            .method("PATCH")
+            .uri("/api/auth/profile")
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    };
+    let columns = |state: Arc<AppState>| async move {
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            "SELECT avatar_url, avatar_version, avatar_file_key FROM users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+    };
+
+    let (status, body) = oneshot(&mut app, set_avatar(json!({ "avatar_url": png(1) }))).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let profile: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let (stored, version, key) = columns(state.clone()).await;
+    assert!(stored.unwrap().starts_with("file:"));
+    assert_eq!(
+        profile["avatar_url"],
+        format!(
+            "/api/images/users/{user_id}/avatar?v={}",
+            version.as_deref().unwrap()
+        )
+    );
+    assert!(key.is_some());
+    assert_eq!(stored_files(&root).len(), 1);
+
+    // A new picture replaces the file, and removing the picture removes it.
+    let (status, _) = oneshot(&mut app, set_avatar(json!({ "avatar_url": png(2) }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stored_files(&root).len(), 1);
+    let (status, _) = oneshot(&mut app, set_avatar(json!({ "clear_avatar": true }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(stored_files(&root).is_empty());
+    assert_eq!(columns(state.clone()).await, (None, None, None));
+
+    // An avatar from before this release moves over and keeps its version.
+    sqlx::query("UPDATE users SET avatar_url = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(png(3))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (_, version_before, _) = columns(state.clone()).await;
+    let moved = move_data_url_avatars(&state.db, &state.attachment_service)
+        .await
+        .unwrap();
+    assert!(moved >= 1);
+    let (stored, version_after, key) = columns(state.clone()).await;
+    assert_eq!(version_before, version_after);
+    assert!(stored.unwrap().starts_with("file:"));
+    // Other rows in the shared test database may have moved too, so look for this one file.
+    let file_name = key.unwrap().rsplit('/').next().unwrap().to_string();
+    let has_file = || {
+        stored_files(&root)
+            .iter()
+            .any(|path| path.ends_with(&file_name))
+    };
+    assert!(has_file());
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &auth,
+        Some(json!({ "confirm": "DELETE", "password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    assert!(!has_file(), "the file goes with the account");
 }

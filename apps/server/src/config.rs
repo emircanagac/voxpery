@@ -25,6 +25,8 @@ pub struct Config {
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
     /// Emit allowlisted, privacy-safe operational events. Disabled by default.
+    /// Address of the internal Prometheus listener; unset keeps it off.
+    pub metrics_bind: Option<String>,
     pub observability_enabled: bool,
     pub observability_rate_limit_max: usize,
     pub observability_rate_limit_window_secs: u64,
@@ -71,6 +73,13 @@ pub struct Config {
     pub attachments_public_base_url: Option<String>,
     /// Local attachment directory for uploaded files.
     pub attachments_local_dir: String,
+    /// S3 compatible storage for new attachments; unset keeps them on the local disk.
+    pub attachments_s3_endpoint: Option<String>,
+    pub attachments_s3_bucket: Option<String>,
+    pub attachments_s3_region: String,
+    pub attachments_s3_access_key: Option<String>,
+    pub attachments_s3_secret_key: Option<String>,
+    pub attachments_s3_virtual_host: bool,
     /// Prefix used for stored attachment object keys.
     pub attachments_key_prefix: String,
     /// Per-file upload size limit for attachment uploads.
@@ -191,6 +200,10 @@ impl Config {
                 .unwrap_or_else(|_| "10".into())
                 .parse()
                 .expect("MESSAGE_RATE_LIMIT_WINDOW_SECS must be a number"),
+            metrics_bind: std::env::var("METRICS_BIND")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
             observability_enabled: std::env::var("OBSERVABILITY_ENABLED")
                 .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
@@ -270,6 +283,21 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             attachments_local_dir: std::env::var("ATTACHMENTS_LOCAL_DIR")
                 .unwrap_or_else(|_| "./storage/attachments".into()),
+            attachments_s3_endpoint: std::env::var("ATTACHMENTS_S3_ENDPOINT")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            attachments_s3_bucket: std::env::var("ATTACHMENTS_S3_BUCKET")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            attachments_s3_region: std::env::var("ATTACHMENTS_S3_REGION")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "auto".into()),
+            attachments_s3_access_key: std::env::var("ATTACHMENTS_S3_ACCESS_KEY").ok(),
+            attachments_s3_secret_key: std::env::var("ATTACHMENTS_S3_SECRET_KEY").ok(),
+            attachments_s3_virtual_host: std::env::var("ATTACHMENTS_S3_VIRTUAL_HOST")
+                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
             attachments_key_prefix: std::env::var("ATTACHMENTS_KEY_PREFIX")
                 .unwrap_or_else(|_| "attachments".into())
                 .trim_matches('/')

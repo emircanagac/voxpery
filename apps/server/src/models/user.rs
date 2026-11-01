@@ -4,6 +4,8 @@ use sqlx::FromRow;
 use std::fmt;
 use uuid::Uuid;
 
+use crate::services::avatar_files::STORED_AVATAR_PREFIX;
+
 #[derive(Clone, FromRow)]
 pub struct User {
     pub id: Uuid,
@@ -13,6 +15,11 @@ pub struct User {
     pub password_hash: String,
     pub token_version: i64,
     pub avatar_url: Option<String>,
+    /// Where an uploaded avatar is stored; see `services::avatar_files`.
+    #[sqlx(default)]
+    pub avatar_file_backend: Option<String>,
+    #[sqlx(default)]
+    pub avatar_file_key: Option<String>,
     pub about_me: String,
     pub status: String,
     pub dm_privacy: String,
@@ -79,6 +86,15 @@ pub struct UserBroadcastProfile {
     pub status: String,
 }
 
+/// What clients get for a stored avatar value: uploaded files are served by URL.
+fn client_avatar_url(user_id: Uuid, avatar_url: Option<String>) -> Option<String> {
+    let value = avatar_url?;
+    Some(match value.strip_prefix(STORED_AVATAR_PREFIX) {
+        Some(version) => format!("/api/images/users/{user_id}/avatar?v={version}"),
+        None => value,
+    })
+}
+
 impl From<User> for UserPublic {
     fn from(u: User) -> Self {
         Self {
@@ -87,7 +103,7 @@ impl From<User> for UserPublic {
             username: u.username,
             email: u.email,
             email_verified: u.email_verified,
-            avatar_url: u.avatar_url,
+            avatar_url: client_avatar_url(u.id, u.avatar_url),
             about_me: u.about_me,
             status: u.status,
             dm_privacy: u.dm_privacy,
@@ -103,7 +119,7 @@ impl From<&UserPublic> for UserBroadcastProfile {
         Self {
             id: u.id,
             username: u.username.clone(),
-            avatar_url: u.avatar_url.clone(),
+            avatar_url: client_avatar_url(u.id, u.avatar_url.clone()),
             status: u.status.clone(),
         }
     }

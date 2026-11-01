@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
-    body::Body,
     extract::{Multipart, Path, Query, State},
     http::{header, HeaderMap, HeaderValue},
     middleware,
@@ -9,7 +8,6 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 use crate::services::redact::ShortId;
@@ -299,7 +297,7 @@ async fn cleanup_failed_upload_files(state: &Arc<AppState>, stored_keys: &[Strin
     for storage_key in stored_keys.iter().rev() {
         if let Err(error) = state
             .attachment_service
-            .delete_local_file_by_storage_key(storage_key)
+            .delete_file_by_storage_key(storage_key)
             .await
         {
             tracing::error!(
@@ -357,9 +355,9 @@ async fn get_attachment_content(
         .await?
         .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
 
-    let file = state
+    let body = state
         .attachment_service
-        .open_local_attachment_file(&row.storage_key)
+        .attachment_body(&row.storage_backend, &row.storage_key)
         .await?;
 
     let content_type = HeaderValue::from_str(&row.content_type)
@@ -390,8 +388,7 @@ async fn get_attachment_content(
         headers.insert(header::CONTENT_DISPOSITION, value);
     }
 
-    let stream = ReaderStream::new(file);
-    Ok((headers, Body::from_stream(stream)))
+    Ok((headers, body))
 }
 
 async fn ensure_attachment_view_access(

@@ -1,0 +1,472 @@
+/* ============================================
+   App Layout
+   ============================================ */
+
+.app-layout {
+  display: flex;
+  height: 100%;
+  min-height: 300px;
+  width: 100%;
+  flex: 1;
+}
+
+/* Unified layout: single sidebar (DM + servers) + main content */
+.unified-layout {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Single vertical rhythm (10px) so Messages / Servers spacing is even. box-sizing matches .server-sidebar so border thickness aligns with Servers. */
+.unified-sidebar {
+  width: var(--server-bar-width);
+  box-sizing: border-box;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  gap: 10px;
+  overflow-y: hidden;
+  overflow-x: hidden;
+  flex-shrink: 0;
+  border-right: var(--border-subtle);
+}
+
+.unified-dm-entry {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.unified-dm-entry:hover {
+  background: var(--accent-primary);
+  color: white;
+  box-shadow: var(--accent-glow);
+}
+
+.unified-dm-entry.active {
+  /* Selection shown only by left bar (::before), not red background – keeps logo readable */
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.unified-dm-entry.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  width: 4px;
+  height: 36px;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent-primary);
+}
+
+.unified-dm-entry.has-notify {
+  box-shadow: 0 0 0 1px rgba(233, 69, 96, 0.35), 0 0 12px rgba(233, 69, 96, 0.22);
+}
+
+.unified-sidebar-server-block {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Messages: label above, icon below — fixed spacing to match Servers */
+.unified-sidebar-dm-section {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px 0;
+  margin: 0;
+}
+
+/* Divider — no extra margin; parent gap controls spacing */
+.unified-sidebar-separator {
+  width: 48px;
+  height: 2px;
+  background: rgba(var(--ui-contrast-rgb), 0.12);
+  border-radius: 1px;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* Servers list: same top spacing as Messages section */
+.unified-sidebar .server-sidebar {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 10px;
+  gap: 10px;
+}
+
+.unified-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.unified-content-server {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-layout {
+  height: 100vh;
+  width: 100vw;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .shell-layout {
+    height: 100dvh;
+  }
+}
+
+/* Brand on the left, Quick Search in the exact center, window controls (desktop) on the right. */
+.shell-topbar {
+  height: 52px;
+  border-bottom: var(--border-subtle);
+  background: linear-gradient(180deg, var(--topbar-start), var(--topbar-end));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* The desktop window has no system title bar: this header is dragged and holds the window buttons. */
+.shell-topbar--desktop {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Window buttons sit closer to the edge without shifting the centered Quick Search. */
+.shell-topbar--desktop .window-controls {
+  margin-right: -6px;
+}
+
+.shell-topbar-center {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.shell-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.shell-brand {
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shell-brand-release {
+  display: inline-block;
+  height: 22px;
+  max-width: 164px;
+  padding: 0 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-brand-logo {
+  display: block;
+  object-fit: contain;
+}
+
+.shell-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.window-control {
+  width: 36px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.window-control:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+  color: var(--text-primary);
+}
+
+.window-control--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.window-control:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+/* Desktop screens without the app header get a plain draggable strip with the window buttons. */
+.desktop-window-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  background: var(--bg-primary);
+  z-index: 9000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body:has(.shell-topbar) .desktop-window-strip {
+  display: none;
+}
+
+body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
+  height: calc(100% - 36px);
+  margin-top: 36px;
+}
+
+/* Linux frameless window: thin resize borders along the window edges. */
+.window-resize-edge {
+  position: fixed;
+  z-index: 10000;
+}
+
+.window-resize-edge--n,
+.window-resize-edge--s {
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.window-resize-edge--n { top: 0; }
+.window-resize-edge--s { bottom: 0; }
+
+.window-resize-edge--e,
+.window-resize-edge--w {
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.window-resize-edge--e { right: 0; }
+.window-resize-edge--w { left: 0; }
+
+.window-resize-edge--ne,
+.window-resize-edge--nw,
+.window-resize-edge--se,
+.window-resize-edge--sw {
+  width: 8px;
+  height: 8px;
+}
+
+.window-resize-edge--ne { top: 0; right: 0; cursor: nesw-resize; }
+.window-resize-edge--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.window-resize-edge--nw { top: 0; left: 0; cursor: nwse-resize; }
+.window-resize-edge--se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+.shell-mobile-settings {
+  display: none;
+}
+
+.shell-quick-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: min(420px, 36vw);
+  max-width: min(420px, 36vw);
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.12);
+  background: rgba(var(--ui-contrast-rgb), 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.shell-quick-switch-btn:hover {
+  background: rgba(var(--ui-contrast-rgb), 0.08);
+  border-color: rgba(var(--ui-contrast-rgb), 0.18);
+  color: var(--text-primary);
+}
+
+.shell-quick-switch-btn > span:not(.shell-quick-switch-shortcut) {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.shell-quick-switch-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell-quick-switch-mobile-label {
+  display: none;
+}
+
+.shell-quick-switch-shortcut {
+  min-height: 20px;
+  padding: 0 7px;
+  margin-left: auto;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.08);
+  background: color-mix(in srgb, var(--bg-input) 35%, transparent);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shell-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.14);
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.shell-update-dock {
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 8px;
+}
+
+.shell-update-btn--dock {
+  width: auto;
+  min-height: 34px;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  border-color: rgba(147, 197, 253, 0.26);
+  color: #edf4ff;
+  box-shadow:
+    0 10px 18px rgba(8, 13, 28, 0.18),
+    inset 0 1px 0 rgba(var(--ui-contrast-rgb), 0.05);
+}
+
+.shell-update-btn--dock:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  border-color: rgba(191, 219, 254, 0.38);
+}
+
+.shell-update-dock-copy {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.shell-update-dock-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f3f7ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell-update-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(var(--ui-contrast-rgb), 0.06);
+}
+
+.shell-update-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.shell-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}

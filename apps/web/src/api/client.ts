@@ -1,3 +1,4 @@
+import { runtimeConfig } from '../runtimeConfig'
 import { isTauri } from '../secureStorage'
 
 declare global {
@@ -15,7 +16,7 @@ export const desktopServerApiBase = (): string | undefined =>
     typeof window === 'undefined' ? undefined : window.__VOXPERY_DESKTOP_SERVER__?.apiBase
 
 // Prefer localhost so cookie is sent after Google OAuth when frontend is at localhost:5173 (same host).
-const API_BASE = desktopServerApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_BASE = desktopServerApiBase() || runtimeConfig().apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:3001'
 export const LEGAL_CONSENT_REQUIRED_EVENT = 'voxpery-legal-consent-required'
 
 function isLoopbackHostname(hostname: string): boolean {

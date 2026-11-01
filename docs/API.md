@@ -260,7 +260,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `POST /api/attachments/upload` (auth required)
   - `multipart/form-data` with one or more `files` fields.
   - Default per-file limit is 10 MB (`ATTACHMENTS_MAX_FILE_BYTES=10485760`).
-  - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME.
+  - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME. Markdown (`text/markdown`, `text/x-markdown`) follows the `text/plain` allowlist entry and is stored and served as `text/plain`.
   - Generic `application/octet-stream` declarations remain compatible with files whose actual type is safely detected, including ZIP uploads from browsers that do not report a specific ZIP MIME.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
   - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.

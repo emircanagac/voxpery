@@ -8,6 +8,7 @@ import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { useLiveKitVoice, type UseLiveKitVoiceState } from '../webrtc/useLiveKitVoice'
+import { markRemoteVideoTrackSource } from '../webrtc/remoteMediaControls'
 import {
   GLOBAL_MUTE_SHORTCUT_EVENT,
   GLOBAL_MUTE_SHORTCUT_STORAGE_KEY,
@@ -468,6 +469,35 @@ describe('ActiveCallBar regressions', () => {
     })
 
     expect(container.querySelector('.remote-screen-preview')).toBeNull()
+  })
+
+  it('shows a reused track as what it carries now after camera and screen switches', () => {
+    const reused = mediaTrack('video', 'reused-track', { label: 'video' })
+    markRemoteVideoTrackSource(reused, 'camera')
+    markRemoteVideoTrackSource(reused, 'screen')
+    useAppStore.getState().setVoiceControl('peer-1', false, false, true)
+
+    const { container, unmount } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([reused])]]),
+      remoteScreenTrackIds: new Set(['reused-track']),
+      watchedRemoteScreenPeerIds: new Set(['peer-1']),
+    })
+
+    expect(container.querySelector('.screen-share-info-text')?.textContent).toContain('Screen share')
+    expect(container.querySelector('.screen-share-volume-container')).not.toBeNull()
+    expect(screen.queryByText('Connecting to stream')).toBeNull()
+    unmount()
+
+    markRemoteVideoTrackSource(reused, 'camera')
+    useAppStore.getState().setVoiceControl('peer-1', false, false, false)
+    const { container: cameraView } = renderActiveCallBar({
+      remoteStreams: new Map([['peer-1', new MediaStream([reused])]]),
+      remoteScreenTrackIds: new Set(),
+      watchedRemoteScreenPeerIds: new Set(),
+    })
+
+    expect(cameraView.querySelector('.screen-share-info-text')?.textContent).toContain('Camera')
+    expect(cameraView.querySelector('.screen-share-volume-container')).toBeNull()
   })
 
   it('requires an explicit action before subscribing to an available screen share', () => {

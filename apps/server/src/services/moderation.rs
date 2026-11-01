@@ -5,6 +5,7 @@ use redis::AsyncCommands;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::services::shared_redis::SharedRedis;
 use crate::{errors::AppError, services::audit};
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -46,14 +47,14 @@ fn has_invite_link(content: &str) -> bool {
 }
 
 async fn try_mark_raid_cooldown(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     server_id: Uuid,
     event_type: &str,
     user_id: Option<Uuid>,
     ttl_secs: u64,
 ) -> Result<bool, AppError> {
     let mut conn = redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Moderation Redis connection failed: {e}")))?;
     let key = moderation_key(&format!(
@@ -76,7 +77,7 @@ async fn try_mark_raid_cooldown(
 }
 
 async fn count_sliding_window(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     key: String,
     window: Duration,
 ) -> Result<isize, AppError> {
@@ -160,7 +161,7 @@ pub async fn ensure_not_timed_out(
 }
 
 pub async fn enforce_message_raid_protection(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     db: &PgPool,
     server_id: Uuid,
     channel_id: Uuid,
@@ -222,7 +223,7 @@ pub async fn enforce_message_raid_protection(
 }
 
 pub async fn record_join_raid_signal(
-    redis: &redis::Client,
+    redis: &SharedRedis,
     db: &PgPool,
     server_id: Uuid,
     user_id: Uuid,

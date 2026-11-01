@@ -90,23 +90,6 @@ async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, App
     Ok(claims)
 }
 
-/// Whether the server requires a verified email address and this account has none yet. Such an
-/// account can still reach its session, verification and account routes (plain `require_auth`),
-/// but no application data.
-pub(crate) async fn email_verification_pending(
-    state: &AppState,
-    user_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    if !state.email_verification_required {
-        return Ok(false);
-    }
-    let verified = sqlx::query_scalar::<_, bool>("SELECT email_verified FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?;
-    Ok(verified == Some(false))
-}
-
 /// Middleware that validates the JWT and injects Claims into request extensions.
 /// Accepts token from Authorization Bearer (desktop) or from httpOnly cookie (web).
 pub async fn require_auth(
@@ -156,16 +139,15 @@ async fn authenticate_with_legal_consent(
     let token =
         token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
     let claims = authenticate_token(state, &token).await?;
-    match crate::services::privacy::legal_consent_for_token_version(
-        &state.db, claims.sub, claims.ver,
-    )
-    .await?
-    {
-        Some(true) => {}
-        Some(false) => return Err(AppError::LegalConsentRequired),
-        None => return Err(AppError::Unauthorized),
+    let Some(account) =
+        crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await?
+    else {
+        return Err(AppError::Unauthorized);
+    };
+    if !account.legal_consent_current {
+        return Err(AppError::LegalConsentRequired);
     }
-    if require_verified_email && email_verification_pending(state, claims.sub).await? {
+    if require_verified_email && state.email_verification_required && !account.email_verified {
         return Err(AppError::EmailVerificationRequired);
     }
 

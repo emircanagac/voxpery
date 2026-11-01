@@ -474,7 +474,7 @@ async fn get_server(
 
     // Use live WebSocket sessions for online/offline (same as friends list).
     for m in &mut members {
-        m.status = visible_presence(&m.status, state.sessions.contains_key(&m.user_id));
+        m.status = visible_presence(&m.status, state.is_online(m.user_id));
     }
 
     // Compute effective permissions for the current user in this server.
@@ -983,8 +983,7 @@ async fn list_channel_visible_members(
         if !perms.contains(Permissions::VIEW_SERVER) {
             continue;
         }
-        member.status =
-            visible_presence(&member.status, state.sessions.contains_key(&member.user_id));
+        member.status = visible_presence(&member.status, state.is_online(member.user_id));
         visible_members.push(member);
     }
 

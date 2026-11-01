@@ -32,7 +32,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 use tokio::sync::broadcast;
@@ -43,6 +43,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 use tower::ServiceExt;
 use uuid::Uuid;
+use voxpery_server::services::shared_redis::SharedRedis;
 use voxpery_server::{
     build_app, run_migrations,
     services::{
@@ -64,8 +65,12 @@ fn test_db_url() -> Option<String> {
     Some(normalize_compose_host(raw, "postgres", "127.0.0.1"))
 }
 
+/// One secret per test run: backend instances of a deployment share it, and tests that run
+/// two instances need their tokens to work on both.
 fn jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| test_credential("jwt").to_string())
+    static GENERATED: OnceLock<&'static str> = OnceLock::new();
+    std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| GENERATED.get_or_init(|| test_credential("jwt")).to_string())
 }
 
 fn test_credential(label: &str) -> &'static str {
@@ -96,13 +101,16 @@ fn normalize_compose_host(url: String, service_host: &str, fallback_host: &str) 
         .replace(&scheme_path_pattern, &format!("://{fallback_host}/"))
 }
 
-fn redis_client() -> redis::Client {
+fn redis_client() -> SharedRedis {
     let redis_url = std::env::var("TEST_REDIS_URL")
         .ok()
         .or_else(|| std::env::var("REDIS_URL").ok())
         .unwrap_or_else(|| "redis://localhost:6379".into());
     let redis_url = normalize_compose_host(redis_url, "redis", "127.0.0.1");
-    redis::Client::open(redis_url).expect("Failed to create Redis client for integration tests")
+    SharedRedis::new(
+        redis::Client::open(redis_url)
+            .expect("Failed to create Redis client for integration tests"),
+    )
 }
 
 async fn setup_app() -> (axum::Router, Arc<AppState>) {
@@ -172,6 +180,22 @@ async fn setup_app_requiring_email_verification() -> (axum::Router, Arc<AppState
     .await
 }
 
+async fn setup_app_with_object_store(
+    store: voxpery_server::services::object_storage::ObjectStore,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_storage(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+        Some(store),
+    )
+    .await
+}
+
 async fn build_test_app(
     email_verification_enabled: bool,
     email_verification_required: bool,
@@ -180,6 +204,30 @@ async fn build_test_app(
     google_oauth_enabled: bool,
     livekit_ws_url: String,
     livekit_api_url: Option<String>,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_storage(
+        email_verification_enabled,
+        email_verification_required,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_test_app_with_storage(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+    object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -199,6 +247,10 @@ async fn build_test_app(
         )
         .await
         .expect("Failed to init test attachment service");
+    let attachment_service = match object_store {
+        Some(store) => attachment_service.with_object_store(store),
+        None => attachment_service,
+    };
 
     let (tx, _rx) = broadcast::channel(256);
     let release_http_client = reqwest::Client::builder()
@@ -214,6 +266,7 @@ async fn build_test_app(
         jwt_expiration: 86400,
         tx,
         sessions: DashMap::new(),
+        peers: Default::default(),
         voice_sessions: DashMap::new(),
         voice_session_connections: DashMap::new(),
         voice_participant_sids: DashMap::new(),

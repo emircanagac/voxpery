@@ -69,9 +69,10 @@ async fn main() {
 
     let redis =
         redis::Client::open(config.redis_url.clone()).expect("Failed to initialize Redis client");
+    let redis = voxpery_server::services::shared_redis::SharedRedis::new(redis);
     {
         let mut conn = redis
-            .get_multiplexed_async_connection()
+            .connection()
             .await
             .expect("Failed to connect to Redis");
         let _: String = redis::cmd("PING")
@@ -87,7 +88,7 @@ async fn main() {
 
     tracing::info!("Database connected and migrations applied");
 
-    let (tx, _rx) = broadcast::channel::<ws::WsEvent>(4096);
+    let (tx, _rx) = broadcast::channel::<ws::BroadcastEvent>(4096);
     let instance_id = uuid::Uuid::new_v4();
     let attachment_service =
         match voxpery_server::services::attachments::AttachmentService::from_config(&config).await {
@@ -111,6 +112,7 @@ async fn main() {
         jwt_expiration: config.jwt_expiration,
         tx,
         sessions: dashmap::DashMap::new(),
+        peers: Default::default(),
         voice_sessions: dashmap::DashMap::new(),
         voice_session_connections: dashmap::DashMap::new(),
         voice_participant_sids: dashmap::DashMap::new(),
@@ -158,6 +160,7 @@ async fn main() {
         latest_release_cache: tokio::sync::RwLock::new(None),
     });
     ws::bus::spawn_redis_event_bridge(state.clone());
+    ws::cluster::spawn_peer_sync(state.clone());
     let registration_db = state.db.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -203,6 +206,14 @@ async fn main() {
             {
                 tracing::warn!("Retrying queued file removals failed: {error}");
             }
+            if let Err(error) = voxpery_server::services::avatar_files::move_data_url_avatars(
+                &release_state.db,
+                &release_state.attachment_service,
+            )
+            .await
+            {
+                tracing::warn!("Moving stored avatars failed: {error}");
+            }
         }
     });
 
@@ -223,6 +234,22 @@ async fn main() {
             Ok(None) => {}
             Err(e) => tracing::warn!("Seed admin skipped or failed: {}", e),
         }
+    }
+
+    if let Some(bind) = config.metrics_bind.clone() {
+        let metrics_state = state.clone();
+        tokio::spawn(async move {
+            match tokio::net::TcpListener::bind(&bind).await {
+                Ok(listener) => {
+                    tracing::info!("Metrics listening on {}", bind);
+                    let metrics = voxpery_server::services::metrics::router(metrics_state);
+                    if let Err(e) = axum::serve(listener, metrics).await {
+                        tracing::error!("Metrics listener terminated with error: {}", e);
+                    }
+                }
+                Err(e) => tracing::error!("Failed to bind metrics listener on {}: {}", bind, e),
+            }
+        });
     }
 
     let app = build_app(state, config.cors_origins);

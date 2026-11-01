@@ -253,7 +253,8 @@ async fn logout_revokes_the_bearer_token_and_reports_revocation_failure() {
     // Use a reserved, closed local port; never stop the shared QA Redis service.
     let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = reservation.local_addr().unwrap().port();
-    state.redis = redis::Client::open(format!("redis://127.0.0.1:{port}")).unwrap();
+    state.redis =
+        SharedRedis::new(redis::Client::open(format!("redis://127.0.0.1:{port}")).unwrap());
     drop(reservation);
     let app = build_app(Arc::new(state), vec!["http://localhost:5173".to_string()]);
     let response = app.oneshot(request()).await.unwrap();
@@ -2274,11 +2275,7 @@ async fn desktop_exchange_rejects_wrong_pkce_and_expired_codes() {
     let verifier = "a".repeat(64);
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let code = Uuid::new_v4().simple().to_string();
-    let mut redis = state
-        .redis
-        .get_multiplexed_async_connection()
-        .await
-        .unwrap();
+    let mut redis = state.redis.connection().await.unwrap();
     redis::cmd("SET")
         .arg(format!("auth:oauth:desktop_code:{code}"))
         .arg(json!({"token": token, "code_challenge": challenge}).to_string())
@@ -2800,11 +2797,7 @@ async fn email_confirmation_and_desktop_exchange_are_rate_limited_per_ip() {
         .await;
     });
     // Start from a clean per-IP budget for this address.
-    let mut redis = state
-        .redis
-        .get_multiplexed_async_connection()
-        .await
-        .unwrap();
+    let mut redis = state.redis.connection().await.unwrap();
     for key in [
         "auth:email_confirm_ip:127.0.0.1",
         "auth:desktop_exchange_ip:127.0.0.1",

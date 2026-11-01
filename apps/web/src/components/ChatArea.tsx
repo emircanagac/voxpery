@@ -1,7 +1,7 @@
 import { Fragment, useRef, useEffect, useMemo, useState, useCallback, useLayoutEffect, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MAX_WIDTH } from '../layout'
-import { AtSign, Hash, Volume2, Send, Paperclip, X, Save, Search, ChevronLeft, ChevronRight, Smile, Pin, PinOff, Users, ArrowDown, LoaderCircle, Star } from 'lucide-react'
+import { AtSign, Hash, Volume2, X, Save, Search, ChevronLeft, Users, Star } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Attachment } from '../types'
 import type { GifOption } from '../emoji'
@@ -9,15 +9,13 @@ import { resolveAvatarUrl, type MessageWithAuthor, type Channel } from '../api'
 import MessageSearchPanel from './MessageSearchPanel'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import type { DraftAttachmentItem } from '../draftAttachments'
-import { hasPendingDraftAttachments } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
 import { parseInviteLinkCode } from '../inviteLinks'
 import EmojiPicker from './EmojiPicker'
-import DraftAttachmentCard from './DraftAttachmentCard'
 import InlineMediaImage from './InlineMediaImage'
 import MessageInlineActions from './MessageInlineActions'
 import MemberProfileDialog, { type MemberProfileMember } from './MemberProfileDialog'
-import { getFavoriteGifs, toggleFavoriteGif, getLastExpressionMode, setLastExpressionMode } from '../expressionPreferences'
+import { getFavoriteGifs, toggleFavoriteGif, getLastExpressionMode } from '../expressionPreferences'
 import { countMessageCharacters, messageBodyLimit, MESSAGE_MAX_CHARACTERS, truncateMessage } from '../messageLength'
 import { AttachmentLink } from './MessageAttachments'
 import { getAttachmentIdentity } from './chatAttachmentCache'
@@ -29,15 +27,8 @@ import { describeSendError } from '../messageSendError'
 import { parseMessageMarkdown, type MarkdownNode } from '../messageMarkdown'
 import { useAppStore } from '../stores/app'
 import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
-
-type MentionUser = {
-    user_id: string
-    username: string
-    avatar_url?: string | null
-    status?: string | null
-}
-
-type MessagePickerMode = 'emoji' | 'gif' | 'sticker'
+import ChatComposer, { type MentionUser, type MessagePickerMode } from './ChatComposer'
+import ChatHeader from './ChatHeader'
 
 type UnreadDividerSnapshot = {
     channelId: string | null
@@ -59,13 +50,6 @@ function mentionPresenceRank(status?: string | null): number {
     if (normalized === 'online' || normalized === 'dnd') return 0
     if (normalized === 'invisible') return 2
     return 1
-}
-
-function mentionStatusTone(status?: string | null): 'online' | 'dnd' | 'offline' {
-    const normalized = (status ?? 'offline').toLowerCase()
-    if (normalized === 'online') return 'online'
-    if (normalized === 'dnd') return 'dnd'
-    return 'offline'
 }
 
 function savedGifOption(url: string): GifOption {
@@ -1960,203 +1944,37 @@ export default function ChatArea({
 
     return (
         <div className={`chat-area${replyingTo ? ' chat-area-replying' : ''}${showSearchPanel ? ' chat-area--search-panel' : ''}`} ref={chatAreaRef}>
-            <div className={`chat-header${searchOpen ? ' chat-header--searching' : ''}`}>
-                {onOpenChannelList && (
-                    <button
-                        type="button"
-                        className="chat-header-member-btn chat-header-channels-btn"
-                        onClick={onOpenChannelList}
-                        title="Channels"
-                        aria-label="Open channel list"
-                    >
-                        <ChevronLeft size={20} />
-                    </button>
-                )}
-                <span className="channel-hash">
-                    {isDm ? (isGroupDm ? <Users size={20} aria-hidden="true" /> : <AtSign size={20} aria-hidden="true" />) : <Hash size={20} />}
-                </span>
-                <div className="channel-header-copy">
-                    <h1 className="channel-title">{activeChannel.name}</h1>
-                    {activeChannel.description?.trim() && (
-                        <>
-                            <span className="channel-description-separator" aria-hidden="true" />
-                            <span className="channel-description">{activeChannel.description.trim()}</span>
-                        </>
-                    )}
-                </div>
-                <div className="chat-header-right">
-                    {onSearchChange && (
-                        <div
-                            ref={searchDropdownRef}
-                            className={`chat-header-search ${searchOpen ? 'chat-header-search-expanded' : ''}`}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {!searchOpen ? (
-                                <button
-                                    type="button"
-                                    className="chat-header-search-trigger"
-                                    ref={searchTriggerRef}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setPinnedOpen(false)
-                                        setSearchOpen(true)
-                                        setTimeout(() => searchInputRef.current?.focus(), 0)
-                                    }}
-                                    title="Search in conversation"
-                                    aria-label="Search in conversation"
-                                >
-                                    <Search size={18} aria-hidden />
-                                </button>
-                            ) : (
-                                <>
-                                    <Search size={16} className="chat-header-search-icon" aria-hidden />
-                                    <input
-                                        ref={searchInputRef}
-                                        type="text"
-                                        className="chat-header-search-input"
-                                        placeholder="Search messages"
-                                        value={searchQuery}
-                                        onChange={(e) => onSearchChange(e.target.value)}
-                                        title="Search text. Filters: from:username, has:attachment"
-                                        aria-label="Search messages"
-                                    />
-                                    <details ref={searchHelpRef} className="chat-header-search-help">
-                                        <summary>Filters</summary>
-                                        <div className="chat-header-search-help-panel" role="note">
-                                            <button
-                                                type="button"
-                                                onClick={() => applySearchFilter('from:')}
-                                                title="Add author filter"
-                                                aria-label="Filter messages by author"
-                                            >
-                                                from:
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => applySearchFilter('has:attachment')}
-                                                title="Only show messages with attachments"
-                                                aria-label="Filter messages with attachments"
-                                            >
-                                                has:attachment
-                                            </button>
-                                        </div>
-                                    </details>
-                                    <button
-                                        type="button"
-                                        className="chat-header-search-close"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            closeSearch()
-                                        }}
-                                        title="Close search"
-                                        aria-label="Close search"
-                                    >
-                                        <X size={14} aria-hidden />
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    )}
-                    {(onSearchChange != null || onPinMessage != null || (pinnedMessages?.length ?? 0) > 0) && (
-                    <div className="chat-header-pinned-wrap" ref={pinnedDropdownRef}>
-                        <button
-                            type="button"
-                            className="chat-header-pinned-btn"
-                            onClick={() => {
-                                if (!pinnedOpen) {
-                                    onSearchChange?.('')
-                                    setSearchOpen(false)
-                                }
-                                setPinnedOpen((o) => !o)
-                            }}
-                            title="Pinned messages"
-                            aria-label="Pinned messages"
-                            aria-expanded={pinnedOpen}
-                        >
-                            <Pin size={18} />
-                        </button>
-                        {pinnedOpen && (
-                            <div className="chat-header-pinned-dropdown">
-                                <div className="chat-header-pinned-title">
-                                    <span className="chat-header-pinned-title-main">
-                                        <Pin size={14} aria-hidden />
-                                        Pinned messages
-                                    </span>
-                                    <span className="chat-header-pinned-title-count">
-                                        {pinnedMessages.length}
-                                    </span>
-                                </div>
-                                {pinnedMessages.length === 0 ? (
-                                    <div className="chat-header-pinned-empty">No pinned messages yet</div>
-                                ) : (
-                                    <ul className="chat-header-pinned-list">
-                                        {pinnedMessages.map((m) => (
-                                            <li key={m.id} className="chat-header-pinned-item">
-                                                <div className="chat-header-pinned-item-meta">
-                                                    <div className="chat-header-pinned-item-head">
-                                                        <span className="chat-header-pinned-item-author-group">
-                                                            <span className="chat-header-pinned-item-author-label">From</span>
-                                                            <span className="chat-header-pinned-item-author">{m.author?.username}</span>
-                                                        </span>
-                                                        {m.created_at && (
-                                                            <span className="chat-header-pinned-item-date">{formatPinnedDate(m.created_at)}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="chat-header-pinned-item-content-wrap">
-                                                        <span className="chat-header-pinned-item-content-label">Message</span>
-                                                        <span className="chat-header-pinned-item-content">{m.content.slice(0, 200)}{m.content.length > 200 ? '…' : ''}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="chat-header-pinned-item-actions">
-                                                    <button
-                                                        type="button"
-                                                        className="chat-header-pinned-goto"
-                                                        title="Go to message"
-                                                        aria-label="Go to message"
-                                                        disabled={pinnedJumpLoadingId !== null}
-                                                        aria-busy={pinnedJumpLoadingId === m.id}
-                                                        onClick={() => {
-                                                            setPinnedOpen(false)
-                                                            if (onGoToPinnedMessage) onGoToPinnedMessage(m.id)
-                                                            else scrollToMessageId(m.id)
-                                                        }}
-                                                    >
-                                                        <ChevronRight size={18} aria-hidden />
-                                                    </button>
-                                                    {onUnpinMessage && (
-                                                        <button
-                                                            type="button"
-                                                            className="chat-header-pinned-unpin"
-                                                            title="Unpin"
-                                                            onClick={() => onUnpinMessage(m.id)}
-                                                        >
-                                                            <PinOff size={14} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                    )}
-                    {showMemberSheetButton && onOpenMemberSheet && (
-                        <button
-                            type="button"
-                            className="chat-header-member-btn"
-                            onClick={onOpenMemberSheet}
-                            title={memberButtonLabel}
-                            aria-label={memberButtonLabel}
-                            aria-pressed={memberPanelOpen}
-                        >
-                            <Users size={17} />
-                        </button>
-                    )}
-                    {headerActions}
-                </div>
-            </div>
+            <ChatHeader
+              activeChannel={activeChannel}
+              applySearchFilter={applySearchFilter}
+              closeSearch={closeSearch}
+              formatPinnedDate={formatPinnedDate}
+              headerActions={headerActions}
+              isDm={isDm}
+              isGroupDm={isGroupDm}
+              memberButtonLabel={memberButtonLabel}
+              memberPanelOpen={memberPanelOpen}
+              onGoToPinnedMessage={onGoToPinnedMessage}
+              onOpenChannelList={onOpenChannelList}
+              onOpenMemberSheet={onOpenMemberSheet}
+              onPinMessage={onPinMessage}
+              onSearchChange={onSearchChange}
+              onUnpinMessage={onUnpinMessage}
+              pinnedDropdownRef={pinnedDropdownRef}
+              pinnedJumpLoadingId={pinnedJumpLoadingId}
+              pinnedMessages={pinnedMessages}
+              pinnedOpen={pinnedOpen}
+              scrollToMessageId={scrollToMessageId}
+              searchDropdownRef={searchDropdownRef}
+              searchHelpRef={searchHelpRef}
+              searchInputRef={searchInputRef}
+              searchOpen={searchOpen}
+              searchQuery={searchQuery}
+              searchTriggerRef={searchTriggerRef}
+              setPinnedOpen={setPinnedOpen}
+              setSearchOpen={setSearchOpen}
+              showMemberSheetButton={showMemberSheetButton}
+            />
 
             {topContent}
 
@@ -2441,204 +2259,56 @@ export default function ChatArea({
                 )}
             </div>
 
-            <div className="message-input-container">
-                {(showJumpToLatest || onReturnToLatest) && (
-                    <button
-                        type="button"
-                        className="chat-jump-to-latest"
-                        disabled={returningToLatest}
-                        onClick={() => {
-                            if (onReturnToLatest) {
-                                onReturnToLatest()
-                                return
-                            }
-                            userReadingHistoryRef.current = false
-                            userScrollIntentUntilRef.current = 0
-                            shouldAutoScrollRef.current = true
-                            preservingOlderMessagesRef.current = false
-                            olderMessagesAnchorRef.current = null
-                            snapToBottom()
-                            requestAnimationFrame(() => {
-                                snapToBottom()
-                            })
-                        }}
-                        aria-label={newWhileReadingCount > 0
-                            ? `${newWhileReadingCount} new message${newWhileReadingCount === 1 ? '' : 's'}, jump to latest`
-                            : 'Jump to latest messages'}
-                        title={returningToLatest ? 'Loading latest messages' : 'Jump to latest messages'}
-                        aria-busy={returningToLatest}
-                        data-new-messages={newWhileReadingCount > 0 ? 'true' : undefined}
-                    >
-                        {returningToLatest ? <LoaderCircle size={20} aria-hidden="true" /> : <ArrowDown size={20} aria-hidden="true" />}
-                        {!returningToLatest && newWhileReadingCount > 0 && (
-                            <span className="chat-jump-to-latest-label" aria-hidden="true">
-                                {newWhileReadingCount > 99 ? '99+' : newWhileReadingCount} new {newWhileReadingCount === 1 ? 'message' : 'messages'}
-                            </span>
-                        )}
-                    </button>
-                )}
-                {replyingTo && onCancelReply && (
-                    <div className="message-reply-bar">
-                        <span className="message-reply-bar-label">Replying to @{replyingTo.username}</span>
-                        <span className="message-reply-bar-snippet">{replyingTo.contentSnippet}</span>
-                        <button type="button" className="message-reply-bar-cancel" onClick={onCancelReply} aria-label="Cancel reply">
-                            <X size={14} />
-                        </button>
-                    </div>
-                )}
-                {mentionOpen && mentionSuggestions.length > 0 && (
-                    <div id="mention-suggestions" className="mention-suggest-menu" role="listbox" aria-label="Mention suggestions">
-                        {mentionSuggestions.map((member, index) => (
-                            <button
-                                key={`${member.user_id}-${member.username}`}
-                                type="button"
-                                className={`mention-suggest-item ${index === mentionActiveIndex ? 'active' : ''}`}
-                                id={`mention-option-${index}`}
-                                role="option"
-                                aria-selected={index === mentionActiveIndex}
-                                tabIndex={-1}
-                                onMouseDown={(e) => {
-                                    e.preventDefault()
-                                    applyMention(member)
-                                }}
-                            >
-                                {member.user_id !== '__all__' && (
-                                    <span
-                                        className={`mention-suggest-status mention-suggest-status--${mentionStatusTone(member.status)}`}
-                                        aria-hidden="true"
-                                    />
-                                )}
-                                <span className="mention-suggest-name">@{member.username}</span>
-                                {member.user_id === '__all__' && (
-                                    <span className="mention-suggest-hint">Notify everyone</span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
-                )}
-                {draftAttachments.length > 0 && (
-                    <div className="dm-draft-attachments">
-                        {draftAttachments.map((att, i) => <DraftAttachmentCard
-                            key={att.localId}
-                            attachment={att}
-                            onRemove={() => onRemoveAttachment(i)}
-                            onRetry={onRetryAttachment ? () => onRetryAttachment(att.localId) : undefined}
-                        />)}
-                    </div>
-                )}
-                <div className="message-input-wrapper" ref={messageInputWrapperRef}>
-                    <button type="button" className="dm-attach-btn" title="Attach files" aria-label="Attach files" disabled={!canSendMessages} onClick={() => attachmentInputRef.current?.click()}>
-                        <Paperclip size={18} aria-hidden="true" />
-                    </button>
-                    <input
-                        ref={attachmentInputRef}
-                        type="file"
-                        multiple
-                        accept="*/*"
-                        style={{ display: 'none' }}
-                        disabled={!canSendMessages}
-                        onChange={(e) => {
-                            onPickAttachments(e.target.files)
-                            e.currentTarget.value = ''
-                        }}
-                    />
-                    <button
-                        type="button"
-                        className="chat-emoji-btn"
-                        disabled={!canSendMessages}
-                        title="Emoji, GIFs and stickers"
-                        aria-label="Emoji, GIFs and stickers"
-                        aria-expanded={emojiOpen}
-                        aria-controls={emojiOpen ? 'message-expression-picker' : undefined}
-                        aria-haspopup="dialog"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            toggleMessagePicker(e.currentTarget)
-                        }}
-                    >
-                        <Smile size={18} aria-hidden="true" />
-                    </button>
-                    {emojiOpen && emojiPickerPosition && createPortal(
-                        <div
-                            ref={emojiPickerRef}
-                            id="message-expression-picker"
-                            role="dialog"
-                            aria-label="Emoji, GIFs and stickers"
-                            className="chat-emoji-picker-shell chat-emoji-picker-portal"
-                            style={{
-                                top: emojiPickerPosition.top,
-                                left: emojiPickerPosition.left,
-                                width: emojiPickerPosition.width,
-                                height: emojiPickerPosition.height,
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <EmojiPicker initialMode={messagePickerMode} onSelect={insertEmoji} autoFocus onClose={() => {
-                                setEmojiOpen(false)
-                                emojiPickerAnchorRef.current?.focus({ preventScroll: true })
-                            }} onModeChange={mode => {
-                                setMessagePickerMode(mode)
-                                setLastExpressionMode(mode)
-                            }} />
-                        </div>,
-                        document.body
-                    )}
-                    <textarea
-                        ref={textareaRef}
-                        className="message-input"
-                        aria-label={isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`}
-                        aria-autocomplete="list"
-                        aria-controls={mentionOpen && mentionSuggestions.length > 0 ? 'mention-suggestions' : undefined}
-                        aria-activedescendant={mentionOpen && mentionSuggestions.length > 0 ? `mention-option-${mentionActiveIndex}` : undefined}
-                        value={messageInput}
-                        maxLength={messageBodyLimit(replyingTo) * 2}
-                        disabled={!canSendMessages}
-                        onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
-                        onKeyDown={handleKeyDown}
-                        onClick={(e) => syncMentionMenu(messageInput, e.currentTarget.selectionStart)}
-                        onKeyUp={(e) => {
-                            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') return
-                            syncMentionMenu(messageInput, e.currentTarget.selectionStart)
-                        }}
-                        onBlur={() => {
-                            window.setTimeout(() => {
-                                closeMentionMenu()
-                            }, 120)
-                        }}
-                        onPaste={handlePaste}
-                        placeholder={canSendMessages
-                            ? (useCompactMobileTimestamp ? 'Message' : (isDm ? (isGroupDm ? `Message ${activeChannel.name}` : `Message @${activeChannel.name}`) : `Message #${activeChannel.name}`))
-                            : (composerBlockedMessage ?? (useCompactMobileTimestamp ? 'Read only' : `You don't have permission to send messages in #${activeChannel.name}`))}
-                        rows={1}
-                    />
-                    {canSendMessages && (!useMobileMessageLayout || remainingCharacters <= 200) && (
-                        <span className={`message-character-count${remainingCharacters < 0 ? ' is-over-limit' : remainingCharacters === 0 ? ' is-at-limit' : ''}`} aria-label="Characters remaining">
-                            {remainingCharacters < 0 ? `${-remainingCharacters} over limit` : remainingCharacters}
-                        </span>
-                    )}
-                    {canSendMessages && inputWasShortened && (
-                        <span className="message-truncation-note" role="status">
-                            Shortened to {messageBodyLimit(replyingTo)} characters
-                        </span>
-                    )}
-                    <div className="message-input-actions" aria-label="Message actions">
-                        <button
-                            type="button"
-                            className={`message-send-btn ${(messageInput.trim() || draftAttachments.length > 0) ? 'is-ready' : ''}`}
-                            disabled={!canSendMessages || hasPendingDraftAttachments(draftAttachments) || (!messageInput.trim() && draftAttachments.length === 0)}
-                            title="Send message"
-                            aria-label="Send message"
-                            onClick={() => {
-                                if (!canSendMessages) return
-                                submitMessage()
-                            }}
-                        >
-                            <Send size={18} />
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <ChatComposer
+              activeChannel={activeChannel}
+              applyMention={applyMention}
+              attachmentInputRef={attachmentInputRef}
+              canSendMessages={canSendMessages}
+              closeMentionMenu={closeMentionMenu}
+              composerBlockedMessage={composerBlockedMessage}
+              draftAttachments={draftAttachments}
+              emojiOpen={emojiOpen}
+              emojiPickerAnchorRef={emojiPickerAnchorRef}
+              emojiPickerPosition={emojiPickerPosition}
+              emojiPickerRef={emojiPickerRef}
+              handleInputChange={handleInputChange}
+              handleKeyDown={handleKeyDown}
+              handlePaste={handlePaste}
+              inputWasShortened={inputWasShortened}
+              insertEmoji={insertEmoji}
+              isDm={isDm}
+              isGroupDm={isGroupDm}
+              mentionActiveIndex={mentionActiveIndex}
+              mentionOpen={mentionOpen}
+              mentionSuggestions={mentionSuggestions}
+              messageInput={messageInput}
+              messageInputWrapperRef={messageInputWrapperRef}
+              messagePickerMode={messagePickerMode}
+              newWhileReadingCount={newWhileReadingCount}
+              olderMessagesAnchorRef={olderMessagesAnchorRef}
+              onCancelReply={onCancelReply}
+              onPickAttachments={onPickAttachments}
+              onRemoveAttachment={onRemoveAttachment}
+              onRetryAttachment={onRetryAttachment}
+              onReturnToLatest={onReturnToLatest}
+              preservingOlderMessagesRef={preservingOlderMessagesRef}
+              remainingCharacters={remainingCharacters}
+              replyingTo={replyingTo}
+              returningToLatest={returningToLatest}
+              setEmojiOpen={setEmojiOpen}
+              setMessagePickerMode={setMessagePickerMode}
+              shouldAutoScrollRef={shouldAutoScrollRef}
+              showJumpToLatest={showJumpToLatest}
+              snapToBottom={snapToBottom}
+              submitMessage={submitMessage}
+              syncMentionMenu={syncMentionMenu}
+              textareaRef={textareaRef}
+              toggleMessagePicker={toggleMessagePicker}
+              useCompactMobileTimestamp={useCompactMobileTimestamp}
+              useMobileMessageLayout={useMobileMessageLayout}
+              userReadingHistoryRef={userReadingHistoryRef}
+              userScrollIntentUntilRef={userScrollIntentUntilRef}
+            />
             {reactionPickerMessageId && reactionPickerPosition && onToggleReaction && createPortal(
                 <div
                     ref={reactionPickerRef}

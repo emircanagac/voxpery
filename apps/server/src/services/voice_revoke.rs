@@ -237,11 +237,13 @@ where
     tokio::spawn(async move {
         for delay in LIVEKIT_RETRY_DELAYS {
             tokio::time::sleep(delay).await;
+            crate::services::metrics::record_livekit_retry();
             match attempt().await {
                 Ok(()) | Err(AppError::FeatureDisabled(_)) => return,
                 Err(error) => tracing::warn!("Retrying {} failed: {}", description, error),
             }
         }
+        crate::services::metrics::record_livekit_retries_exhausted();
         tracing::error!(
             "Giving up on {} after {} retries",
             description,
@@ -306,7 +308,7 @@ fn voice_join_claim_key(user_id: Uuid, channel_id: Uuid) -> String {
 /// Records that the user reported this voice join. Best effort, like the check that reads it.
 pub async fn record_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
     let result: Result<(), redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.set_ex(
             voice_join_claim_key(user_id, channel_id),
             1,
@@ -322,7 +324,7 @@ pub async fn record_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uui
 
 pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid) {
     let result: Result<(), redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.del(voice_join_claim_key(user_id, channel_id)).await
     }
     .await;
@@ -334,7 +336,7 @@ pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid
 /// When Redis cannot answer this says yes: a working call must not end over an outage.
 async fn voice_claim_exists(state: &AppState, user_id: Uuid, channel_id: Uuid) -> bool {
     let result: Result<bool, redis::RedisError> = async {
-        let mut conn = state.redis.get_multiplexed_async_connection().await?;
+        let mut conn = state.redis.connection().await?;
         conn.exists(voice_join_claim_key(user_id, channel_id)).await
     }
     .await;
@@ -387,7 +389,17 @@ pub async fn end_unclaimed_participant(
         .get(&user_id)
         .is_some_and(|entry| *entry == channel_id);
     if has_session {
-        state.voice_participant_sids.insert(user_id, current_sid);
+        state
+            .voice_participant_sids
+            .insert(user_id, current_sid.clone());
+        crate::ws::publish_cluster_update(
+            &state,
+            crate::ws::cluster::ClusterUpdate::ParticipantSid {
+                user_id,
+                participant_sid: current_sid,
+            },
+        )
+        .await;
         return;
     }
     if voice_claim_exists(&state, user_id, channel_id).await {

@@ -116,7 +116,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: mirror.gcr.io/library/redis:7.4.11-alpine
+        image: mirror.gcr.io/library/redis:8.10.3-alpine
         ports:
           - 6379:6379
         options: >-
@@ -124,6 +124,17 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      object-storage:
+        image: ghcr.io/rustfs/rustfs:1.0.4
+        env:
+          RUSTFS_ACCESS_KEY: voxperytest
+          RUSTFS_SECRET_KEY: voxperytestsecret
+          RUSTFS_VOLUMES: /data
+          RUSTFS_ADDRESS: ":9000"
+        ports:
+          - 9000:9000
+        options: >-
+          --tmpfs /data:uid=10001,gid=10001,mode=0777
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -157,11 +168,24 @@ jobs:
         working-directory: apps/server
         run: cargo clippy --locked -- -D warnings
 
+      - name: Wait for object storage
+        run: |
+          for attempt in $(seq 1 30); do
+            case "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/voxpery-tests/ready)" in
+              400|403|404) exit 0 ;;
+            esac
+            sleep 2
+          done
+          exit 1
+
       - name: Test
         working-directory: apps/server
         env:
           TEST_DATABASE_URL: postgres://voxpery_test:postgres@127.0.0.1:5432/voxpery_test
           TEST_REDIS_URL: redis://127.0.0.1:6379
+          TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TEST_S3_ACCESS_KEY: voxperytest
+          TEST_S3_SECRET_KEY: voxperytestsecret
         run: cargo test --locked -- --test-threads=1
 
   frontend:

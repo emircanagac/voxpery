@@ -26,7 +26,7 @@ pub mod routes;
 pub mod services;
 pub mod ws;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PendingVoiceMove {
     pub request_id: uuid::Uuid,
     pub actor_id: uuid::Uuid,
@@ -43,13 +43,15 @@ pub struct PendingVoiceMove {
 pub struct AppState {
     pub instance_id: uuid::Uuid,
     pub db: sqlx::PgPool,
-    pub redis: redis::Client,
+    pub redis: services::shared_redis::SharedRedis,
     pub jwt_secret: String,
     pub jwt_expiration: i64,
     /// Broadcast channel for real-time events (messages, presence, etc.)
-    pub tx: broadcast::Sender<ws::WsEvent>,
+    pub tx: broadcast::Sender<ws::BroadcastEvent>,
     /// Connected WebSocket sessions: user_id -> list of sender handles
-    pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::Sender<ws::WsEvent>>>,
+    pub sessions: DashMap<uuid::Uuid, Vec<ws::SessionQueue>>,
+    /// Other backend instances of this deployment; see `ws::cluster`.
+    pub peers: ws::cluster::Peers,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// WebSocket connection that holds each user's voice session (connection id, sender). Only
@@ -113,10 +115,17 @@ pub struct LatestReleaseCacheEntry {
     pub fetched_at: Instant,
 }
 
+impl AppState {
+    /// Whether the user has a connection on any backend instance.
+    pub fn is_online(&self, user_id: uuid::Uuid) -> bool {
+        self.sessions.contains_key(&user_id) || self.peers.is_online(user_id)
+    }
+}
+
 /// GET /health — liveness/readiness for load balancers and k8s.
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
-    let redis_ok = match state.redis.get_multiplexed_async_connection().await {
+    let redis_ok = match state.redis.connection().await {
         Ok(mut conn) => redis::cmd("PING")
             .query_async(&mut conn)
             .await
@@ -406,6 +415,9 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             state.clone(),
             observe_backend_server_errors,
         ))
+        .layer(axum::middleware::from_fn(
+            services::metrics::record_http_request,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(map_response(middleware::security_headers::apply));
@@ -556,6 +568,7 @@ mod tests {
             trusted_proxies: crate::services::client_ip::TrustedProxySet::default(),
             message_rate_limit_max: 30,
             message_rate_limit_window_secs: 10,
+            metrics_bind: None,
             observability_enabled: false,
             observability_rate_limit_max: 120,
             observability_rate_limit_window_secs: 60,
@@ -583,6 +596,12 @@ mod tests {
             email_verification_required: false,
             attachments_public_base_url: None,
             attachments_local_dir: "./storage/attachments".into(),
+            attachments_s3_endpoint: None,
+            attachments_s3_bucket: None,
+            attachments_s3_region: "auto".into(),
+            attachments_s3_access_key: None,
+            attachments_s3_secret_key: None,
+            attachments_s3_virtual_host: false,
             attachments_key_prefix: "attachments".into(),
             attachments_max_file_bytes: 10_485_760,
             attachments_max_files_per_request: 4,

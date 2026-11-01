@@ -1,0 +1,347 @@
+/* ============================================
+   Voxpery — Communication Platform Design System
+   ============================================ */
+
+:root {
+  /* Color Palette — Dark Theme (Discord-inspired) */
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --bg-surface: #1e2746;
+  --bg-surface-hover: #253354;
+  --bg-chat: #1a1a2e;
+  --bg-input: #0d1b2a;
+  --bg-header: #16213e;
+  --bg-popover: #121d37;
+  --bg-elevated: #202b4a;
+  --topbar-start: #1e2746;
+  --topbar-end: #1a223f;
+  --ui-contrast-rgb: 255, 255, 255;
+  --overlay-backdrop: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  --scrollbar-thumb: rgba(122, 170, 231, 0.32);
+  --scrollbar-thumb-hover: rgba(122, 170, 231, 0.48);
+
+  /* Accent Colors */
+  --accent-primary: #4f7fd8;
+  --accent-primary-hover: #6694e8;
+  --accent-secondary: #35589f;
+  --accent-gradient: #3f6ec8;
+  --accent-glow: 0 0 20px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  --accent-soft-hover: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  --accent-soft-strong: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+  --accent-border-strong: color-mix(in srgb, var(--accent-primary) 64%, transparent);
+  --accent-foreground: color-mix(in srgb, var(--accent-primary) 38%, var(--text-primary));
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  /* Keyboard focus outline shared by form fields and auth controls. */
+  --focus-outline: 2px solid var(--accent-primary);
+  /* Form field boundary: at least 3:1 against the input and surrounding surface in every theme. */
+  --input-border: color-mix(in srgb, var(--text-secondary) 70%, var(--bg-input));
+  --btn-primary-bg: #2f63c8;
+  --btn-primary-bg-hover: #356bd2;
+  --btn-primary-border: rgba(147, 197, 253, 0.35);
+  --btn-primary-border-hover: rgba(191, 219, 254, 0.55);
+  --btn-primary-text: #eff6ff;
+  --btn-secondary-bg: rgba(255, 255, 255, 0.04);
+  --btn-secondary-bg-hover: rgba(255, 255, 255, 0.09);
+  --btn-secondary-border: rgba(255, 255, 255, 0.18);
+  --btn-secondary-border-hover: rgba(255, 255, 255, 0.28);
+  --btn-secondary-text: var(--text-secondary);
+  --btn-danger-bg: #b64758;
+  --btn-danger-bg-hover: #c55667;
+  --btn-danger-border: #cb6876;
+  --btn-danger-border-hover: #d97b88;
+  --btn-danger-text: #fff2f4;
+  --btn-danger-soft-bg: rgba(240, 71, 71, 0.08);
+  --btn-danger-soft-bg-hover: rgba(240, 71, 71, 0.14);
+  --btn-danger-soft-border: rgba(240, 71, 71, 0.38);
+  --btn-danger-soft-border-hover: rgba(240, 71, 71, 0.5);
+  --btn-danger-soft-text: #ff9ca7;
+
+  /* Text */
+  --text-primary: #e8e8f0;
+  --text-secondary: #a0a0b8;
+  --text-muted: #9f9fae;
+  --text-link: #8b9ddf;
+  --text-positive: #43b581;
+  --text-warning: #faa61a;
+  --text-danger: #f36868;
+
+  /* Online Status (vivid for avatar dot and badges) */
+  --status-online: #22c55e;
+  --status-dnd: #ef4444;
+  --status-offline: #64748b;
+  /* Status icon sizing (shared across profile, member list, DM/friends) */
+  --status-badge-size: 10px;
+  --status-badge-icon-size: 8px;
+  --status-inline-icon-size: 12px;
+  /* Badge background matches the panel it sits in (overridden per panel) */
+  --status-badge-bg: var(--bg-chat);
+  /* Text-safe variants of status and accent fills. */
+  --status-online-text: var(--status-online);
+  --accent-gradient-text: #fff;
+  --badge-danger-bg: var(--btn-danger-bg);
+
+  /* Spacing */
+  --server-bar-width: 72px;
+  --channel-sidebar-width: clamp(200px, calc(62.5vw - 400px), 240px); /* 200px at 960px, 240px from 1024px */
+  --member-sidebar-width: clamp(200px, calc(62.5vw - 400px), 240px);
+  --header-height: 48px;
+  --mobile-bottom-dock-height: 80px;
+  --mobile-voice-callbar-offset: 0px;
+  --composer-side-gap: 0px;
+  --composer-bottom-gap: 0px;
+  --composer-mobile-side-gap: 0px;
+  --composer-mobile-bottom-gap: 0px;
+  --voice-stage-gap: 14px;
+
+  /* Typography */
+  --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Borders */
+  --border-subtle: 1px solid rgba(255, 255, 255, 0.06);
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 16px;
+  --border-radius-full: 50%;
+  /* Avatar shape: circle for profile, member list, friend list, DM list. (Server icons stay squircle via .server-icon.) */
+  --avatar-border-radius: 50%;
+
+  /* Shadows */
+  --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-high: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* Compatibility aliases used by older component styles. */
+  --text: var(--text-primary);
+  --accent: var(--accent-primary);
+  --danger: var(--text-danger);
+  --border-color: rgba(var(--ui-contrast-rgb), 0.08);
+}
+
+:root[data-theme='dark'] {
+  --bg-primary: #181a1f;
+  --bg-secondary: #14161b;
+  --bg-tertiary: #262a33;
+  --bg-surface: #23262d;
+  --bg-surface-hover: #2d313a;
+  --bg-chat: #1b1d22;
+  --bg-input: #111318;
+  --bg-header: #202329;
+  --bg-popover: #202329;
+  --bg-elevated: #292d35;
+  --topbar-start: #202329;
+  --topbar-end: #191b20;
+  --accent-primary: #6078d4;
+  --accent-primary-hover: #748be0;
+  --accent-secondary: #4358a5;
+  --accent-gradient: #556ccb;
+  --accent-glow: 0 0 20px rgba(96, 120, 212, 0.28);
+  --btn-primary-bg: #5269c7;
+  --btn-primary-bg-hover: #4c63c2;
+  --btn-primary-border: rgba(116, 139, 224, 0.46);
+  --btn-primary-border-hover: rgba(142, 161, 232, 0.64);
+  --text-primary: #f1f3f5;
+  --text-secondary: #b5bac1;
+  --text-muted: #9aa1aa;
+  --text-link: #8fa4ed;
+  --text-danger: #f36c6c;
+  --border-subtle: 1px solid rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb: rgba(181, 186, 193, 0.26);
+  --scrollbar-thumb-hover: rgba(181, 186, 193, 0.42);
+}
+
+:root[data-theme='rose'] {
+  --bg-primary: #211820;
+  --bg-secondary: #291b28;
+  --bg-tertiary: #4a2944;
+  --bg-surface: #30222f;
+  --bg-surface-hover: #3b2a39;
+  --bg-chat: #241a23;
+  --bg-input: #190f18;
+  --bg-header: #2b1d2a;
+  --bg-popover: #321f30;
+  --bg-elevated: #3a2938;
+  --topbar-start: #342132;
+  --topbar-end: #281a27;
+  --accent-primary: #c9578f;
+  --accent-primary-hover: #dc6da1;
+  --accent-secondary: #8f3d69;
+  --accent-gradient: #b84b80;
+  --accent-glow: 0 0 20px rgba(198, 83, 139, 0.3);
+  --btn-primary-bg: #a94174;
+  --btn-primary-bg-hover: #bd4d83;
+  --btn-primary-border: rgba(231, 126, 177, 0.42);
+  --btn-primary-border-hover: rgba(242, 153, 196, 0.62);
+  --btn-primary-text: #fff7fb;
+  --text-primary: #f6edf3;
+  --text-secondary: #cbb2c2;
+  --text-muted: #947c8c;
+  --text-link: #ec91bd;
+  --border-subtle: 1px solid rgba(255, 226, 242, 0.08);
+  --scrollbar-thumb: rgba(220, 109, 161, 0.3);
+  --scrollbar-thumb-hover: rgba(220, 109, 161, 0.48);
+}
+
+:root[data-theme='light'] {
+  --bg-primary: #f4f6f8;
+  --bg-secondary: #e8ebf0;
+  --bg-tertiary: #dbe3f1;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #edf0f4;
+  --bg-chat: #f8f9fb;
+  --bg-input: #ffffff;
+  --bg-header: #ffffff;
+  --bg-popover: #ffffff;
+  --bg-elevated: #f1f3f6;
+  --topbar-start: #ffffff;
+  --topbar-end: #f4f6f8;
+  --ui-contrast-rgb: 31, 35, 43;
+  --overlay-backdrop: rgba(31, 35, 43, 0.42);
+  --accent-primary: #315fbd;
+  --accent-primary-hover: #244d9f;
+  --accent-secondary: #dce7fb;
+  --accent-gradient: #315fbd;
+  --accent-glow: 0 0 0 3px rgba(49, 95, 189, 0.16);
+  --btn-primary-bg: #315fbd;
+  --btn-primary-bg-hover: #244d9f;
+  --btn-primary-border: rgba(36, 77, 159, 0.42);
+  --btn-primary-border-hover: rgba(28, 62, 130, 0.58);
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: rgba(31, 35, 43, 0.04);
+  --btn-secondary-bg-hover: rgba(31, 35, 43, 0.08);
+  --btn-secondary-border: rgba(31, 35, 43, 0.18);
+  --btn-secondary-border-hover: rgba(31, 35, 43, 0.3);
+  --btn-danger-bg: #b4233a;
+  --btn-danger-bg-hover: #971b30;
+  --btn-danger-border: #971b30;
+  --btn-danger-border-hover: #7f1729;
+  --btn-danger-soft-bg: rgba(180, 35, 58, 0.08);
+  --btn-danger-soft-bg-hover: rgba(180, 35, 58, 0.14);
+  --btn-danger-soft-border: rgba(180, 35, 58, 0.34);
+  --btn-danger-soft-border-hover: rgba(180, 35, 58, 0.48);
+  --btn-danger-soft-text: #9f1f34;
+  --text-primary: #20242c;
+  --text-secondary: #4e5867;
+  --text-muted: #5a6374;
+  --text-link: #2454aa;
+  --text-positive: #177245;
+  --text-warning: #8a5300;
+  --text-danger: #b4233a;
+  --status-offline: #77808f;
+  --status-online-text: color-mix(in srgb, var(--text-positive) 82%, #000);
+  --border-subtle: 1px solid rgba(31, 35, 43, 0.12);
+  --shadow-low: 0 1px 3px rgba(25, 32, 45, 0.12);
+  --shadow-medium: 0 5px 16px rgba(25, 32, 45, 0.14);
+  --shadow-high: 0 14px 40px rgba(25, 32, 45, 0.18);
+  --scrollbar-thumb: rgba(49, 95, 189, 0.28);
+  --scrollbar-thumb-hover: rgba(49, 95, 189, 0.46);
+}
+
+:root[data-custom-theme='true'] {
+  --bg-primary: var(--user-theme-bg-primary);
+  --bg-secondary: var(--user-theme-bg-secondary);
+  --bg-tertiary: var(--user-theme-bg-tertiary);
+  --bg-surface: var(--user-theme-bg-surface);
+  --bg-surface-hover: var(--user-theme-bg-surface-hover);
+  --bg-chat: var(--user-theme-bg-chat);
+  --bg-input: var(--user-theme-bg-input);
+  --bg-header: var(--user-theme-bg-header);
+  --bg-popover: var(--user-theme-bg-popover);
+  --bg-elevated: var(--user-theme-bg-elevated);
+  --topbar-start: var(--user-theme-topbar-start);
+  --topbar-end: var(--user-theme-topbar-end);
+  --accent-primary: var(--user-theme-accent);
+  --accent-primary-hover: var(--user-theme-accent-hover);
+  --accent-secondary: color-mix(in srgb, var(--user-theme-accent) 55%, var(--user-theme-bg-surface));
+  --accent-gradient: var(--user-theme-accent);
+  --accent-glow: 0 0 0 3px color-mix(in srgb, var(--user-theme-accent) 22%, transparent);
+  --btn-primary-bg: var(--user-theme-accent);
+  --btn-primary-bg-hover: var(--user-theme-accent-hover);
+  --btn-primary-border: color-mix(in srgb, var(--user-theme-accent) 72%, var(--user-theme-text-primary));
+  --btn-primary-border-hover: color-mix(in srgb, var(--user-theme-accent) 60%, var(--user-theme-text-primary));
+  --btn-primary-text: var(--user-theme-accent-contrast);
+  --accent-gradient-text: var(--user-theme-accent-contrast);
+  --text-primary: var(--user-theme-text-primary);
+  --text-secondary: var(--user-theme-text-secondary);
+  --text-muted: var(--user-theme-text-muted);
+  --text-link: var(--user-theme-accent);
+  --scrollbar-thumb: var(--user-theme-scrollbar);
+  --scrollbar-thumb-hover: var(--user-theme-scrollbar-hover);
+}
+
+:root[data-custom-theme='true'][data-custom-theme-mode='dark'] {
+  --ui-contrast-rgb: 255, 255, 255;
+  --overlay-backdrop: color-mix(in srgb, var(--user-theme-bg-primary) 72%, transparent);
+  --btn-secondary-bg: rgba(255, 255, 255, 0.04);
+  --btn-secondary-bg-hover: rgba(255, 255, 255, 0.09);
+  --btn-secondary-border: rgba(255, 255, 255, 0.18);
+  --btn-secondary-border-hover: rgba(255, 255, 255, 0.28);
+  --btn-danger-bg: #b64758;
+  --btn-danger-bg-hover: #c55667;
+  --btn-danger-border: #cb6876;
+  --btn-danger-border-hover: #d97b88;
+  --btn-danger-soft-bg: rgba(240, 71, 71, 0.08);
+  --btn-danger-soft-bg-hover: rgba(240, 71, 71, 0.14);
+  --btn-danger-soft-border: rgba(240, 71, 71, 0.38);
+  --btn-danger-soft-border-hover: rgba(240, 71, 71, 0.5);
+  --btn-danger-soft-text: var(--user-theme-text-danger);
+  --text-positive: var(--user-theme-text-positive);
+  --text-warning: var(--user-theme-text-warning);
+  --text-danger: var(--user-theme-text-danger);
+  --status-offline: #64748b;
+  --status-online-text: color-mix(in srgb, var(--status-online) 65%, var(--text-primary));
+  --border-subtle: 1px solid rgba(255, 255, 255, 0.08);
+  --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-high: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-custom-theme='true'][data-custom-theme-mode='light'] {
+  --ui-contrast-rgb: 31, 35, 43;
+  --overlay-backdrop: rgba(31, 35, 43, 0.42);
+  --btn-secondary-bg: rgba(31, 35, 43, 0.04);
+  --btn-secondary-bg-hover: rgba(31, 35, 43, 0.08);
+  --btn-secondary-border: rgba(31, 35, 43, 0.18);
+  --btn-secondary-border-hover: rgba(31, 35, 43, 0.3);
+  --btn-danger-bg: #b4233a;
+  --btn-danger-bg-hover: #971b30;
+  --btn-danger-border: #971b30;
+  --btn-danger-border-hover: #7f1729;
+  --btn-danger-soft-bg: rgba(180, 35, 58, 0.08);
+  --btn-danger-soft-bg-hover: rgba(180, 35, 58, 0.14);
+  --btn-danger-soft-border: rgba(180, 35, 58, 0.34);
+  --btn-danger-soft-border-hover: rgba(180, 35, 58, 0.48);
+  --btn-danger-soft-text: var(--user-theme-text-danger);
+  --text-positive: var(--user-theme-text-positive);
+  --text-warning: var(--user-theme-text-warning);
+  --text-danger: var(--user-theme-text-danger);
+  --status-offline: #77808f;
+  --status-online-text: color-mix(in srgb, var(--text-positive) 82%, #000);
+  --border-subtle: 1px solid rgba(31, 35, 43, 0.12);
+  --shadow-low: 0 1px 3px rgba(25, 32, 45, 0.12);
+  --shadow-medium: 0 5px 16px rgba(25, 32, 45, 0.14);
+  --shadow-high: 0 14px 40px rgba(25, 32, 45, 0.18);
+}
+
+:root[data-custom-accent='true'] {
+  --accent-primary: var(--user-accent);
+  --accent-primary-hover: color-mix(in srgb, var(--user-accent) 84%, var(--text-primary));
+  --accent-secondary: color-mix(in srgb, var(--user-accent) 56%, var(--bg-surface));
+  --accent-gradient: var(--user-accent);
+  --accent-glow: 0 0 0 3px color-mix(in srgb, var(--user-accent) 22%, transparent);
+  --btn-primary-bg: var(--user-accent);
+  --btn-primary-bg-hover: color-mix(in srgb, var(--user-accent) 84%, var(--text-primary));
+  --btn-primary-border: color-mix(in srgb, var(--user-accent) 72%, var(--text-primary));
+  --btn-primary-border-hover: color-mix(in srgb, var(--user-accent) 60%, var(--text-primary));
+  --btn-primary-text: var(--user-accent-contrast);
+  --accent-gradient-text: var(--user-accent-contrast);
+  --text-link: var(--user-accent-text);
+}

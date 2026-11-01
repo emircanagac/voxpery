@@ -1330,10 +1330,7 @@ async fn websocket_subscribe_and_connections_are_bounded_per_user() {
             .await;
     let _ = server_id;
     let addr = spawn_ws_app(&state).await;
-    let mut redis = redis_client()
-        .get_multiplexed_async_connection()
-        .await
-        .unwrap();
+    let mut redis = redis_client().connection().await.unwrap();
     let connect_limit_key = format!("rate:ws:{owner_id}");
 
     // Thousands of unknown ids next to a real channel: the real one is still subscribed.
@@ -2096,4 +2093,520 @@ async fn hidden_voice_channel_activity_is_not_broadcast_to_members_who_cannot_vi
     assert!(left["data"]["channel_id"].is_null());
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceControlUpdate", &marker, quiet).await;
+}
+
+#[tokio::test]
+async fn a_connection_that_missed_events_is_closed_and_reloads_them() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "fellbehind").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Busy").await;
+    let addr = spawn_ws_app(&state).await;
+    let mut ws = connect_ws(addr, &auth).await;
+    ws_subscribe(&mut ws, &[channel_id]).await;
+
+    // Nothing awaits here, so the connection cannot read while the 256 slot channel overflows.
+    for _ in 0..300 {
+        let _ = state.tx.send(voxpery_server::ws::BroadcastEvent::new(
+            voxpery_server::ws::WsEvent::FriendUpdate {
+                user_id: Uuid::new_v4(),
+            },
+        ));
+    }
+    let (status, sent) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        Some(json!({ "content": "sent while the client was behind" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{sent}");
+
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .expect("the connection must be closed")
+            .expect("the close frame must arrive")
+            .unwrap();
+        match frame {
+            WsMessage::Close(Some(close)) => {
+                assert_eq!(u16::from(close.code), 1013);
+                break;
+            }
+            WsMessage::Text(text) => {
+                assert!(!text.contains("NewMessage"), "the event must be missed")
+            }
+            _ => {}
+        }
+    }
+
+    let _reconnected = connect_ws(addr, &auth).await;
+    let (status, messages) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        messages.to_string().contains(sent["id"].as_str().unwrap()),
+        "the reload returns the missed message"
+    );
+}
+
+/// Subscribes and waits for the Pong, skipping any events that arrive first.
+async fn ws_barrier_ignoring_events(ws: &mut TestWs, channel_id: Uuid) {
+    ws_send(
+        ws,
+        json!({ "type": "Subscribe", "data": { "channel_ids": [channel_id] } }),
+    )
+    .await;
+    ws_send(ws, json!({ "type": "Ping", "data": { "sent_at_ms": 1 } })).await;
+    while let Some(Ok(frame)) = ws.next().await {
+        if matches!(&frame, WsMessage::Text(text) if text.contains("\"Pong\"")) {
+            return;
+        }
+    }
+}
+
+/// Lookups one broadcast event costs, counted as scans of `server_members`: the periodic session
+/// checks of idle connections never touch that table. Run on demand, for example:
+/// `MEASURE_WS_CONNECTIONS=1000 MEASURE_WS_EVENT=voice cargo test measure_broadcast_event_cost
+/// -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "load measurement, not a regression test"]
+async fn measure_broadcast_event_cost() {
+    use voxpery_server::ws::{publish_event, WsEvent};
+
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let env_number = |name: &str, fallback: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(fallback)
+    };
+    let connections = env_number("MEASURE_WS_CONNECTIONS", 100);
+    let events = env_number("MEASURE_WS_EVENTS", 5);
+    let kind = std::env::var("MEASURE_WS_EVENT").unwrap_or_else(|_| "presence".into());
+
+    let (mut app, state) = setup_app().await;
+    let (auth, owner_id, _) = register_named_user(&mut app, "loadowner").await;
+    let (server_id, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Load").await;
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let copied_columns: Vec<String> = sqlx::query_scalar(
+        r#"SELECT column_name::text FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'users'
+             AND is_generated = 'NEVER' AND column_name NOT IN ('id', 'username', 'email')"#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    let copied_columns = copied_columns.join(", ");
+    let users: Vec<Uuid> = sqlx::query_scalar(&format!(
+        r#"INSERT INTO users (id, username, email, {copied_columns})
+           SELECT gen_random_uuid(),
+                  'load_' || substr(md5(random()::text), 1, 20),
+                  gen_random_uuid()::text || '@example.com',
+                  {copied_columns}
+           FROM users, generate_series(1, $2) WHERE id = $1
+           RETURNING id"#
+    ))
+    .bind(owner_id)
+    .bind(connections as i32)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_members (server_id, user_id) SELECT $1, UNNEST($2::uuid[])")
+        .bind(server_id)
+        .bind(&users)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let token_version: i64 = sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1")
+        .bind(owner_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    let addr = spawn_ws_app(&state).await;
+    let started = std::time::Instant::now();
+    let mut sockets = Vec::with_capacity(users.len());
+    // The test pool is small, so handshakes must not time out waiting for a connection.
+    let handshakes = Arc::new(tokio::sync::Semaphore::new(4));
+    for (index, user_id) in users.iter().enumerate() {
+        let token = voxpery_server::services::auth::generate_token(
+            *user_id,
+            &format!("load{index}"),
+            token_version,
+            &state.jwt_secret,
+            3600,
+        )
+        .unwrap();
+        let handshakes = handshakes.clone();
+        sockets.push(tokio::spawn(async move {
+            let auth = format!("Bearer {token}");
+            let permit = handshakes.acquire_owned().await.unwrap();
+            let mut ws = connect_ws(addr, &auth).await;
+            ws_barrier_ignoring_events(&mut ws, channel_id).await;
+            drop(permit);
+            while let Some(Ok(_)) = ws.next().await {}
+        }));
+    }
+    while state.sessions.len() < users.len() {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    eprintln!("{} connections up in {:?}", users.len(), started.elapsed());
+
+    let scans = || {
+        let db = state.db.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                r#"SELECT COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0)
+                   FROM pg_stat_user_tables WHERE relname = 'server_members'"#,
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+    let commits = || {
+        let db = state.db.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT xact_commit FROM pg_stat_database WHERE datname = current_database()",
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+    // Statistics reach PostgreSQL's views late.
+    let flush = std::time::Duration::from_secs(12);
+    tokio::time::sleep(flush).await;
+    let before = scans().await;
+    let commits_before = commits().await;
+    let window = std::time::Instant::now();
+    for _ in 0..events {
+        let event = match kind.as_str() {
+            "voice" => WsEvent::VoiceStateUpdate {
+                channel_id: Some(voice_channel_id),
+                user_id: owner_id,
+                server_id: Some(server_id),
+                channel_active_since_ms: None,
+                previous_channel_id: None,
+            },
+            "member" => WsEvent::MemberRoleUpdated {
+                server_id,
+                user_id: owner_id,
+            },
+            _ => WsEvent::PresenceUpdate {
+                user_id: owner_id,
+                status: "online".into(),
+            },
+        };
+        publish_event(&state, event).await;
+    }
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let busy: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'active'",
+        )
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+        if busy <= 1 {
+            break;
+        }
+    }
+    let settled = window.elapsed();
+    tokio::time::sleep(flush).await;
+    let after = scans().await;
+    let commits_after = commits().await;
+    eprintln!(
+        "MEASURE kind={kind} connections={} events={events} settled={settled:?} scans_per_event={:.1} commits_per_event={:.1}",
+        users.len(),
+        (after - before) as f64 / events as f64,
+        (commits_after - commits_before) as f64 / events as f64,
+    );
+    for socket in sockets {
+        socket.abort();
+    }
+}
+
+async fn wait_for(what: &str, condition: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting: {what}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
+    use voxpery_server::ws::{bus::spawn_redis_event_bridge, cluster::sync_peers};
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(
+                |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    axum::Json(json!({ "sid": "PA_moved", "identity": body["identity"] }))
+                },
+            ),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(|| async { axum::Json(json!({})) }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let instance = || {
+        setup_app_with_features_and_livekit(
+            false,
+            false,
+            false,
+            false,
+            "wss://client-livekit.example.test".to_string(),
+            Some(format!("http://{livekit_addr}")),
+        )
+    };
+    let (mut app_a, state_a) = instance().await;
+    let (_, state_b) = instance().await;
+    let (_, state_c) = instance().await;
+    spawn_redis_event_bridge(state_a.clone());
+    spawn_redis_event_bridge(state_b.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let (addr_a, addr_b) = (spawn_ws_app(&state_a).await, spawn_ws_app(&state_b).await);
+
+    let (owner_auth, _, _) = register_named_user(&mut app_a, "clusterowner").await;
+    let (server_id, text_channel_id, invite) =
+        create_server_with_default_text_channel(&mut app_a, &state_a, &owner_auth, "Cluster").await;
+    let (target_auth, target_id, _) = register_named_user(&mut app_a, "clustertarget").await;
+    join_with_invite(&mut app_a, &target_auth, &invite).await;
+    let mut voice_channels = Vec::new();
+    for name in ["cluster-one", "cluster-two"] {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO channels (id, server_id, name, channel_type) VALUES ($1, $2, $3, 'voice')",
+        )
+        .bind(id)
+        .bind(server_id)
+        .bind(name)
+        .execute(&state_a.db)
+        .await
+        .unwrap();
+        voice_channels.push(id);
+    }
+    let (source, destination) = (voice_channels[0], voice_channels[1]);
+
+    // The owner's socket is on instance A, the target's on instance B.
+    let mut owner_ws = connect_ws(addr_a, &owner_auth).await;
+    ws_subscribe(&mut owner_ws, &[text_channel_id]).await;
+    let mut target_ws = connect_ws(addr_b, &target_auth).await;
+    ws_subscribe(&mut target_ws, &[text_channel_id]).await;
+
+    wait_for("A to see the target online", || {
+        state_a.is_online(target_id)
+    })
+    .await;
+    let (status, details) = api_json(
+        &mut app_a,
+        "GET",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let target_status = details["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == target_id.to_string())
+        .unwrap()["status"]
+        .clone();
+    assert_eq!(target_status, "online", "the member list covers instance B");
+
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": source, "participant_sid": "PA_source" }
+        }),
+    )
+    .await;
+    let joined = receive_ws_event(&mut owner_ws, "VoiceStateUpdate").await;
+    assert_eq!(joined["data"]["channel_id"], source.to_string());
+    wait_for("A to learn the voice session", || {
+        state_a.voice_sessions.get(&target_id).map(|entry| *entry) == Some(source)
+            && state_a
+                .voice_participant_sids
+                .get(&target_id)
+                .is_some_and(|sid| *sid == "PA_source")
+    })
+    .await;
+
+    // Moderation from A reaches a session B holds.
+    receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    ws_send(
+        &mut owner_ws,
+        json!({
+            "type": "SetVoiceControl",
+            "data": {
+                "target_user_id": target_id,
+                "muted": true,
+                "deafened": false,
+                "screen_sharing": false,
+                "camera_on": false
+            }
+        }),
+    )
+    .await;
+    let muted = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(muted["data"]["server_muted"], true);
+    wait_for("B to record the mute", || {
+        state_b
+            .voice_controls
+            .get(&target_id)
+            .is_some_and(|controls| controls.2)
+    })
+    .await;
+
+    // A brand new instance catches up from the snapshots alone.
+    sync_peers(&state_a).await.unwrap();
+    sync_peers(&state_b).await.unwrap();
+    sync_peers(&state_c).await.unwrap();
+    assert_eq!(
+        state_c.voice_sessions.get(&target_id).map(|entry| *entry),
+        Some(source)
+    );
+    assert!(state_c.is_online(target_id));
+    assert!(state_c
+        .voice_controls
+        .get(&target_id)
+        .is_some_and(|controls| controls.2));
+
+    // A move requested on A completes on B, where the target's socket is.
+    let request_id = Uuid::new_v4();
+    ws_send(
+        &mut owner_ws,
+        json!({
+            "type": "MoveVoiceMember",
+            "data": {
+                "request_id": request_id,
+                "target_user_id": target_id,
+                "channel_id": destination,
+                "reason": "Across instances"
+            }
+        }),
+    )
+    .await;
+    let requested = receive_ws_event(&mut target_ws, "VoiceMemberMoveRequested").await;
+    assert_eq!(requested["data"]["request_id"], request_id.to_string());
+    wait_for("B to know the pending move", || {
+        state_b.pending_voice_moves.contains_key(&target_id)
+    })
+    .await;
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": destination, "participant_sid": "PA_client" }
+        }),
+    )
+    .await;
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "AcknowledgeVoiceMemberMove",
+            "data": { "request_id": request_id, "success": true }
+        }),
+    )
+    .await;
+    let result = receive_ws_event(&mut owner_ws, "VoiceMemberMoveResult").await;
+    assert_eq!(result["data"]["success"], true, "{result}");
+    wait_for("A to finish the move", || {
+        !state_a.pending_voice_moves.contains_key(&target_id)
+            && state_a.voice_sessions.get(&target_id).map(|entry| *entry) == Some(destination)
+    })
+    .await;
+
+    // An instance that stops reporting takes its sessions with it, for the others only.
+    let mut redis = state_c.redis.connection().await.unwrap();
+    let _: i64 = redis::cmd("DEL")
+        .arg(format!("voxpery:cluster:instance:{}", state_b.instance_id))
+        .query_async(&mut redis)
+        .await
+        .unwrap();
+    sync_peers(&state_c).await.unwrap();
+    assert!(!state_c.voice_sessions.contains_key(&target_id));
+    assert!(!state_c.is_online(target_id));
+    assert!(state_b.voice_sessions.contains_key(&target_id));
+
+    // The client reconnects to A and rejoins: closing its old socket on B must not end voice.
+    let mut reconnected_ws = connect_ws(addr_a, &target_auth).await;
+    ws_send(
+        &mut reconnected_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": destination, "participant_sid": "PA_rejoined" }
+        }),
+    )
+    .await;
+    wait_for("A to hold the session", || {
+        state_a.voice_session_connections.contains_key(&target_id)
+    })
+    .await;
+    wait_for("B to release the session", || {
+        !state_b.voice_session_connections.contains_key(&target_id)
+    })
+    .await;
+    drop(target_ws);
+    wait_for("B to close the old socket", || {
+        !state_b.sessions.contains_key(&target_id)
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        state_a.voice_sessions.get(&target_id).map(|entry| *entry),
+        Some(destination)
+    );
+    assert!(state_b.voice_sessions.contains_key(&target_id));
+    assert!(state_b.is_online(target_id));
+
+    // Leaving reaches the other instance as usual.
+    drop(reconnected_ws);
+    wait_for("B to see the target leave", || {
+        !state_b.voice_sessions.contains_key(&target_id) && !state_b.is_online(target_id)
+    })
+    .await;
+    assert!(!state_a.is_online(target_id));
 }

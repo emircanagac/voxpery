@@ -62,6 +62,35 @@ Structured events use the `voxpery_observability` tracing target and
 than 14 days, exclude them from long-lived backups, and publish only aggregate counts.
 Changing that policy requires a matching documentation and privacy review.
 
+## Server Metrics
+
+Set `METRICS_BIND` (for example `0.0.0.0:9100`) to serve Prometheus metrics at `/metrics` on a
+separate listener. It is off by default, is not part of the public router, and has no
+authentication, so keep the address on a private network. Compose publishes no port for it.
+
+Values are per server instance and carry no paths, users, channels or addresses:
+
+- `voxpery_http_requests_total{status}` and `voxpery_http_request_duration_ms`
+- `voxpery_ws_users`, `voxpery_ws_connections`, `voxpery_voice_sessions`
+- `voxpery_db_pool_connections`, `voxpery_db_pool_idle`, `voxpery_redis_up`
+- `voxpery_redis_memory_used_bytes`, `voxpery_redis_memory_limit_bytes` (absent while Redis does not answer; a limit of 0 means none)
+- `voxpery_livekit_retries_total`, `voxpery_livekit_retries_exhausted_total`
+
+Suggested Prometheus alerts for Redis, whose failure stops sign-in and every signed-in request
+(response steps are in [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)):
+
+```yaml
+- alert: VoxperyRedisDown
+  expr: voxpery_redis_up == 0
+  for: 1m
+- alert: VoxperyRedisMemoryHigh
+  expr: voxpery_redis_memory_used_bytes / (voxpery_redis_memory_limit_bytes > 0) > 0.8
+  for: 5m
+- alert: VoxperyRedisMemoryCritical
+  expr: voxpery_redis_memory_used_bytes / (voxpery_redis_memory_limit_bytes > 0) > 0.9
+  for: 1m
+```
+
 ## Reliability Metrics
 
 Calculate ratios over the same deployment version and time window:

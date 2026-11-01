@@ -558,6 +558,68 @@ async fn failed_file_removals_after_account_deletion_are_retried() {
     assert_eq!(queued, 0);
 }
 
+#[tokio::test]
+async fn file_removal_retries_skip_entries_another_instance_holds() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (_, state) = setup_app().await;
+    let held = format!("attachments/2026/11/{}", Uuid::new_v4());
+    let free = format!("attachments/2026/11/{}", Uuid::new_v4());
+    for key in [&held, &free] {
+        sqlx::query("INSERT INTO pending_file_deletions (storage_key) VALUES ($1)")
+            .bind(key)
+            .execute(&state.db)
+            .await
+            .unwrap();
+    }
+    let queued = |key: String| {
+        let db = state.db.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM pending_file_deletions WHERE storage_key = $1",
+            )
+            .bind(key)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    let mut other_instance = state.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM pending_file_deletions WHERE storage_key = $1 FOR UPDATE")
+        .bind(&held)
+        .execute(&mut *other_instance)
+        .await
+        .unwrap();
+    voxpery_server::services::attachment_release::retry_pending_file_deletions(
+        &state.db,
+        &state.attachment_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(queued(free.clone()).await, 0, "the free entry is processed");
+    assert_eq!(
+        queued(held.clone()).await,
+        1,
+        "the held entry is left alone"
+    );
+
+    other_instance.rollback().await.unwrap();
+    voxpery_server::services::attachment_release::retry_pending_file_deletions(
+        &state.db,
+        &state.attachment_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        queued(held).await,
+        0,
+        "the entry is processed once released"
+    );
+}
+
 async fn pending_link_count(state: &AppState, user_id: Uuid) -> i64 {
     sqlx::query_scalar(
         r#"SELECT (SELECT COUNT(*) FROM email_verification_tokens WHERE user_id = $1)

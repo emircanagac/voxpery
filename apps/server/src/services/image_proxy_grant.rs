@@ -13,6 +13,7 @@ use sha2::Sha256;
 use uuid::Uuid;
 
 use crate::middleware::auth::Claims;
+use crate::services::shared_redis::SharedRedis;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -179,11 +180,8 @@ fn revoked_key(user_id: Uuid, sign_in: &str) -> String {
 
 /// Ends the image grants of one session (on logout). The mark outlives every grant the session
 /// could hold.
-pub async fn revoke_session(
-    redis: &redis::Client,
-    claims: &Claims,
-) -> Result<(), redis::RedisError> {
-    let mut conn = redis.get_multiplexed_async_connection().await?;
+pub async fn revoke_session(redis: &SharedRedis, claims: &Claims) -> Result<(), redis::RedisError> {
+    let mut conn = redis.connection().await?;
     conn.set_ex(
         revoked_key(claims.sub, &sign_in_id(claims)),
         1u8,
@@ -197,7 +195,7 @@ pub async fn revoke_session(
 /// closed when the database or Redis cannot answer.
 pub async fn session_is_active(
     db: &sqlx::PgPool,
-    redis: &redis::Client,
+    redis: &SharedRedis,
     session: &GrantSession,
 ) -> bool {
     match crate::middleware::auth::claims_match_current_token_version(
@@ -214,7 +212,7 @@ pub async fn session_is_active(
             return false;
         }
     }
-    let revoked = match redis.get_multiplexed_async_connection().await {
+    let revoked = match redis.connection().await {
         Ok(mut conn) => {
             conn.exists::<_, bool>(revoked_key(session.user_id, &session.sign_in))
                 .await

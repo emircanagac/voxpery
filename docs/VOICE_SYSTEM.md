@@ -296,12 +296,12 @@ await room.localParticipant.publishTrack(audioTrack, {
 })
 ```
 
-Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path. The local preview uses a separate `MediaStream` wrapper around the capture tracks, so entering or leaving fullscreen never rebinds or restarts the published capture. For the same reason the sharer can pause that preview to save local resources: the preview element is removed, the tile says the stream is still running, and the published track is not touched. A new share starts with its preview on.
+Screen publishing uses VP9 when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. The app requests `L3T3_KEY`, but `livekit-client` replaces it for screen shares: VP9 is published as `L1T3`, with three temporal layers and no spatial layers, so a viewer on a slow link cannot drop to a lower resolution layer. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path. The local preview uses a separate `MediaStream` wrapper around the capture tracks, so entering or leaving fullscreen never rebinds or restarts the published capture. For the same reason the sharer can pause that preview to save local resources: the preview element is removed, the tile says the stream is still running, and the published track is not touched. A new share starts with its preview on.
 
 ### Content Hints
 
 - **Auto screen share**: Starts with a 1080p60 capture envelope, then reapplies the selected surface profile after `displaySurface` is known.
-- **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic.
+- **Presentation/window share**: `contentHint = 'detail'` at 1080p30 and `maintain-resolution` degradation to preserve text sharpness while limiting traffic. `livekit-client` forces `contentHint = 'motion'` for VP9 screen shares, so `detail` only reaches the encoder on the VP8 path.
 - **Browser tab/video and Auto monitor share**: `contentHint = 'motion'` at 1080p60 with an 8 Mbps cap and `maintain-framerate` degradation.
 - **Gaming share**: Explicit 1080p60 high-motion mode with a 12 Mbps cap for users who prefer quality over bandwidth.
 - **Screen-share audio**: `contentHint = 'music'`, stereo 128 kbps Opus, continuous transmission (`dtx = false`), and RED packet-loss resilience preserve system, game, and music audio independently from the mono speech microphone profile.

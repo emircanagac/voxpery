@@ -271,7 +271,7 @@ pub(super) async fn issue_desktop_oauth_code(
     .map_err(|e| AppError::Internal(format!("Failed to encode desktop OAuth payload: {e}")))?;
     let mut conn = state
         .redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
     let _: () = conn
@@ -288,7 +288,7 @@ pub(super) async fn consume_desktop_oauth_code(
     let key = desktop_oauth_code_key(code);
     let mut conn = state
         .redis
-        .get_multiplexed_async_connection()
+        .connection()
         .await
         .map_err(|e| AppError::Internal(format!("Redis connection failed: {e}")))?;
 

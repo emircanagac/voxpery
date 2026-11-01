@@ -50,7 +50,7 @@ services:
     logging: *default-logging
 
   redis:
-    image: redis:7.4.11-alpine
+    image: redis:8.10.3-alpine
     container_name: voxpery-redis
     restart: unless-stopped
     # Bounded memory; noeviction keeps sessions and the token blacklist instead of evicting them.
@@ -75,7 +75,7 @@ services:
 
   # LiveKit runs on bridge networking for cross-platform Docker compatibility.
   livekit:
-    image: livekit/livekit-server:v1.13.5
+    image: livekit/livekit-server:v1.13.11
     container_name: voxpery-livekit
     restart: unless-stopped
     cpus: ${LIVEKIT_CPUS_LIMIT:-2.0}
@@ -139,6 +139,12 @@ services:
         APP_ENV: ${APP_ENV:-development}
     container_name: voxpery-web
     restart: unless-stopped
+    # Public addresses for a prebuilt image; empty keeps the values from the build.
+    environment:
+      WEB_API_URL: ${WEB_API_URL:-}
+      WEB_LIVEKIT_URL: ${WEB_LIVEKIT_URL:-}
+      WEB_TURNSTILE_SITE_KEY: ${WEB_TURNSTILE_SITE_KEY:-}
+      WEB_GIPHY_API_KEY: ${WEB_GIPHY_API_KEY:-}
     depends_on:
       server:
         condition: service_started

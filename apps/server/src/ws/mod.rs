@@ -1,13 +1,17 @@
 pub mod access;
+mod audience;
 pub mod bus;
+pub mod cluster;
 pub mod handler;
+mod voice_commands;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::models::MessageWithAuthor;
 
-pub use bus::{publish_event, publish_user_event};
+pub use audience::BroadcastEvent;
+pub use bus::{publish_cluster_update, publish_event, publish_user_event, SessionQueue};
 
 /// Events sent over WebSocket connections.
 #[derive(Debug, Clone, Serialize, Deserialize)]

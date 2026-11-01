@@ -4,6 +4,8 @@ export type RemoteAudioKind = 'mic' | 'screen'
 export interface VoxperyRemoteMediaTrack extends MediaStreamTrack {
   __voxpery_isScreenShareAudio?: boolean
   __voxpery_audioSource?: 'voice' | 'screen'
+  __voxpery_isCamera?: boolean
+  __voxpery_isScreenShare?: boolean
 }
 
 export function remoteMediaVisibilityKey(channelId: string, peerId: string, kind: RemoteMediaKind): string {
@@ -19,6 +21,17 @@ export function markRemoteAudioTrackSource(track: MediaStreamTrack, source: 'voi
   Object.defineProperties(track, {
     __voxpery_audioSource: { value: source, writable: true, configurable: true },
     __voxpery_isScreenShareAudio: { value: source === 'screen', writable: true, configurable: true },
+  })
+}
+
+/**
+ * Records what a video track carries. A publisher switching between camera and screen can reuse
+ * the same track, so both flags are written every time and the previous source never lingers.
+ */
+export function markRemoteVideoTrackSource(track: MediaStreamTrack, source: RemoteMediaKind): void {
+  Object.defineProperties(track, {
+    __voxpery_isCamera: { value: source === 'camera', writable: true, configurable: true },
+    __voxpery_isScreenShare: { value: source === 'screen', writable: true, configurable: true },
   })
 }
 

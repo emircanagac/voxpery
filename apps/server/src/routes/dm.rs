@@ -397,8 +397,7 @@ async fn list_dm_channels(
     let mut with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
-            let peer_status =
-                visible_presence(&r.peer_status, state.sessions.contains_key(&r.peer_id));
+            let peer_status = visible_presence(&r.peer_status, state.is_online(r.peer_id));
             DmChannelInfo { peer_status, ..r }
         })
         .collect();
@@ -495,7 +494,7 @@ async fn load_group_dm_infos(
     .await?;
     let mut members_by_channel: HashMap<Uuid, Vec<DmMemberInfo>> = HashMap::new();
     for (channel_id, id, username, avatar_url, status) in member_rows {
-        let status = visible_presence(&status, state.sessions.contains_key(&id));
+        let status = visible_presence(&status, state.is_online(id));
         members_by_channel
             .entry(channel_id)
             .or_default()
@@ -736,10 +735,7 @@ async fn get_or_create_dm_channel(
 
     tx.commit().await?;
 
-    let peer_status = visible_presence(
-        &info.peer_status,
-        state.sessions.contains_key(&info.peer_id),
-    );
+    let peer_status = visible_presence(&info.peer_status, state.is_online(info.peer_id));
     let info = DmChannelInfo {
         peer_status,
         ..info
@@ -1352,42 +1348,33 @@ async fn search_dm_messages(
         return Ok(Json(vec![]));
     }
     let limit = query.limit.unwrap_or(100).clamp(1, 200);
-    let pattern = if term.is_empty() {
-        String::new()
-    } else {
-        format!("%{}%", escape_ilike_pattern(term))
-    };
+    let pattern = (!term.is_empty()).then(|| format!("%{}%", escape_ilike_pattern(term)));
     let author_pattern = if author.is_empty() {
         None
     } else {
         Some(format!("%{}%", escape_ilike_pattern(author)))
     };
 
-    let rows = sqlx::query_as::<_, DmMessageRow>(
+    let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         r#"SELECT m.id, m.channel_id, m.content, m.attachments, m.edited_at, m.created_at,
                   u.id as user_id, u.username, public_avatar_url(u.id, u.avatar_version, u.avatar_url) AS avatar_url
            FROM dm_messages m
            INNER JOIN users u ON m.user_id = u.id
-           WHERE m.channel_id = $1
-             AND ($2 = '' OR m.content ILIKE $2 ESCAPE '\')
-             AND ($3::TEXT IS NULL OR u.username ILIKE $3 ESCAPE '\')
-             AND (
-                 NOT $4
-                 OR (
-                     jsonb_typeof(m.attachments) = 'array'
-                     AND jsonb_array_length(m.attachments) > 0
-                 )
-             )
-           ORDER BY m.created_at DESC
-           LIMIT $5"#,
-    )
-    .bind(channel_id)
-    .bind(&pattern)
-    .bind(&author_pattern)
-    .bind(has_attachment)
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await?;
+           WHERE m.channel_id = "#,
+    );
+    builder.push_bind(channel_id);
+    super::messages::push_message_search_filters(
+        &mut builder,
+        pattern,
+        author_pattern,
+        has_attachment,
+    );
+    builder.push(" ORDER BY m.created_at DESC LIMIT ");
+    builder.push_bind(limit);
+    let rows = builder
+        .build_query_as::<DmMessageRow>()
+        .fetch_all(&state.db)
+        .await?;
 
     let mut result: Vec<MessageWithAuthor> = rows.into_iter().rev().map(Into::into).collect();
     attach_dm_message_reactions(&state.db, &mut result, claims.sub).await?;

@@ -66,6 +66,7 @@ vi.mock('../updater', () => ({
   checkForUpdates: vi.fn(),
   downloadAndInstallUpdate: vi.fn(),
   getDesktopAppVersion: vi.fn(),
+  updateProgressLabel: vi.fn(() => 'Downloading…'),
 }))
 
 const localUser: User = {

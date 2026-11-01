@@ -12,6 +12,7 @@ import UserBar from '../components/UserBar'
 import { ProjectSupportLink } from '../components/SocialInfoPanel'
 import WindowControls from '../components/WindowControls'
 import { useToastStore } from '../stores/toast'
+import { useDesktopUpdateInstall } from '../hooks/useDesktopUpdateInstall'
 import { authApi, dmApi, friendApi, serverApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
@@ -26,7 +27,6 @@ import { isTauri } from '../secureStorage'
 import {
   checkForUpdates,
   DESKTOP_UPDATE_STATUS_EVENT,
-  downloadAndInstallUpdate,
   getDesktopAppVersion,
   type DesktopUpdateStatusDetail,
   type UpdateResult,
@@ -106,7 +106,11 @@ export default function AppShell() {
   currentPathnameRef.current = location.pathname
   const pushToast = useToastStore((s) => s.pushToast)
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
-  const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false)
+  const {
+    installing: installingDesktopUpdate,
+    statusLabel: desktopUpdateStatus,
+    install: installDesktopUpdateNow,
+  } = useDesktopUpdateInstall()
   const lastDesktopUpdateToastVersionRef = useRef<string | null>(null)
   const previousPathnameRef = useRef(location.pathname)
   const channels = useAppStore((s) => s.channels)
@@ -730,28 +734,6 @@ export default function AppShell() {
     closeMobileSidebar()
   }, [closeMobileSidebar, isFriendsOrDm, isServerView, location.pathname, mobileSidebarPanel])
 
-  const installDesktopUpdateNow = async () => {
-    setInstallingDesktopUpdate(true)
-    try {
-      const ok = await downloadAndInstallUpdate()
-      if (!ok) {
-        pushToast({
-          level: 'error',
-          title: 'Update failed',
-          message: 'Could not download or install the desktop update. Try again later.',
-        })
-        return
-      }
-      pushToast({
-        level: 'info',
-        title: 'Installing update',
-        message: 'Voxpery will restart after the update is applied.',
-      })
-    } finally {
-      setInstallingDesktopUpdate(false)
-    }
-  }
-
   return (
     <div className={`shell-layout${isFriendsOrDm ? ' shell-layout-social' : ''}`}>
       <a className="skip-link" href="#app-content">Skip to content</a>
@@ -815,7 +797,7 @@ export default function AppShell() {
             >
               <span className="shell-update-dock-copy">
                 <span className="shell-update-dock-title">
-                  {installingDesktopUpdate ? 'Installing update…' : `Install ${desktopUpdate.version}`}
+                  {installingDesktopUpdate ? desktopUpdateStatus : `Install ${desktopUpdate.version}`}
                 </span>
               </span>
               <ArrowDownToLine size={14} aria-hidden />

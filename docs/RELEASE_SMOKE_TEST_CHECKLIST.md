@@ -43,6 +43,13 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.0` an
 - [ ] Two users on a real LiveKit server: pausing the sharer's preview keeps the stream running for the viewer, the sharer's tile says it is still running, and resuming brings the preview back.
 - [ ] Deleting the account of a group DM owner hands the group to the longest-standing member, who can remove members; the others see the change without reloading.
 - [ ] A personal note saved in one browser appears on another device, and a second account cannot see it.
+- [ ] Migrations `063_message_search_index.sql` and `064_avatar_files.sql` apply on a copy of production data. `064` rewrites the `users` table, so note how long it takes. Afterwards existing profile pictures still load, and `SELECT COUNT(*) FROM users WHERE avatar_url LIKE 'data:%'` falls to zero as the background job moves them.
+- [ ] The backup plan covers `attachments_data` or the bucket: profile pictures are files there now, not database rows.
+- [ ] Two users on a real LiveKit server: the publisher turns the camera on and off, then starts a screen share. The viewer sees a `Screen share` tile with stream sound and volume controls and no stuck `Connecting to stream` tile, and switching back to the camera shows a `Camera` tile.
+- [ ] Desktop app closed: a browser sign-in opens the app and finishes signing in. Repeat with the app already running.
+- [ ] Redis restart during a session: `/health` recovers and sign-in works within a few seconds, without restarting the server.
+- [ ] With `ATTACHMENTS_S3_*` set to a real provider: upload, download, delete, data export and account deletion work, and files uploaded before the switch still open. Only RustFS was tested during development.
+- [ ] Two backend instances behind a load balancer without sticky routing, on a real LiveKit server: online lists, voice, moderation, voice moves and a reconnect to the other instance work, and stopping one instance clears its sessions within 35 seconds. Automated tests use a mock LiveKit.
 - [ ] The first Frontend and Firefox CI runs after this change fill the Playwright cache, and the next runs finish browser installation in under 2 minutes.
 
 ### v0.4.11 checks

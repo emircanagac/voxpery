@@ -6,7 +6,7 @@
 //! references it and it was last uploaded longer ago than [`UNUSED_UPLOAD_GRACE`], so the files
 //! of a message that is still being written are kept.
 //!
-//! Local files whose rows are deleted are queued in `pending_file_deletions` in the same
+//! Files whose rows are deleted are queued in `pending_file_deletions` in the same
 //! transaction. The queue entry is dropped once the file is gone, so a failed removal is retried
 //! by [`retry_pending_file_deletions`] instead of leaving the file on disk unnoticed.
 
@@ -35,7 +35,6 @@ pub struct ReleaseOutcome {
 struct ReleaseCandidate {
     id: Uuid,
     user_id: Uuid,
-    storage_backend: String,
     storage_key: String,
     size_bytes: i64,
     scan_status: String,
@@ -98,7 +97,7 @@ pub async fn release_unused_uploads(
     // SKIP LOCKED lets several server instances sweep at once, and an upload that is being
     // reused right now is left for the next run.
     let candidates = sqlx::query_as::<_, ReleaseCandidate>(
-        r#"SELECT id, user_id, storage_backend, storage_key, size_bytes, scan_status,
+        r#"SELECT id, user_id, storage_key, size_bytes, scan_status,
                   last_claimed_at
            FROM uploaded_attachments
            WHERE release_check_at <= NOW()
@@ -119,7 +118,7 @@ pub async fn release_unused_uploads(
         checked: candidates.len(),
         released: 0,
     };
-    let mut released_local_keys = Vec::new();
+    let mut released_keys = Vec::new();
     for candidate in candidates {
         let keep_until = candidate.last_claimed_at + grace;
         if keep_until > now {
@@ -166,20 +165,18 @@ pub async fn release_unused_uploads(
             .execute(&mut *tx)
             .await?;
         }
-        if candidate.storage_backend == "local" {
-            released_local_keys.push(candidate.storage_key);
-        }
+        released_keys.push(candidate.storage_key);
         outcome.released += 1;
     }
-    queue_local_file_deletions(&mut tx, &released_local_keys).await?;
+    queue_file_deletions(&mut tx, &released_keys).await?;
     tx.commit().await?;
 
-    delete_queued_local_files(db, attachment_service, &released_local_keys).await;
+    delete_queued_files(db, attachment_service, &released_keys).await;
     Ok(outcome)
 }
 
-/// Queues local files for removal inside the transaction that deletes their rows.
-pub async fn queue_local_file_deletions(
+/// Queues files for removal inside the transaction that deletes their rows.
+pub async fn queue_file_deletions(
     tx: &mut Transaction<'_, Postgres>,
     storage_keys: &[String],
 ) -> Result<(), AppError> {
@@ -198,7 +195,7 @@ pub async fn queue_local_file_deletions(
 }
 
 /// Removes queued files and drops their queue entries; returns how many are still pending.
-pub async fn delete_queued_local_files(
+pub async fn delete_queued_files(
     db: &PgPool,
     attachment_service: &AttachmentService,
     storage_keys: &[String],
@@ -206,7 +203,7 @@ pub async fn delete_queued_local_files(
     let mut pending = 0;
     for storage_key in storage_keys {
         match attachment_service
-            .delete_local_file_by_storage_key(storage_key)
+            .delete_file_by_storage_key(storage_key)
             .await
         {
             Ok(()) => {
@@ -239,22 +236,56 @@ pub async fn delete_queued_local_files(
     pending
 }
 
-/// Retries queued file removals that failed before (bounded per call).
+/// Retries queued file removals that failed before (bounded per call). An entry stays locked
+/// while its file is removed, so instances sharing the queue never work on the same entry.
 pub async fn retry_pending_file_deletions(
     db: &PgPool,
     attachment_service: &AttachmentService,
 ) -> Result<usize, AppError> {
-    let storage_keys = sqlx::query_scalar::<_, String>(
-        r#"SELECT storage_key
-           FROM pending_file_deletions
-           ORDER BY last_attempt_at NULLS FIRST, created_at
-           LIMIT $1"#,
-    )
-    .bind(RELEASE_BATCH_SIZE as i64)
-    .fetch_all(db)
-    .await?;
-    let pending = delete_queued_local_files(db, attachment_service, &storage_keys).await;
-    Ok(storage_keys.len() - pending)
+    let started: DateTime<Utc> = sqlx::query_scalar("SELECT NOW()").fetch_one(db).await?;
+    let mut removed = 0;
+    for _ in 0..RELEASE_BATCH_SIZE {
+        let mut tx = db.begin().await?;
+        let storage_key = sqlx::query_scalar::<_, String>(
+            r#"SELECT storage_key
+               FROM pending_file_deletions
+               WHERE last_attempt_at IS NULL OR last_attempt_at < $1
+               ORDER BY last_attempt_at NULLS FIRST, created_at
+               LIMIT 1
+               FOR UPDATE SKIP LOCKED"#,
+        )
+        .bind(started)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(storage_key) = storage_key else {
+            break;
+        };
+        match attachment_service
+            .delete_file_by_storage_key(&storage_key)
+            .await
+        {
+            Ok(()) => {
+                sqlx::query("DELETE FROM pending_file_deletions WHERE storage_key = $1")
+                    .bind(&storage_key)
+                    .execute(&mut *tx)
+                    .await?;
+                removed += 1;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "File removal failed; it will be retried");
+                sqlx::query(
+                    r#"UPDATE pending_file_deletions
+                       SET attempts = attempts + 1, last_attempt_at = NOW()
+                       WHERE storage_key = $1"#,
+                )
+                .bind(&storage_key)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+    }
+    Ok(removed)
 }
 
 /// Releases unused uploads until no full batch is left (bounded per call).
