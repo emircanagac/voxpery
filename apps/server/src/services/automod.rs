@@ -50,7 +50,7 @@ const LINK_TLDS: &[&str] = &[
 
 /// True for `name.tld` or `sub.name.tld` with a known ending, and for any `www.` host.
 fn is_link_host(token: &str) -> bool {
-    let host = token.trim_matches('.');
+    let host = token.trim_matches(['.', '-', '_']);
     let mut labels: Vec<&str> = host.split('.').collect();
     let Some(tld) = labels.pop() else {
         return false;
@@ -317,6 +317,8 @@ mod tests {
             "example.net:8080",
             "www.example.museum",
             "check this:example.xyz.",
+            "example.com_",
+            "-example.io-",
         ] {
             assert!(evaluate_rule(&rule, link).is_some(), "{link}");
         }
