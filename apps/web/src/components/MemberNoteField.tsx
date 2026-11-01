@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { userNoteApi } from '../api'
+import { userNoteApi } from '../api/userNotes'
 import { useAuthStore } from '../stores/auth'
 
 const MAX_NOTE_LENGTH = 1000
