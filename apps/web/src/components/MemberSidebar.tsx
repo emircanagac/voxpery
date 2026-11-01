@@ -230,6 +230,7 @@ export default function MemberSidebar({
     const [profileCard, setProfileCard] = useState<{
         member: MemberItemProps['member']
         isServerOwner: boolean
+        focusNote?: boolean
     } | null>(null)
     const { ref: menuRef, style: menuStyle } = useViewportMenu(contextMenu)
     const menuTriggerRef = useRef<HTMLElement | null>(null)
@@ -348,8 +349,8 @@ export default function MemberSidebar({
         [],
     )
 
-    const openProfile = useCallback((member: MemberItemProps['member'], isServerOwner: boolean) => {
-        setProfileCard({ member, isServerOwner })
+    const openProfile = useCallback((member: MemberItemProps['member'], isServerOwner: boolean, focusNote = false) => {
+        setProfileCard({ member, isServerOwner, focusNote })
         if (!activeServerId) return
 
         void serverApi.get(activeServerId, token)
@@ -680,6 +681,19 @@ export default function MemberSidebar({
                     >
                         View profile (@{contextMenu.username})
                     </button>
+                    {contextMenu.member.user_id !== user?.id && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                                openProfile(contextMenu.member, contextMenu.isServerOwner, true)
+                                setContextMenu(null)
+                            }}
+                        >
+                            Add note
+                        </button>
+                    )}
                     {contextMenu.canAddFriend && (
                         <button
                             type="button"
@@ -782,6 +796,7 @@ export default function MemberSidebar({
                 <MemberProfileDialog
                     member={profileCard.member}
                     isServerOwner={profileCard.isServerOwner}
+                    focusNote={profileCard.focusNote}
                     onClose={() => {
                         setProfileCard(null)
                         if (menuKeyboardRef.current) queueMicrotask(() => menuTriggerRef.current?.focus())

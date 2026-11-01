@@ -40,13 +40,34 @@ pub fn content_preview(content: &str) -> (String, bool) {
     (out, chars.next().is_some())
 }
 
+/// Top-level domains that mark a link without a scheme. Endings that are also everyday words or
+/// names in code (`.to`, `.it`, `.page`, `.store`) stay out, so `go.to` or `user.store` is no link.
+const LINK_TLDS: &[&str] = &[
+    "ai", "app", "au", "biz", "br", "ca", "cc", "cloud", "club", "cn", "co", "com", "de", "dev",
+    "es", "eu", "fr", "gg", "info", "io", "jp", "kr", "ly", "me", "net", "nl", "online", "org",
+    "pl", "ru", "shop", "site", "su", "tech", "tr", "tv", "uk", "xyz",
+];
+
+/// True for `name.tld` or `sub.name.tld` with a known ending, and for any `www.` host.
+fn is_link_host(token: &str) -> bool {
+    let host = token.trim_matches(['.', '-', '_']);
+    let mut labels: Vec<&str> = host.split('.').collect();
+    let Some(tld) = labels.pop() else {
+        return false;
+    };
+    let names_are_valid = !labels.is_empty()
+        && labels.iter().all(|label| {
+            !label.is_empty() && label.chars().all(|ch| ch.is_alphanumeric() || ch == '-')
+        });
+    names_are_valid && (LINK_TLDS.contains(&tld) || labels[0] == "www")
+}
+
 fn has_link(content: &str) -> bool {
     content.contains("http://")
         || content.contains("https://")
-        || content.contains("www.")
-        || content.contains(".com")
-        || content.contains(".net")
-        || content.contains(".org")
+        || content
+            .split(|ch: char| !(ch.is_alphanumeric() || matches!(ch, '.' | '-' | '@' | '_')))
+            .any(is_link_host)
 }
 
 fn has_invite_link(content: &str) -> bool {
@@ -280,6 +301,47 @@ mod tests {
         let mut rule = blocked_keyword_rule("");
         rule.trigger_type = "link_filter".into();
         assert!(evaluate_rule(&rule, "https://exa\u{200B}mple.com").is_some());
+    }
+
+    #[test]
+    fn link_filter_catches_links_without_a_scheme() {
+        let mut rule = blocked_keyword_rule("");
+        rule.trigger_type = "link_filter".into();
+        for link in [
+            "example.io",
+            "see site.dev for more",
+            "join foo.gg/abc",
+            "EXAMPLE.COM",
+            "docs.example.org/guide?x=1",
+            "(bit.ly/abc),",
+            "example.net:8080",
+            "www.example.museum",
+            "check this:example.xyz.",
+            "example.com_",
+            "-example.io-",
+        ] {
+            assert!(evaluate_rule(&rule, link).is_some(), "{link}");
+        }
+    }
+
+    #[test]
+    fn link_filter_leaves_ordinary_text_alone() {
+        let mut rule = blocked_keyword_rule("");
+        rule.trigger_type = "link_filter".into();
+        for text in [
+            "v1.2",
+            "a.b",
+            "object.compare",
+            "user.store",
+            "go.to the shop",
+            "sentence one.Then two",
+            "ends with a dot.",
+            "wait...what",
+            "mail me at test@example.com",
+            "node.js and main.rs",
+        ] {
+            assert!(evaluate_rule(&rule, text).is_none(), "{text}");
+        }
     }
 
     #[test]

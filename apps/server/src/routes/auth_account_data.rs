@@ -171,6 +171,8 @@ pub(super) fn export_avatar_file(avatar_url: Option<&str>) -> Option<(String, Ve
     let extension = match mime.to_ascii_lowercase().as_str() {
         "image/png" => "png",
         "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
         _ => return None,
     };
     let bytes = BASE64.decode(encoded.as_bytes()).ok()?;
@@ -314,6 +316,25 @@ pub(super) async fn export_my_data(
     .fetch_all(&state.db)
     .await?;
 
+    let personal_notes = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
+        r#"SELECT u.username, n.note, n.created_at, n.updated_at
+           FROM user_notes n
+           INNER JOIN users u ON u.id = n.target_user_id
+           WHERE n.author_id = $1
+           ORDER BY n.updated_at DESC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
     let friend_requests = sqlx::query_as::<_, ExportFriendRequestRow>(
         r#"SELECT CASE WHEN fr.requester_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
                   CASE WHEN fr.requester_id = $1 THEN ur.username ELSE uq.username END AS other_username,
@@ -422,7 +443,9 @@ pub(super) async fn export_my_data(
 
     let mut archive_files = Vec::with_capacity(attachments.len() + 1);
     let mut file_manifest = Vec::with_capacity(attachments.len() + 1);
-    if let Some((path, bytes)) = export_avatar_file(account.avatar_url.as_deref()) {
+    let avatar_file = export_avatar_file(account.avatar_url.as_deref());
+    let avatar_in_archive = avatar_file.is_some();
+    if let Some((path, bytes)) = avatar_file {
         file_manifest.push(serde_json::json!({
             "archive_path": path,
             "kind": "profile_avatar",
@@ -485,6 +508,7 @@ pub(super) async fn export_my_data(
         },
         "profile": {
             "has_avatar": account.avatar_url.is_some(),
+            "avatar_in_archive": avatar_in_archive,
             "about_me": account.about_me,
         },
         "servers": memberships.iter().map(|membership| {
@@ -492,6 +516,14 @@ pub(super) async fn export_my_data(
                 "name": membership.server_name,
                 "role": membership.role,
                 "joined_at": membership.joined_at,
+            })
+        }).collect::<Vec<_>>(),
+        "personal_notes": personal_notes.iter().map(|(username, note, created_at, updated_at)| {
+            serde_json::json!({
+                "about_username": username,
+                "note": note,
+                "created_at": created_at,
+                "updated_at": updated_at,
             })
         }).collect::<Vec<_>>(),
         "relationships": {
@@ -711,13 +743,47 @@ pub(super) async fn delete_my_account(
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
+    // Locked in id order before the membership goes, the same lock a membership change takes.
+    let group_dm_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT c.id
+           FROM dm_channels c
+           JOIN dm_channel_members m ON m.channel_id = c.id
+           WHERE m.user_id = $1 AND c.is_group
+           ORDER BY c.id
+           FOR UPDATE OF c"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM dm_channel_members WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
+    // A group stays manageable: as when an owner leaves, the longest-standing member takes over.
+    sqlx::query(
+        r#"UPDATE dm_channels c
+           SET owner_id = (
+               SELECT m.user_id
+               FROM dm_channel_members m
+               WHERE m.channel_id = c.id
+               ORDER BY m.joined_at ASC, m.user_id ASC
+               LIMIT 1
+           )
+           WHERE c.id = ANY($1) AND (c.owner_id = $2 OR c.owner_id IS NULL)"#,
+    )
+    .bind(&group_dm_ids)
+    .bind(claims.sub)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM dm_channels c WHERE NOT EXISTS (SELECT 1 FROM dm_channel_members m WHERE m.channel_id = c.id)")
         .execute(&mut *tx)
         .await?;
+    let group_dm_members = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT channel_id, user_id FROM dm_channel_members WHERE channel_id = ANY($1)",
+    )
+    .bind(&group_dm_ids)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM server_member_roles WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
@@ -759,6 +825,10 @@ pub(super) async fn delete_my_account(
     .await;
     for server_id in transferred_server_ids {
         crate::ws::publish_event(&state, WsEvent::ServerRolesUpdated { server_id }).await;
+    }
+    for (channel_id, user_id) in group_dm_members {
+        crate::ws::publish_user_event(&state, user_id, WsEvent::DmChannelsUpdated { channel_id })
+            .await;
     }
 
     if let Some(token) = token_from_request(&headers, &state.cookie_name) {

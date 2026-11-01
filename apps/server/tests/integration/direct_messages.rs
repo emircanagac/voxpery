@@ -1041,3 +1041,75 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
     assert_ne!(direct["id"], json!(group_id));
     assert_eq!(direct["is_group"], false);
 }
+
+#[tokio::test]
+async fn deleting_a_group_owner_hands_the_group_to_the_longest_standing_member() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, owner_password) = register_named_user(&mut app, "gdelowner").await;
+    let (amy_auth, amy_id, _) = register_named_user(&mut app, "gdelamy").await;
+    let (ben_auth, ben_id, _) = register_named_user(&mut app, "gdelben").await;
+    for friend in [amy_id, ben_id] {
+        befriend(&state, owner_id, friend).await;
+    }
+    let (status, group) = api_json(
+        &mut app,
+        "POST",
+        "/api/dm/groups",
+        &owner_auth,
+        Some(json!({ "member_ids": [amy_id, ben_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create group failed: {group}");
+    let group_id = group["id"].as_str().unwrap().to_string();
+    sqlx::query(
+        "UPDATE dm_channel_members SET joined_at = NOW() - INTERVAL '1 hour' WHERE channel_id = $1 AND user_id = $2",
+    )
+    .bind(Uuid::parse_str(&group_id).unwrap())
+    .bind(amy_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let addr = spawn_ws_app(&state).await;
+    let mut ben_ws = connect_ws(addr, &ben_auth).await;
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &owner_auth,
+        Some(json!({ "confirm": "DELETE", "password": owner_password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    let updated = receive_ws_event(&mut ben_ws, "DmChannelsUpdated").await;
+    assert_eq!(updated["data"]["channel_id"], json!(group_id));
+
+    let (status, list) = api_json(&mut app, "GET", "/api/dm/channels", &amy_auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == json!(group_id))
+        .expect("the group survives its owner");
+    assert_eq!(listed["owner_id"], json!(amy_id));
+    assert_eq!(listed["members"].as_array().unwrap().len(), 2);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/dm/groups/{group_id}/members/{ben_id}"),
+        &amy_auth,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the new owner removes members: {body}"
+    );
+}

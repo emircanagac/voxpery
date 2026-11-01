@@ -63,9 +63,11 @@ export interface DataExportPayload {
     }
     profile: {
         has_avatar: boolean
+        avatar_in_archive: boolean
         about_me: string
     }
     servers: unknown[]
+    personal_notes: unknown[]
     relationships: {
         friends: unknown[]
         friend_requests: unknown[]
@@ -81,6 +83,10 @@ export interface LegalConsentStatus {
     current_terms_version: string
     current_privacy_notice_version: string
     current_kvkk_notice_version: string
+    operator?: 'hosted' | 'self_hosted'
+    terms_url?: string | null
+    privacy_url?: string | null
+    kvkk_url?: string | null
 }
 
 export interface SessionResponse {

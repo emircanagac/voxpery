@@ -480,6 +480,74 @@ async fn repeated_attachment_upload_reuses_storage_and_quota() {
 }
 
 #[tokio::test]
+async fn a_message_and_the_upload_release_cannot_both_win_an_old_upload() {
+    use voxpery_server::services::attachment_release::{
+        lock_uploads_for_message, release_unused_uploads,
+    };
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "racer").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Races").await;
+
+    // The message is being stored: the release leaves the upload alone, then sees it in use.
+    let kept = upload_text_file(&mut app, &auth, "kept.txt", b"kept race bytes").await;
+    age_upload(&state, kept, true).await;
+    let attachments = json!([{ "id": kept.to_string() }]);
+    let mut tx = state.db.begin().await.unwrap();
+    lock_uploads_for_message(&mut tx, user_id, Some(&attachments))
+        .await
+        .unwrap();
+    let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[kept]))
+        .await
+        .unwrap();
+    assert_eq!(outcome.checked, 0, "a locked upload must be skipped");
+    sqlx::query(
+        "INSERT INTO messages (id, channel_id, user_id, content, attachments, created_at)
+         VALUES ($1, $2, $3, 'file', $4, NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(&attachments)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[kept]))
+        .await
+        .unwrap();
+    assert_eq!(outcome.released, 0);
+    assert!(upload_release_state(&state, kept).await.is_some());
+
+    // The release got there first: the message is refused instead of pointing at nothing.
+    let released = upload_text_file(&mut app, &auth, "released.txt", b"released race bytes").await;
+    age_upload(&state, released, true).await;
+    let attachments = json!([{ "id": released.to_string() }]);
+    release_unused_uploads(&state.db, &state.attachment_service, Some(&[released]))
+        .await
+        .unwrap();
+    let mut tx = state.db.begin().await.unwrap();
+    let refused = lock_uploads_for_message(&mut tx, user_id, Some(&attachments)).await;
+    assert!(
+        refused.is_err(),
+        "a released upload must refuse the message"
+    );
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        Some(json!({ "content": "file", "attachments": attachments })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn unused_uploads_are_released_and_their_quota_returned() {
     use voxpery_server::services::attachment_release::release_unused_uploads;
     let Some(_) = test_db_url() else {

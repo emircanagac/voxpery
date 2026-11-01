@@ -2,10 +2,12 @@
 
 # Privacy Notice
 
-Version: `2026-10-23`  
-Last updated: 23 October 2026
+Version: `2026-11-01`  
+Last updated: 1 November 2026
 
 This notice applies only to the official hosted service at voxpery.com, on the web and in the desktop apps. Anyone who runs their own Voxpery server is a separate controller and must publish their own notice.
+
+We apply the EU General Data Protection Regulation (GDPR) as the standard for this notice, for every user wherever they live. People in Türkiye also get the [KVKK notice](KVKK_AYDINLATMA_METNI.md).
 
 ## Controller and contact
 
@@ -15,16 +17,21 @@ The hosted service is operated by Emircan Agac, an individual open-source projec
 
 - **Account and profile:** username, email address, password hash, profile picture, optional about-me text, online status, preferences such as who can send you direct messages, your Google account identifier if you sign in with Google, whether your email is verified, and which versions of these documents you accepted and when.
 - **Communities and messages:** servers, memberships and roles, friends and friend requests, messages and direct messages, reactions, pins, uploaded files, reports, bans, timeouts and server audit log entries. Location and camera metadata is removed from uploaded JPEG and PNG images.
+- **Personal notes:** notes you write about other users. Other users, including the person a note is about, cannot see them.
 - **Security and operations:** your sign-in session, short-lived rate-limit counters that include your IP address, server logs, and a record of when your account was registered and when you exported your data. IP addresses are not stored in the database.
 - **Voice, video and screen sharing:** carried in real time through the LiveKit media server that the operator runs with the service. Calls, cameras and screen shares are not recorded.
 
 ## Messages are not end-to-end encrypted
 
-Messages, direct messages and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.
+Messages, direct messages, personal notes and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.
 
 ## Purposes and legal bases
 
-Data is used to create and secure accounts, provide communication features, prevent abuse, operate and troubleshoot the service, comply with the law, and establish or defend legal claims. Processing relies on performing the Terms of Service, legitimate interests in running a safe service, and legal obligations. Voxpery does not use your data for advertising or profiling.
+Data is used to create and secure accounts, provide communication features, prevent abuse, operate and troubleshoot the service, comply with the law, and establish or defend legal claims. Voxpery does not use your data for advertising or profiling.
+
+- **Performing the Terms of Service (GDPR Art. 6(1)(b)):** your account, profile, personal notes, messages, files, servers, friends, voice and screen sharing, and account emails.
+- **Legitimate interests in running a safe service (Art. 6(1)(f)):** security, rate limits, server logs, moderation records, preventing abuse, troubleshooting, and establishing or defending legal claims. You can object to this processing.
+- **Legal obligations (Art. 6(1)(c)):** keeping the record of the documents you accepted and answering lawful requests.
 
 ## Cookies and local storage
 
@@ -43,13 +50,13 @@ Data is therefore processed in Germany and, by these providers, in other countri
 ## Retention
 
 - Account data and content are kept until you delete them or your account.
-- Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships and uploaded files. Moderation and audit records you created are reassigned to a placeholder account, and servers you own pass to their highest-ranked member.
+- Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships, uploaded files and personal notes, including notes other people wrote about you. Moderation and audit records you created are reassigned to a placeholder account, servers you own pass to their highest-ranked member, and group direct messages you own pass to their longest-standing member.
 - Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.
 - Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.
 
 ## Your rights
 
-Depending on where you live, you may ask for access to, correction, deletion or portability of your data, restrict or object to processing, and complain to a data protection authority. Settings offer a ZIP export of your data (your latest 20,000 server messages and 20,000 direct messages, and your files); it is a convenience, not a complete answer to a formal access request. Send formal requests from the email address on your account to the contact above; you will get an answer within 30 days.
+Wherever you live, you can ask for access to, correction, deletion or portability of your data, restrict or object to processing, and complain to a data protection authority: in the EU and EEA the authority where you live or work, and in Türkiye the Kişisel Verileri Koruma Kurulu. Settings offer a ZIP export of your data (your latest 20,000 server messages and 20,000 direct messages, your personal notes and your files); it is a convenience, not a complete answer to a formal access request. Send formal requests from the email address on your account to the contact above; you will get an answer within 30 days.
 
 ## Children
 

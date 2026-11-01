@@ -7,7 +7,7 @@ const ALL = { backend: true, frontend: true, desktop: true }
 // Documentation never affects builds or tests.
 const DOCS = /^(docs\/|LICENSE$|\.github\/ISSUE_TEMPLATE\/)|\.md$/
 // The CI definition itself can break any job.
-const CI_WORKFLOW = /^\.github\/workflows\/ci\.yml$/
+const CI_WORKFLOW = /^\.github\/(workflows\/ci\.yml$|actions\/)/
 const BACKEND = /^apps\/server\//
 const DESKTOP = /^(apps\/desktop\/|\.github\/desktop-apt-packages\.txt$|\.github\/scripts\/validate-linux-launchers|scripts\/dev\/local-qa-config)/
 // Files outside apps/web that frontend-job validators and regression scripts read.

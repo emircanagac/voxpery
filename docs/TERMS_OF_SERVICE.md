@@ -2,8 +2,8 @@
 
 # Terms of Service
 
-Version: `2026-10-23`  
-Last updated: 23 October 2026
+Version: `2026-11-01`  
+Last updated: 1 November 2026
 
 These Terms govern the official hosted Voxpery service at voxpery.com, on the web and in the desktop apps. The source code is licensed separately under AGPL-3.0-only.
 

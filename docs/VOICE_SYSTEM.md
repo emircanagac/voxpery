@@ -296,7 +296,7 @@ await room.localParticipant.publishTrack(audioTrack, {
 })
 ```
 
-Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path. The local preview uses a separate `MediaStream` wrapper around the capture tracks, so entering or leaving fullscreen never rebinds or restarts the published capture.
+Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast with 360p30 and 720p60 intermediate layers. Remote LiveKit video tracks are rendered through `RemoteVideoTrack.attach()` so adaptive stream can select a layer from the element's actual dimensions and visibility. Incompatible runtimes retain the VP8 path. The local preview uses a separate `MediaStream` wrapper around the capture tracks, so entering or leaving fullscreen never rebinds or restarts the published capture. For the same reason the sharer can pause that preview to save local resources: the preview element is removed, the tile says the stream is still running, and the published track is not touched. A new share starts with its preview on.
 
 ### Content Hints
 

@@ -1,0 +1,56 @@
+name: Install Playwright browser
+description: Installs one Playwright browser and its system packages, reusing cached downloads.
+
+inputs:
+  browser:
+    description: Browser to install (chromium or firefox).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build cache key
+      id: key
+      shell: bash
+      working-directory: apps/web
+      env:
+        BROWSER: ${{ inputs.browser }}
+      # The month refreshes the system packages, which change without a Playwright release.
+      run: |
+        version="$(node -p "require('./package.json').devDependencies['@playwright/test']")"
+        prefix="playwright-${ImageOS}-${BROWSER}-${version}"
+        echo "prefix=${prefix}-" >> "$GITHUB_OUTPUT"
+        echo "value=${prefix}-$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore browser and system packages
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-cache
+        key: ${{ steps.key.outputs.value }}
+        restore-keys: ${{ steps.key.outputs.prefix }}
+
+    - name: Install browser
+      shell: bash
+      working-directory: apps/web
+      env:
+        BROWSER: ${{ inputs.browser }}
+      run: |
+        mkdir -p ~/apt-cache/archives/partial
+        # Playwright runs apt itself, so these settings go to apt's own configuration.
+        printf 'Dir::Cache::Archives "%s/apt-cache/archives";\nAcquire::Retries "3";\nAcquire::http::Timeout "30";\n' "$HOME" \
+          | sudo tee /etc/apt/apt.conf.d/99-playwright-cache > /dev/null
+        npx playwright install --with-deps "$BROWSER"
+        # apt leaves its download folder to root; the cache step must be able to read it.
+        sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
+
+    - name: Save browser and system packages
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-cache
+        key: ${{ steps.key.outputs.value }}

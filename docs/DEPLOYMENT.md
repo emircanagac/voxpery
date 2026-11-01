@@ -54,6 +54,7 @@ Edit `.env` and set strong production values at minimum:
 - `VITE_API_URL` (public backend URL used by frontend build)
 - `VITE_GIPHY_API_KEY` (optional public client key for GIPHY search/trending; configure the same repository variable for web and desktop release builds)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
+- `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` and `LEGAL_DOCUMENTS_VERSION` (self-hosted servers: the operator's own documents and their version; see `docs/SELF_HOST_PRIVACY_TEMPLATE.md`)
 - `ATTACHMENTS_PUBLIC_BASE_URL` (for uploaded file URLs; usually your API domain)
 
 Reverse proxy note:

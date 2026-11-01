@@ -134,7 +134,7 @@ pub(super) async fn create_account(
         };
         let user = sqlx::query_as::<_, User>("INSERT INTO users (id,username,email,password_hash,status,dm_privacy,google_id,email_verified,terms_version,terms_accepted_at,privacy_notice_version,privacy_notice_acknowledged_at,kvkk_notice_version,kvkk_notice_acknowledged_at) VALUES ($1,$2,$3,'oauth','online','everyone',$4,TRUE,$5,NOW(),$6,NOW(),$7,NOW()) ON CONFLICT DO NOTHING RETURNING *")
             .bind(Uuid::new_v4()).bind(username).bind(email).bind(google_id)
-            .bind(CURRENT_TERMS_VERSION).bind(CURRENT_PRIVACY_NOTICE_VERSION).bind(CURRENT_KVKK_NOTICE_VERSION)
+            .bind(current_terms_version()).bind(current_privacy_notice_version()).bind(current_kvkk_notice_version())
             .fetch_optional(&mut **tx).await?;
         if user.is_some() {
             created = user;
@@ -148,9 +148,9 @@ pub(super) async fn create_account(
         tx,
         user.id,
         "account_registered",
-        Some(CURRENT_TERMS_VERSION),
-        Some(CURRENT_PRIVACY_NOTICE_VERSION),
-        Some(CURRENT_KVKK_NOTICE_VERSION),
+        Some(current_terms_version()),
+        Some(current_privacy_notice_version()),
+        Some(current_kvkk_notice_version()),
     )
     .await?;
     Ok(user)
@@ -195,9 +195,9 @@ pub(super) async fn complete(
         accepted[2],
         &body.kvkk_notice_version,
     ) {
-        let current_versions = body.terms_version == CURRENT_TERMS_VERSION
-            && body.privacy_notice_version == CURRENT_PRIVACY_NOTICE_VERSION
-            && body.kvkk_notice_version == CURRENT_KVKK_NOTICE_VERSION;
+        let current_versions = body.terms_version == current_terms_version()
+            && body.privacy_notice_version == current_privacy_notice_version()
+            && body.kvkk_notice_version == current_kvkk_notice_version();
         return Ok(page(
             &state,
             &pending,

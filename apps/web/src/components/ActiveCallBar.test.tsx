@@ -586,6 +586,24 @@ describe('ActiveCallBar regressions', () => {
     expect(stage).toHaveAttribute('data-participant-count', '2')
   })
 
+  it('pauses only the local screen preview and says the stream is still running', () => {
+    const screenStream = new MediaStream([mediaTrack('video', 'local-screen')])
+    const { container } = renderActiveCallBar({ isScreenSharing: true, screenStream })
+    const tile = () => container.querySelector('.voice-stage-share-tile')!
+    expect(tile().querySelector('video')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause preview' }))
+
+    expect(tile().querySelector('video')).toBeNull()
+    expect(screen.getByText('Your stream is still running')).toBeInTheDocument()
+    expect(screenStream.getVideoTracks()).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume preview' }))
+
+    expect(tile().querySelector('video')).not.toBeNull()
+    expect(screen.queryByText('Your stream is still running')).toBeNull()
+  })
+
   it('removes the mini player immediately when the viewer stops watching', () => {
     const screenTrack = mediaTrack('video', 'screen-track')
     const { voice } = renderActiveCallBar(

@@ -248,7 +248,7 @@ export default function RegisterPage() {
                 {documentError && <div className="auth-error" role="alert">{documentError}
                     <button type="button" className="btn btn-secondary" onClick={() => setDocumentAttempt((attempt) => attempt + 1)}>Try again</button>
                 </div>}
-                <LegalAcknowledgements terms={termsAccepted} privacy={privacyAcknowledged} onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} disabled={!documents || loading || openingGoogle} />
+                <LegalAcknowledgements documents={documents} terms={termsAccepted} privacy={privacyAcknowledged} onTerms={setTermsAccepted} onPrivacy={setPrivacyAcknowledged} disabled={!documents || loading || openingGoogle} />
 
                 <button className="auth-btn" type="submit" disabled={loading || openingGoogle || !legalReady || (!!turnstileSiteKey && !captchaToken)}>
                     {loading ? 'Creating account...' : 'Sign Up'}

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-01
+
+### Security
+- Security updates.
+
+### Added
+- Personal notes: add a note to anyone's profile, from the profile card or by right-clicking a member. Only you can see it, it follows your account across devices, and it is part of your data export.
+- Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
+
+### Changed
+- The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
+
+### Fixed
+- Group DMs: when the owner deletes their account, the longest-standing member becomes the owner and the remaining members see the change right away. Groups already left without an owner are repaired, so members can manage them again.
+- Sending a message with a file uploaded more than a day ago can no longer lose the file to the cleanup of unused uploads: the file stays with the message, or the send fails with a clear error.
+- Data export: WebP and GIF profile pictures are now in the ZIP archive next to PNG and JPEG ones, and the archive says when a profile picture is an external link that could not be included.
+- AutoMod link filter: links without `https://` are caught for common domain endings such as `example.io`, `site.dev` and `foo.gg`, and text like `object.compare` or `v1.2` is no longer blocked. An email address alone no longer counts as a link.
+- Self-hosted servers: registration and the acknowledgement prompt no longer show the documents of voxpery.com. Operators name their own with `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` and `LEGAL_DOCUMENTS_VERSION`, the legal pages say who is responsible for the server, and updates to the hosted documents no longer ask people on other servers to acknowledge them.
+
 ## [0.4.11] - 2026-10-31
 
 ### Security

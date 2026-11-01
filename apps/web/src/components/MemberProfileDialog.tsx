@@ -3,6 +3,8 @@ import { MessageCircle, Settings, UserPlus, X } from 'lucide-react'
 import { resolveAvatarUrl } from '../api'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
 import { formatDate } from '../dateFormat'
+import { useAuthStore } from '../stores/auth'
+import MemberNoteField from './MemberNoteField'
 
 export interface MemberProfileMember {
   user_id: string
@@ -22,6 +24,8 @@ interface MemberProfileDialogProps {
   isServerOwner: boolean
   onClose: () => void
   onEditProfile?: () => void
+  /** Opened from "Add note": the note field takes the focus once it has loaded. */
+  focusNote?: boolean
   actions?: {
     canSendDm: boolean
     canAddFriend: boolean
@@ -35,7 +39,8 @@ function formatProfileDate(value?: string | null) {
   return formatDate(value) || null
 }
 
-export default function MemberProfileDialog({ member, isServerOwner, onClose, actions, onEditProfile }: MemberProfileDialogProps) {
+export default function MemberProfileDialog({ member, isServerOwner, onClose, actions, onEditProfile, focusNote }: MemberProfileDialogProps) {
+  const currentUserId = useAuthStore((state) => state.user?.id)
   const readableTextColor = useReadableTextColor()
   const roleColor = readableTextColor(member.role_color)
   const dialogRef = useRef<HTMLElement>(null)
@@ -51,7 +56,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
         return
       }
       if (event.key !== 'Tab') return
-      const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+      const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled)') ?? [])
       if (buttons.length === 0) return
       const first = buttons[0]
       const last = buttons[buttons.length - 1]
@@ -129,6 +134,9 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
             </span>
           )}
         </div>
+        {!onEditProfile && member.user_id !== currentUserId && (
+          <MemberNoteField key={member.user_id} userId={member.user_id} username={member.username} autoFocus={focusNote} />
+        )}
         {onEditProfile && <button type="button" className="member-profile-action" onClick={onEditProfile}><Settings size={14} />Edit profile</button>}
         {actions && (actions.canSendDm || actions.canAddFriend) && (
           <div className="member-profile-actions" role="group" aria-label={`Actions for ${member.username}`}>

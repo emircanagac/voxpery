@@ -10,6 +10,8 @@ The legal boundary consumes the startup snapshot without another request or a se
 
 The server supplies current legal-document versions through public metadata. Sign Up and the authenticated consent boundary share the same acknowledgement component; load failure is separate from missing consent, and failed saves preserve valid selections. Gate state is keyed to the authenticated identity and ignores stale requests.
 
+Only the official service publishes the hosted documents; it is recognized from `PUBLIC_API_URL` or `FRONTEND_URL`. Any other server is a separate controller: it names its own documents with the `LEGAL_*` variables, keeps a fixed default version until `LEGAL_DOCUMENTS_VERSION` is set, and its legal pages never show the hosted text. The desktop app accepts only web addresses from a server and treats any custom server as self-hosted.
+
 Google callbacks require a verified provider email. Existing accounts keep the normal sign-in path and acknowledge only missing/stale versions. New accounts arriving with valid Sign Up metadata use the fast path; otherwise a cookie-bound pending context leads to a server-rendered completion form. Both paths use the same transaction-level account/audit creation service. Pending completion additionally locks and consumes its short-lived context atomically. No account or full session is issued before actual acknowledgement. Desktop results remain PKCE-bound single-use exchange codes; the browser completion page has no native IPC access.
 
 ## Stack

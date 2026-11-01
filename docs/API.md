@@ -58,6 +58,7 @@ Important behavior:
   - Available even when acknowledgement is missing so the client can display the form. Missing/revoked credentials return `401`; protected application routes retain their independent legal gate. `/me` keeps its existing response for compatibility.
 - `GET /api/auth/legal-documents`
   - Public current Terms, Privacy Notice, and KVKK version metadata; no account status or invented acceptance.
+  - `operator` is `hosted` on the official service and `self_hosted` elsewhere; `terms_url`, `privacy_url` and `kvkk_url` are the documents a self-hosted operator published, or `null`. `GET /api/auth/session` and `/api/auth/legal-consent` return the same fields.
 - `GET /api/auth/legal-consent`
   - Returns whether the authenticated account must acknowledge newer legal documents and the current Terms, Privacy Notice, and KVKK versions.
 - `POST /api/auth/legal-consent`
@@ -97,12 +98,12 @@ Important behavior:
   - Provider-independent `{ "code": "...", "code_verifier": "..." }` exchange for desktop email/Google handoffs. Codes expire after 5 minutes and are consumed atomically; wrong PKCE, replay, expired/revoked JWTs and obsolete token versions fail closed. This endpoint does not require Google OAuth to be enabled. The older Google-specific exchange route remains feature-gated for compatibility.
 - `POST /api/auth/data-export`
   - Password accounts must submit `{ "password": "..." }`; Google-only accounts require a Google-authenticated session issued within the last 10 minutes.
-  - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files.
+  - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files. Stored PNG, JPEG, WebP and GIF avatars are included; `profile.avatar_in_archive` is `false` when the profile picture is an external link and no file could be added.
   - The manifest is explicitly a bounded convenience export (latest 20,000 authored server messages and 20,000 authored DMs), not a complete legal access-response package.
   - GDPR/KVKK data export JSON payload for authenticated user.
-  - Export format: `voxpery-user-data-v2`.
+  - Export format: `voxpery-user-data-v3`; an archive larger than 256 MB is refused with `409`.
   - Export is intentionally user-readable and data-minimized: internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers are omitted.
-  - Payload sections include export metadata, account, profile summary, servers, relationships, and authored messages.
+  - Payload sections include export metadata, account, profile summary, servers, personal notes, relationships, and authored messages.
 - `DELETE /api/auth/account`
   - Body: `{ "confirm": "DELETE", "password"?: "..." }`
   - Permanently deletes account and authored content, including the files the account uploaded (removed from storage after the database commit).
@@ -320,6 +321,14 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
 
+## Personal Notes
+
+- `GET /api/users/:user_id/note`
+  - Returns the caller's own note about a user as `{ "note": string | null, "updated_at": string | null }`. Notes are visible only to their author.
+- `PUT /api/users/:user_id/note`
+  - Body `{ "note": "..." }`, at most 1,000 characters after trimming; an empty note deletes it. An unknown user returns `404`. Limited to 30 changes per minute.
+- Notes are included in the author's data export as `personal_notes` and are deleted with either account.
+
 ## Friends Endpoints
 
 - `GET /api/friends`
@@ -348,7 +357,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `POST /api/dm/groups/:channel_id/members`
   - Accepts `{ "user_ids": [uuid, ...] }`; any member can add their own friends while the group has room. Lists longer than 8 ids are refused with `400`.
 - `DELETE /api/dm/groups/:channel_id/members/:user_id`
-  - Members can remove themselves (leave); only the owner can remove others. When the owner leaves, the longest-standing member becomes owner; the group is deleted when its last member leaves.
+  - Members can remove themselves (leave); only the owner can remove others. When the owner leaves or deletes their account, the longest-standing member becomes owner; the group is deleted when its last member leaves.
   - Every create, rename and membership change sends `DmChannelsUpdated` to the current and removed members.
 - `POST /api/dm/channels/:channel_id/hide`
   - Hides and unpins the channel for the current user without deleting messages or hiding it for the peer.

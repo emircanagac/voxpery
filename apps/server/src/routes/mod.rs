@@ -8,4 +8,5 @@ pub mod messages;
 pub mod releases;
 pub mod servers;
 pub mod system;
+pub mod user_notes;
 pub mod webrtc;

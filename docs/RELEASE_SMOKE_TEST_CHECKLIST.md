@@ -26,13 +26,24 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.11 preparation (not release sign-off)
+### v0.5.0 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.11`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.5.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.11` and `voxpery/voxpery-web:v0.4.11`, the embedded web badge/build tag, desktop version `0.4.11`, the `Voxpery_0.4.11_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.0` and `voxpery/voxpery-web:v0.5.0`, the embedded web badge/build tag, desktop version `0.5.0`, the `Voxpery_0.5.0_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.5.0 checks
+
+- [ ] Take a database backup right before tagging: migration `061_group_dm_owner_backfill.sql` changes data and `062_user_notes.sql` adds a table; both run on the first server start after the deploy.
+- [ ] On the hosted service, `PUBLIC_API_URL` is `https://api.voxpery.com` or `FRONTEND_URL` is `https://voxpery.com`, and `GET /api/auth/legal-documents` returns `operator: hosted` with version `2026-11-01`. Existing accounts are asked to acknowledge the new documents once.
+- [ ] On a self-hosted server, registration links the documents named by `LEGAL_*_URL`, the legal pages say the server is independent of voxpery.com, and existing accounts are not asked to acknowledge anything until `LEGAL_DOCUMENTS_VERSION` changes.
+- [ ] Desktop app connected to a custom server: the CAPTCHA frame opens during registration and legal links open in the system browser.
+- [ ] Two users on a real LiveKit server: pausing the sharer's preview keeps the stream running for the viewer, the sharer's tile says it is still running, and resuming brings the preview back.
+- [ ] Deleting the account of a group DM owner hands the group to the longest-standing member, who can remove members; the others see the change without reloading.
+- [ ] A personal note saved in one browser appears on another device, and a second account cannot see it.
+- [ ] The first Frontend and Firefox CI runs after this change fill the Playwright cache, and the next runs finish browser installation in under 2 minutes.
 
 ### v0.4.11 checks
 
