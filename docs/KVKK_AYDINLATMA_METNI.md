@@ -16,11 +16,11 @@ Barındırılan hizmetin veri sorumlusu, Türkiye'de bireysel açık kaynak proj
 - **Kimlik ve iletişim:** kullanıcı adı, e-posta adresi, Google ile giriş yapılırsa Google hesap kimliği.
 - **Hesap ve profil:** parola özeti (hash), profil resmi, isteğe bağlı "hakkımda" metni, çevrim içi durumu, tercihler, e-postanın doğrulanıp doğrulanmadığı, kabul edilen metinlerin sürümleri ve kabul zamanları.
 - **Topluluk ve iletişim içeriği:** sunucular, üyelikler ve roller, arkadaşlıklar ve istekler, mesajlar ve doğrudan mesajlar, tepkiler, sabitlemeler, yüklenen dosyalar, şikâyetler, yasaklar, susturmalar ve sunucu denetim kayıtları. Yüklenen JPEG ve PNG resimlerdeki konum ve kamera bilgileri silinir.
-- **Kişisel notlar:** başka kullanıcılar hakkında yazdığınız notlar. Yalnız siz görürsünüz, notun konusu olan kişi göremez.
+- **Kişisel notlar:** başka kullanıcılar hakkında yazdığınız notlar. Notun konusu olan kişi dahil diğer kullanıcılar göremez.
 - **İşlem güvenliği:** oturum bilgisi, IP adresini içeren kısa ömürlü istek sınırı sayaçları, sunucu kayıtları (log), hesabın oluşturulma ve veri dışa aktarma zamanları. IP adresleri veri tabanında saklanmaz.
 - **Ses, görüntü ve ekran paylaşımı:** işletmecinin hizmetle birlikte çalıştırdığı LiveKit medya sunucusu üzerinden anlık iletilir; görüşmeler kaydedilmez.
 
-Mesajlar, doğrudan mesajlar ve dosyalar uçtan uca şifreli değildir; sunucu bunları saklar ve teknik olarak erişebilir.
+Mesajlar, doğrudan mesajlar, kişisel notlar ve dosyalar uçtan uca şifreli değildir; sunucu bunları saklar ve teknik olarak erişebilir.
 
 ## Toplama yöntemi ve hukuki sebepler
 

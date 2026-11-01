@@ -13,9 +13,19 @@ export interface RegistrationLegalAcceptance {
   kvkk_notice_version: string
 }
 
+/** Web addresses only: in the desktop app these values come from a server the app does not vouch for. */
+export function legalWebUrl(url: string | null | undefined) {
+  return url && /^https?:\/\//i.test(url) ? url : null
+}
+
+/** Not voxpery.com. A desktop app on a custom server knows that even if an older server does not say so. */
+export function isSelfHostedServer(documents: LegalConsentStatus | null | undefined) {
+  return documents?.operator === 'self_hosted' || !!window.__VOXPERY_DESKTOP_SERVER__?.apiBase
+}
+
 /** Where a document can be read: the active server's own copy, or this app's legal page. */
 export function legalDocumentHref(documents: LegalConsentStatus | null | undefined, document: 'terms' | 'privacy' | 'kvkk') {
-  return documents?.[`${document}_url`] ?? ROUTES[document]
+  return legalWebUrl(documents?.[`${document}_url`]) ?? ROUTES[document]
 }
 
 export function currentLegalAcceptance(documents: LegalConsentStatus): RegistrationLegalAcceptance {

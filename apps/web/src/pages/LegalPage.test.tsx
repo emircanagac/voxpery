@@ -52,6 +52,23 @@ describe('legal pages on a self-hosted server', () => {
     expect(screen.queryByText(/Emircan Agac/)).not.toBeInTheDocument()
   })
 
+  it('ignores a document address that is not a web address', async () => {
+    selfHosted({ privacy_url: 'javascript:alert(1)' })
+    renderAt('/privacy')
+    expect(await screen.findByText(/has not published this document/)).toBeInTheDocument()
+  })
+
+  it('treats a desktop app on a custom server as self-hosted even if the server does not say so', () => {
+    vi.spyOn(authApi, 'getLegalDocuments').mockRejectedValue(new Error('offline'))
+    window.__VOXPERY_DESKTOP_SERVER__ = { apiBase: 'https://chat.example.org' }
+    try {
+      renderAt('/privacy')
+      expect(screen.getByText(/run independently of voxpery\.com/)).toBeInTheDocument()
+    } finally {
+      delete window.__VOXPERY_DESKTOP_SERVER__
+    }
+  })
+
   it('says so when the operator published nothing', async () => {
     selfHosted()
     renderAt('/kvkk')

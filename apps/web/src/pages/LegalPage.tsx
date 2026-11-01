@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { authApi, type LegalConsentStatus } from '../api'
-import { PUBLISHED_LEGAL_VERSION } from '../legal'
+import { isSelfHostedServer, legalWebUrl, PUBLISHED_LEGAL_VERSION } from '../legal'
 import { ROUTES } from '../routes'
 import { usePublicPageMetadata } from './publicPageMetadata'
 
@@ -24,12 +24,12 @@ function EnglishPrivacyNotice() {
     <ul>
       <li><strong>Account and profile:</strong> username, email address, password hash, profile picture, optional about-me text, online status, preferences such as who can send you direct messages, your Google account identifier if you sign in with Google, whether your email is verified, and which versions of these documents you accepted and when.</li>
       <li><strong>Communities and messages:</strong> servers, memberships and roles, friends and friend requests, messages and direct messages, reactions, pins, uploaded files, reports, bans, timeouts and server audit log entries. Location and camera metadata is removed from uploaded JPEG and PNG images.</li>
-      <li><strong>Personal notes:</strong> notes you write about other users. Only you can see them, and the person a note is about does not.</li>
+      <li><strong>Personal notes:</strong> notes you write about other users. Other users, including the person a note is about, cannot see them.</li>
       <li><strong>Security and operations:</strong> your sign-in session, short-lived rate-limit counters that include your IP address, server logs, and a record of when your account was registered and when you exported your data. IP addresses are not stored in the database.</li>
       <li><strong>Voice, video and screen sharing:</strong> carried in real time through the LiveKit media server that the operator runs with the service. Calls, cameras and screen shares are not recorded.</li>
     </ul>
     <h2>Messages are not end-to-end encrypted</h2>
-    <p>Messages, direct messages and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.</p>
+    <p>Messages, direct messages, personal notes and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.</p>
     <h2>Purposes and legal bases</h2>
     <p>Data is used to create and secure accounts, provide communication features, prevent abuse, operate and troubleshoot the service, comply with the law, and establish or defend legal claims. Voxpery does not use your data for advertising or profiling.</p>
     <ul>
@@ -98,11 +98,11 @@ function KvkkNotice() {
       <li><strong>Kimlik ve iletişim:</strong> kullanıcı adı, e-posta adresi, Google ile giriş yapılırsa Google hesap kimliği.</li>
       <li><strong>Hesap ve profil:</strong> parola özeti (hash), profil resmi, isteğe bağlı "hakkımda" metni, çevrim içi durumu, tercihler, e-postanın doğrulanıp doğrulanmadığı, kabul edilen metinlerin sürümleri ve kabul zamanları.</li>
       <li><strong>Topluluk ve iletişim içeriği:</strong> sunucular, üyelikler ve roller, arkadaşlıklar ve istekler, mesajlar ve doğrudan mesajlar, tepkiler, sabitlemeler, yüklenen dosyalar, şikâyetler, yasaklar, susturmalar ve sunucu denetim kayıtları. Yüklenen JPEG ve PNG resimlerdeki konum ve kamera bilgileri silinir.</li>
-      <li><strong>Kişisel notlar:</strong> başka kullanıcılar hakkında yazdığınız notlar. Yalnız siz görürsünüz, notun konusu olan kişi göremez.</li>
+      <li><strong>Kişisel notlar:</strong> başka kullanıcılar hakkında yazdığınız notlar. Notun konusu olan kişi dahil diğer kullanıcılar göremez.</li>
       <li><strong>İşlem güvenliği:</strong> oturum bilgisi, IP adresini içeren kısa ömürlü istek sınırı sayaçları, sunucu kayıtları (log), hesabın oluşturulma ve veri dışa aktarma zamanları. IP adresleri veri tabanında saklanmaz.</li>
       <li><strong>Ses, görüntü ve ekran paylaşımı:</strong> işletmecinin hizmetle birlikte çalıştırdığı LiveKit medya sunucusu üzerinden anlık iletilir; görüşmeler kaydedilmez.</li>
     </ul>
-    <p>Mesajlar, doğrudan mesajlar ve dosyalar uçtan uca şifreli değildir; sunucu bunları saklar ve teknik olarak erişebilir.</p>
+    <p>Mesajlar, doğrudan mesajlar, kişisel notlar ve dosyalar uçtan uca şifreli değildir; sunucu bunları saklar ve teknik olarak erişebilir.</p>
     <h2>Toplama yöntemi ve hukuki sebepler</h2>
     <p>Kişisel veriler; hesap oluşturma ve uygulamanın kullanımı sırasında sizin girdiğiniz bilgilerden ve hizmetin çalışması için gereken otomatik yollardan (oturum çerezi, sunucu kayıtları) elektronik ortamda toplanır. Veriler KVKK m.5/2 kapsamında sözleşmenin kurulması ve ifası (c), veri sorumlusunun hukuki yükümlülüğü (ç), bir hakkın tesisi, kullanılması veya korunması (e) ve temel hak ve özgürlüklerinize zarar vermemek kaydıyla veri sorumlusunun meşru menfaati (f) hukuki sebeplerine dayanılarak işlenir. Veriler reklam veya profilleme için kullanılmaz.</p>
     <h2>İşleme amaçları</h2>
@@ -189,6 +189,7 @@ export default function LegalPage() {
   }, [])
   const active = DOCUMENTS.find(doc => doc.path === pathname) ?? DOCUMENTS[1]
   usePublicPageMetadata(active.path, active.title, active.description)
+  const selfHosted = isSelfHostedServer(documents)
   return <main
     className="legal-page"
     tabIndex={0}
@@ -206,9 +207,9 @@ export default function LegalPage() {
         ))}
       </nav>
     </header>
-    <article className="legal-document" lang={documents?.operator === 'self_hosted' ? 'en' : active.lang}>
-      {documents?.operator === 'self_hosted'
-        ? <SelfHostedNotice name={active.name} url={documents[active.urlKey]} />
+    <article className="legal-document" lang={selfHosted ? 'en' : active.lang}>
+      {selfHosted
+        ? <SelfHostedNotice name={active.name} url={legalWebUrl(documents?.[active.urlKey])} />
         : <active.Content />}
     </article>
   </main>

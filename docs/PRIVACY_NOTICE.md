@@ -17,13 +17,13 @@ The hosted service is operated by Emircan Agac, an individual open-source projec
 
 - **Account and profile:** username, email address, password hash, profile picture, optional about-me text, online status, preferences such as who can send you direct messages, your Google account identifier if you sign in with Google, whether your email is verified, and which versions of these documents you accepted and when.
 - **Communities and messages:** servers, memberships and roles, friends and friend requests, messages and direct messages, reactions, pins, uploaded files, reports, bans, timeouts and server audit log entries. Location and camera metadata is removed from uploaded JPEG and PNG images.
-- **Personal notes:** notes you write about other users. Only you can see them, and the person a note is about does not.
+- **Personal notes:** notes you write about other users. Other users, including the person a note is about, cannot see them.
 - **Security and operations:** your sign-in session, short-lived rate-limit counters that include your IP address, server logs, and a record of when your account was registered and when you exported your data. IP addresses are not stored in the database.
 - **Voice, video and screen sharing:** carried in real time through the LiveKit media server that the operator runs with the service. Calls, cameras and screen shares are not recorded.
 
 ## Messages are not end-to-end encrypted
 
-Messages, direct messages and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.
+Messages, direct messages, personal notes and files are not end-to-end encrypted. The hosted server stores them and can technically access them for delivery, data export, abuse handling, security and lawful requests. Do not use Voxpery for secrets that need end-to-end encryption.
 
 ## Purposes and legal bases
 

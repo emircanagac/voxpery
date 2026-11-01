@@ -24,6 +24,11 @@ describe('legal acknowledgement links', () => {
     expect(screen.getByRole('link', { name: 'Privacy Notice' })).toHaveAttribute('href', '/privacy')
   })
 
+  it('keeps the legal page of this app for an address that is not a web address', () => {
+    renderLinks({ ...documents, terms_url: 'javascript:alert(1)' })
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms')
+  })
+
   it('opens the documents a self-hosted operator published', () => {
     renderLinks(documents)
     expect(screen.getByRole('link', { name: 'Terms of Service' }))
