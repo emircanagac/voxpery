@@ -135,7 +135,7 @@ This script verifies:
 - Compose services are running (`postgres`, `redis`, `livekit`, `server`, `web`)
 - Public API health endpoint returns `status=ok`
 - PostgreSQL responds through `pg_isready` inside the database container
-- Redis responds through `redis-cli ping` inside the Redis container
+- Redis responds through `redis-cli ping` inside the Redis container, and its memory stays below 90% of `maxmemory` (it warns from 80%; `REDIS_MEMORY_WARN_PERCENT` and `REDIS_MEMORY_CRITICAL_PERCENT` change the thresholds)
 - Attachment storage exists and is writable inside the server container
 - Web `/healthz` endpoint responds
 
@@ -301,6 +301,22 @@ docker volume inspect voxpery_attachments_data
 
 With `ATTACHMENTS_S3_*` set, new files are in the bucket and not in this volume, so back the bucket up with the provider's tools. `Object storage refused` in the logs shows the HTTP status the bucket returned.
 
+Redis outage or full memory:
+
+Redis holds the token blacklist, rate limits and short-lived sign-in codes. All of them fail closed on purpose: with Redis unreachable, sign-in and every signed-in request are refused, and the server must not be changed to skip these checks. When Redis is full it rejects writes (`OOM command not allowed` in the logs), so sign-in, logout and rate-limited actions fail while reads may still work.
+
+```bash
+docker compose ps redis
+docker compose exec -T redis redis-cli ping
+docker compose exec -T redis redis-cli info memory | grep -E '^(used_memory_human|maxmemory_human):'
+docker compose logs --since 15m redis server | grep -Ei 'redis|OOM'
+```
+
+1. Redis is down: run `docker compose up -d redis` and wait until `docker compose ps redis` shows it healthy. The server reconnects on its own within a few seconds; it needs no restart. If it restarts in a loop, read `docker compose logs redis` first: a data file written by a newer Redis cannot be read by an older one.
+2. Redis is full: raise `REDIS_MAXMEMORY` in `.env`, then run `docker compose up -d redis`. Check the host has that memory free. `redis-cli --bigkeys` and `redis-cli dbsize` show what is using it.
+3. Never run `FLUSHALL` or switch to an eviction policy to free memory: revoked tokens would become valid again until they expire.
+4. Afterwards confirm `curl -fsS http://127.0.0.1:3001/health`, sign in once, and look for the cause of the growth.
+
 WebSocket disconnect surge:
 
 ```bash
@@ -315,6 +331,7 @@ Alert when any of these conditions persist for more than one check window:
 - `critical_log_scan.sh` exits non-zero.
 - `voxpery-server` restart count increases repeatedly.
 - `/health` returns non-200 or any core dependency (`database`, `redis`, `attachments`) is not `ok`.
+- Redis memory stays above 80% of `maxmemory` (critical from 90%), measured by `stack_healthcheck.sh` or the Prometheus rules in [OBSERVABILITY.md](OBSERVABILITY.md).
 - Server logs contain `Failed to run migrations`, `VersionMismatch`, `ParseIntError`, or `must be a number`.
 - Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` / `WebSocket queue overflowed` lines. Each such line closes one connection with code `1013`, and its client reloads its state, so a surge also means a burst of API reads.
 - Attachment logs show repeated read/write, malware scanner, or upload failures.

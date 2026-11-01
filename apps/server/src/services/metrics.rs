@@ -112,6 +112,33 @@ async fn redis_is_up(state: &AppState) -> bool {
     )
 }
 
+/// `(used_memory, maxmemory)` from `INFO memory`.
+fn parse_redis_memory(info: &str) -> Option<(u64, u64)> {
+    let value = |name: &str| {
+        info.lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))?
+            .trim()
+            .parse()
+            .ok()
+    };
+    Some((value("used_memory")?, value("maxmemory")?))
+}
+
+async fn redis_memory(state: &AppState) -> Option<(u64, u64)> {
+    let info = async {
+        let mut connection = state.redis.connection().await?;
+        redis::cmd("INFO")
+            .arg("memory")
+            .query_async::<String>(&mut connection)
+            .await
+    };
+    let info = tokio::time::timeout(REDIS_PING_TIMEOUT, info)
+        .await
+        .ok()?
+        .ok()?;
+    parse_redis_memory(&info)
+}
+
 /// The current metrics of this server instance.
 pub async fn render(state: &AppState) -> String {
     let mut out = String::with_capacity(2048);
@@ -161,6 +188,22 @@ pub async fn render(state: &AppState) -> String {
         "1 when Redis answers a ping.",
         u64::from(redis_is_up(state).await),
     );
+    if let Some((used, limit)) = redis_memory(state).await {
+        write_metric(
+            &mut out,
+            "voxpery_redis_memory_used_bytes",
+            "gauge",
+            "Memory Redis reports in use.",
+            used,
+        );
+        write_metric(
+            &mut out,
+            "voxpery_redis_memory_limit_bytes",
+            "gauge",
+            "Redis maxmemory; 0 means no limit.",
+            limit,
+        );
+    }
     write_metric(
         &mut out,
         "voxpery_livekit_retries_total",
@@ -195,6 +238,14 @@ pub fn router(state: Arc<AppState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_redis_memory_from_info() {
+        let info =
+            "# Memory\r\nused_memory:1024\r\nused_memory_human:1.00K\r\nmaxmemory:536870912\r\n";
+        assert_eq!(parse_redis_memory(info), Some((1024, 536870912)));
+        assert_eq!(parse_redis_memory("# Memory\r\n"), None);
+    }
 
     #[test]
     fn http_requests_are_counted_by_class_and_duration() {

@@ -73,7 +73,23 @@ Values are per server instance and carry no paths, users, channels or addresses:
 - `voxpery_http_requests_total{status}` and `voxpery_http_request_duration_ms`
 - `voxpery_ws_users`, `voxpery_ws_connections`, `voxpery_voice_sessions`
 - `voxpery_db_pool_connections`, `voxpery_db_pool_idle`, `voxpery_redis_up`
+- `voxpery_redis_memory_used_bytes`, `voxpery_redis_memory_limit_bytes` (absent while Redis does not answer; a limit of 0 means none)
 - `voxpery_livekit_retries_total`, `voxpery_livekit_retries_exhausted_total`
+
+Suggested Prometheus alerts for Redis, whose failure stops sign-in and every signed-in request
+(response steps are in [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)):
+
+```yaml
+- alert: VoxperyRedisDown
+  expr: voxpery_redis_up == 0
+  for: 1m
+- alert: VoxperyRedisMemoryHigh
+  expr: voxpery_redis_memory_used_bytes / (voxpery_redis_memory_limit_bytes > 0) > 0.8
+  for: 5m
+- alert: VoxperyRedisMemoryCritical
+  expr: voxpery_redis_memory_used_bytes / (voxpery_redis_memory_limit_bytes > 0) > 0.9
+  for: 1m
+```
 
 ## Reliability Metrics
 

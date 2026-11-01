@@ -10,6 +10,8 @@ require_command curl
 API_URL="${API_HEALTH_URL:-http://127.0.0.1:3001/health}"
 WEB_URL="${WEB_HEALTH_URL:-http://127.0.0.1:${WEB_PORT:-5173}/healthz}"
 TIMEOUT_SECS="${HEALTHCHECK_TIMEOUT_SECS:-5}"
+REDIS_MEMORY_WARN_PERCENT="${REDIS_MEMORY_WARN_PERCENT:-80}"
+REDIS_MEMORY_CRITICAL_PERCENT="${REDIS_MEMORY_CRITICAL_PERCENT:-90}"
 
 POSTGRES_SERVICE="$(resolve_service POSTGRES_SERVICE postgres db)"
 REDIS_SERVICE="$(resolve_service REDIS_SERVICE redis)"
@@ -33,6 +35,19 @@ fi
 
 if ! compose_exec "$REDIS_SERVICE" redis-cli ping | grep -qx "PONG"; then
   die "Redis readiness check failed"
+fi
+
+redis_memory="$(compose_exec "$REDIS_SERVICE" redis-cli info memory | tr -d '\r')"
+redis_used="$(awk -F: '$1 == "used_memory" { print $2 }' <<<"$redis_memory")"
+redis_limit="$(awk -F: '$1 == "maxmemory" { print $2 }' <<<"$redis_memory")"
+if [[ "${redis_limit:-0}" -gt 0 ]]; then
+  redis_percent=$((redis_used * 100 / redis_limit))
+  if ((redis_percent >= REDIS_MEMORY_CRITICAL_PERCENT)); then
+    die "Redis memory is at ${redis_percent}% of maxmemory"
+  fi
+  if ((redis_percent >= REDIS_MEMORY_WARN_PERCENT)); then
+    echo "Warning: Redis memory is at ${redis_percent}% of maxmemory"
+  fi
 fi
 
 if ! compose_exec "$SERVER_SERVICE" sh -lc 'test -d "${ATTACHMENTS_LOCAL_DIR:-/home/voxpery/attachments}" && test -w "${ATTACHMENTS_LOCAL_DIR:-/home/voxpery/attachments}"'; then

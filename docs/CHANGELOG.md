@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Self-hosting: the prebuilt web image runs on any domain without a rebuild. Set `WEB_API_URL` and the related `WEB_*` values and restart the container.
 - Self-hosting: attachments can be stored in any S3 compatible bucket, such as Hetzner Object Storage or Cloudflare R2. New files go to the bucket and existing local files keep working.
-- Self-hosting: optional Prometheus metrics for requests, connections, voice sessions, the database and Redis on a separate internal listener (`METRICS_BIND`). They contain no personal data.
+- Self-hosting: optional Prometheus metrics for requests, connections, voice sessions, the database and Redis, including Redis memory, on a separate internal listener (`METRICS_BIND`). They contain no personal data.
 
 ### Changed
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Busy communities stay responsive: a status, member or voice change now costs the same few database queries however many people are online. With 100 connections a voice change took about 800 database transactions in a local test and now takes about 14.
 - Requests reuse one Redis connection instead of opening a new one each time, and the server reconnects on its own after a Redis restart.
 - Message search stays fast in large channels: searching one million messages for a rare word took about 4 ms instead of 240 ms in a local test.
+- Self-hosting: `stack_healthcheck.sh` warns when Redis memory passes 80% of its limit and fails from 90%, and the runbook covers Redis outages and full memory.
 - Self-hosting: Redis moves to version 8, which is open source under the AGPL. Existing Redis 7.4 data loads as is, but data written by Redis 8 cannot be read by Redis 7.4 afterwards, so take a backup before upgrading.
 
 ### Fixed
