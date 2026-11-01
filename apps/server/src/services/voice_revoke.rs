@@ -237,11 +237,13 @@ where
     tokio::spawn(async move {
         for delay in LIVEKIT_RETRY_DELAYS {
             tokio::time::sleep(delay).await;
+            crate::services::metrics::record_livekit_retry();
             match attempt().await {
                 Ok(()) | Err(AppError::FeatureDisabled(_)) => return,
                 Err(error) => tracing::warn!("Retrying {} failed: {}", description, error),
             }
         }
+        crate::services::metrics::record_livekit_retries_exhausted();
         tracing::error!(
             "Giving up on {} after {} retries",
             description,

@@ -25,6 +25,8 @@ pub struct Config {
     pub message_rate_limit_max: usize,
     pub message_rate_limit_window_secs: u64,
     /// Emit allowlisted, privacy-safe operational events. Disabled by default.
+    /// Address of the internal Prometheus listener; unset keeps it off.
+    pub metrics_bind: Option<String>,
     pub observability_enabled: bool,
     pub observability_rate_limit_max: usize,
     pub observability_rate_limit_window_secs: u64,
@@ -191,6 +193,10 @@ impl Config {
                 .unwrap_or_else(|_| "10".into())
                 .parse()
                 .expect("MESSAGE_RATE_LIMIT_WINDOW_SECS must be a number"),
+            metrics_bind: std::env::var("METRICS_BIND")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
             observability_enabled: std::env::var("OBSERVABILITY_ENABLED")
                 .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),

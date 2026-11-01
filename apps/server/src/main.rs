@@ -225,6 +225,22 @@ async fn main() {
         }
     }
 
+    if let Some(bind) = config.metrics_bind.clone() {
+        let metrics_state = state.clone();
+        tokio::spawn(async move {
+            match tokio::net::TcpListener::bind(&bind).await {
+                Ok(listener) => {
+                    tracing::info!("Metrics listening on {}", bind);
+                    let metrics = voxpery_server::services::metrics::router(metrics_state);
+                    if let Err(e) = axum::serve(listener, metrics).await {
+                        tracing::error!("Metrics listener terminated with error: {}", e);
+                    }
+                }
+                Err(e) => tracing::error!("Failed to bind metrics listener on {}: {}", bind, e),
+            }
+        });
+    }
+
     let app = build_app(state, config.cors_origins);
 
     let host = if config.server_host == "0.0.0.0" {

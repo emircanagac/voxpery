@@ -406,6 +406,9 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             state.clone(),
             observe_backend_server_errors,
         ))
+        .layer(axum::middleware::from_fn(
+            services::metrics::record_http_request,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(map_response(middleware::security_headers::apply));
@@ -556,6 +559,7 @@ mod tests {
             trusted_proxies: crate::services::client_ip::TrustedProxySet::default(),
             message_rate_limit_max: 30,
             message_rate_limit_window_secs: 10,
+            metrics_bind: None,
             observability_enabled: false,
             observability_rate_limit_max: 120,
             observability_rate_limit_window_secs: 60,

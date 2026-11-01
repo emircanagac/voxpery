@@ -294,3 +294,40 @@ async fn out_of_range_page_limits_are_clamped_instead_of_failing() {
         assert_eq!(status, StatusCode::OK, "{uri} failed: {body}");
     }
 }
+
+#[tokio::test]
+async fn metrics_stay_off_the_public_router_and_hold_no_identifiers() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "metrics").await;
+
+    let (status, _) = api_json(&mut app, "GET", "/metrics", &auth, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "metrics must not be public");
+    let (status, _) = api_json(&mut app, "GET", "/api/metrics", &auth, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let text = voxpery_server::services::metrics::render(&state).await;
+    for name in [
+        "voxpery_http_requests_total{status=\"2xx\"}",
+        "voxpery_ws_connections",
+        "voxpery_voice_sessions",
+        "voxpery_db_pool_connections",
+        "voxpery_redis_up 1",
+        "voxpery_livekit_retries_total",
+    ] {
+        assert!(text.contains(name), "{name} is missing");
+    }
+    assert!(!text.contains("metrics@"), "no account data in metrics");
+
+    let mut metrics = voxpery_server::services::metrics::router(state.clone());
+    let request = Request::builder()
+        .uri("/metrics")
+        .body(Body::empty())
+        .unwrap();
+    let (status, body) = oneshot(&mut metrics, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("voxpery_redis_up 1"));
+}

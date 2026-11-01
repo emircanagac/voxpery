@@ -10,6 +10,7 @@ pub mod idempotency;
 pub mod image_proxy_grant;
 pub mod jwt_blacklist;
 pub mod message_content;
+pub mod metrics;
 pub mod moderation;
 pub mod observability;
 pub mod permissions;

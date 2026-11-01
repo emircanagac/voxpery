@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Personal notes: add a note to anyone's profile, from the profile card or by right-clicking a member. Only you can see it, it follows your account across devices, and it is part of your data export.
 - Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
 
+- Self-hosting: optional Prometheus metrics for requests, connections, voice sessions, the database and Redis on a separate internal listener (`METRICS_BIND`). They contain no personal data.
+
 ### Changed
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
 - Voice and screen sharing run on LiveKit server v1.13.11, which brings stability fixes for connections and reconnects.
