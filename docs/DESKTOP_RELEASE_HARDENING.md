@@ -26,7 +26,7 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 - Desktop OAuth callback origin is `voxpery://auth`.
 - Backend CORS allowlist must include `voxpery://auth`.
 - Desktop deep-link scheme in Tauri config must include `voxpery`.
-- The desktop client must process both cold-start URLs from the deep-link plugin's `getCurrent()` API and runtime URLs from `onOpenUrl`/single-instance events.
+- The desktop client must process both cold-start URLs from the deep-link plugin's `getCurrent()` API and runtime URLs from `onOpenUrl`/single-instance events. `getCurrent()` needs the `deep-link:default` permission in `capabilities/default.json`.
 - The single-instance plugin must be registered before other desktop plugins, and runtime links received before the webview listener is ready must be drained from the native pending-link queue.
 - OAuth callback codes are single-use. Duplicate delivery through multiple desktop event sources must be deduplicated before exchange.
 - The responsive browser handoff page must attempt to open Voxpery automatically, keep an accessible explicit user-gesture fallback, safely encode the generated deep-link URL, and use the same branded status UI for success and failure callbacks.
@@ -54,7 +54,9 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 
 ## 2.1.0) Desktop Platform Decision
 
-Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macOS and Linux, with every Tauri crate pinned to an exact version.
+Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macOS and Linux, with every Tauri crate and web package pinned to an exact version.
+
+The web packages move with the crates: `@tauri-apps/plugin-*` use the same version as their `tauri-plugin-*` crate, and `@tauri-apps/api` uses the release published for the `tauri` crate (`3.0.0-alpha.2` for `tauri 3.0.0-alpha.4`, because no newer API package came out for it).
 
 - Why Tauri 3 alpha: Linux needs WebRTC for voice, and system WebKitGTK builds ship without it. Chromium through `tauri-runtime-cef` exists only in Tauri 3. Windows and macOS stay on their system webviews through `tauri-runtime-wry`.
 - Considered: Tauri 2 stable for Windows and macOS with Tauri 3 only on Linux. Rejected for now: one crate cannot depend on two Tauri major versions without duplicating the app shell, plugins, capability schemas and release pipeline per platform, which doubles maintenance and the manual QA gate. Windows and macOS have run on Tauri 3 alpha since the Linux CEF move (#409) without platform-specific regressions.
