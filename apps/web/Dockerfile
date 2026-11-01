@@ -32,6 +32,13 @@ USER 101
 ARG APP_ENV=development
 COPY nginx.${APP_ENV}.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY docker/runtime-config.sh /docker-entrypoint.d/40-voxpery-runtime-config.sh
+USER root
+RUN chmod 755 /docker-entrypoint.d/40-voxpery-runtime-config.sh \
+    && mkdir -p /usr/share/nginx/html/.well-known/voxpery \
+    && touch /usr/share/nginx/html/.well-known/voxpery/client \
+    && chown 101 /usr/share/nginx/html/runtime-config.js /usr/share/nginx/html/.well-known/voxpery/client
+USER 101
 
 EXPOSE 8080
 

@@ -16,6 +16,7 @@ import { currentLegalAcceptance } from '../legal'
 import LegalAcknowledgements from '../components/LegalAcknowledgements'
 import RegistrationCaptcha from '../components/RegistrationCaptcha'
 import DesktopRegistrationCaptcha from '../components/DesktopRegistrationCaptcha'
+import { runtimeConfig } from '../runtimeConfig'
 import DesktopSignInCode from '../components/DesktopSignInCode'
 
 function GoogleLogoIcon() {
@@ -71,7 +72,7 @@ export default function RegisterPage() {
     const googleOAuthEnabled = features?.google_oauth_enabled === true
     const legalReady = !!documents && termsAccepted && privacyAcknowledged
 
-    const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY
+    const turnstileSiteKey = runtimeConfig().turnstileSiteKey || import.meta.env.VITE_TURNSTILE_SITE_KEY
     const desktopApp = isTauri()
 
     const handleGoogleLogin = async () => {

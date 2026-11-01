@@ -139,6 +139,12 @@ services:
         APP_ENV: ${APP_ENV:-development}
     container_name: voxpery-web
     restart: unless-stopped
+    # Public addresses for a prebuilt image; empty keeps the values from the build.
+    environment:
+      WEB_API_URL: ${WEB_API_URL:-}
+      WEB_LIVEKIT_URL: ${WEB_LIVEKIT_URL:-}
+      WEB_TURNSTILE_SITE_KEY: ${WEB_TURNSTILE_SITE_KEY:-}
+      WEB_GIPHY_API_KEY: ${WEB_GIPHY_API_KEY:-}
     depends_on:
       server:
         condition: service_started

@@ -1,6 +1,7 @@
 import type { GifOption } from './emoji'
+import { runtimeConfig } from './runtimeConfig'
 
-const GIPHY_API_KEY = (import.meta.env.VITE_GIPHY_API_KEY ?? '').trim()
+const GIPHY_API_KEY = (runtimeConfig().giphyApiKey || import.meta.env.VITE_GIPHY_API_KEY || '').trim()
 const GIPHY_PAGE_SIZE = 30
 
 type GiphyRendition = {

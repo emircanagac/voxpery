@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Personal notes: add a note to anyone's profile, from the profile card or by right-clicking a member. Only you can see it, it follows your account across devices, and it is part of your data export.
 - Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
 
+- Self-hosting: the prebuilt web image runs on any domain without a rebuild. Set `WEB_API_URL` and the related `WEB_*` values and restart the container.
 - Self-hosting: optional Prometheus metrics for requests, connections, voice sessions, the database and Redis on a separate internal listener (`METRICS_BIND`). They contain no personal data.
 
 ### Changed
