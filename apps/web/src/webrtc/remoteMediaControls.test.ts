@@ -3,6 +3,7 @@ import {
   getRemoteScreenShareAudioTracks,
   isScreenShareAudioTrack,
   markRemoteAudioTrackSource,
+  markRemoteVideoTrackSource,
   remoteMediaVisibilityKey,
   setRemoteMicrophoneStreamsPlaybackMuted,
   setRemoteMicrophoneTrackPlaybackMuted,
@@ -21,6 +22,25 @@ function audioTrack(screenShareAudio = false) {
 describe('remote media controls', () => {
   it('creates stable session-local visibility keys', () => {
     expect(remoteMediaVisibilityKey('voice-1', 'user-2', 'screen')).toBe('voice-1:user-2:screen')
+  })
+
+  it('keeps one source on a video track that switches between camera and screen', () => {
+    const track = { kind: 'video' } as MediaStreamTrack & {
+      __voxpery_isCamera?: boolean
+      __voxpery_isScreenShare?: boolean
+    }
+
+    markRemoteVideoTrackSource(track, 'camera')
+    expect(track.__voxpery_isCamera).toBe(true)
+    expect(track.__voxpery_isScreenShare).toBe(false)
+
+    markRemoteVideoTrackSource(track, 'screen')
+    expect(track.__voxpery_isCamera).toBe(false)
+    expect(track.__voxpery_isScreenShare).toBe(true)
+
+    markRemoteVideoTrackSource(track, 'camera')
+    expect(track.__voxpery_isCamera).toBe(true)
+    expect(track.__voxpery_isScreenShare).toBe(false)
   })
 
   it('detects Voxpery screen share audio tracks', () => {

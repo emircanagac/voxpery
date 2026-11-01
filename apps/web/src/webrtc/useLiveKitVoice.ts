@@ -47,6 +47,7 @@ import {
   getRemoteMicrophoneAudioTracks,
   isScreenShareAudioTrack,
   markRemoteAudioTrackSource,
+  markRemoteVideoTrackSource,
   setRemoteMicrophoneStreamsPlaybackMuted,
   setRemoteMicrophoneTrackPlaybackMuted,
   type RemoteMediaKind,
@@ -1355,12 +1356,12 @@ export function useLiveKitVoice() {
           }
 
           if (pub.source === Track.Source.ScreenShare) {
-            Object.defineProperty(mediaTrack, '__voxpery_isScreenShare', { value: true, writable: true, configurable: true })
+            markRemoteVideoTrackSource(mediaTrack, 'screen')
             remoteScreenTrackIdsRef.current.add(mediaTrack.id)
           } else if (pub.source === Track.Source.ScreenShareAudio) {
             markRemoteAudioTrackSource(mediaTrack, 'screen')
           } else if (pub.source === Track.Source.Camera) {
-            Object.defineProperty(mediaTrack, '__voxpery_isCamera', { value: true, writable: true, configurable: true })
+            markRemoteVideoTrackSource(mediaTrack, 'camera')
             remoteScreenTrackIdsRef.current.delete(mediaTrack.id)
           }
           if (track.kind === Track.Kind.Audio && pub.source !== Track.Source.ScreenShareAudio) {
