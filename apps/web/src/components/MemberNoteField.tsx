@@ -14,7 +14,7 @@ interface MemberNoteFieldProps {
 export default function MemberNoteField({ userId, username, autoFocus }: MemberNoteFieldProps) {
   const token = useAuthStore((state) => state.token)
   const [note, setNote] = useState('')
-  const [status, setStatus] = useState<'loading' | 'ready' | 'saved' | 'failed'>('loading')
+  const [status, setStatus] = useState<'loading' | 'unavailable' | 'ready' | 'saved' | 'failed'>('loading')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const savedRef = useRef('')
   const draftRef = useRef('')
@@ -31,7 +31,7 @@ export default function MemberNoteField({ userId, username, autoFocus }: MemberN
         setNote(result.note ?? '')
         setStatus('ready')
       })
-      .catch(() => { if (active) setStatus('failed') })
+      .catch(() => { if (active) setStatus('unavailable') })
     return () => { active = false }
   }, [userId, token])
 
@@ -63,7 +63,7 @@ export default function MemberNoteField({ userId, username, autoFocus }: MemberN
         maxLength={MAX_NOTE_LENGTH}
         placeholder={`Add a note about ${username}`}
         value={note}
-        disabled={status === 'loading'}
+        disabled={status === 'loading' || status === 'unavailable'}
         onChange={(event) => {
           draftRef.current = event.target.value
           setNote(event.target.value)
@@ -76,7 +76,7 @@ export default function MemberNoteField({ userId, username, autoFocus }: MemberN
         }}
       />
       <div className="member-profile-note-hint" role="status">
-        {status === 'failed' ? 'Could not sync this note. Try again.' : status === 'saved' ? 'Saved. Only you can see this note.' : 'Only you can see this note.'}
+        {status === 'unavailable' ? 'Could not load this note. Try again later.' : status === 'failed' ? 'Could not save this note. Try again.' : status === 'saved' ? 'Saved. Only you can see this note.' : 'Only you can see this note.'}
       </div>
     </div>
   )

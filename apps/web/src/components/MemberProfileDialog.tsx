@@ -135,7 +135,7 @@ export default function MemberProfileDialog({ member, isServerOwner, onClose, ac
           )}
         </div>
         {!onEditProfile && member.user_id !== currentUserId && (
-          <MemberNoteField userId={member.user_id} username={member.username} autoFocus={focusNote} />
+          <MemberNoteField key={member.user_id} userId={member.user_id} username={member.username} autoFocus={focusNote} />
         )}
         {onEditProfile && <button type="button" className="member-profile-action" onClick={onEditProfile}><Settings size={14} />Edit profile</button>}
         {actions && (actions.canSendDm || actions.canAddFriend) && (
