@@ -165,7 +165,7 @@ Follow [DATA_SUBJECT_REQUESTS.md](DATA_SUBJECT_REQUESTS.md). Keep request cases 
 1. Restrict access and preserve a minimal, access-controlled incident timeline.
 2. Identify affected data, users, systems, processors, countries, and ongoing exposure.
 3. Rotate compromised credentials and contain the technical cause without deleting necessary evidence.
-4. Assess notification with qualified counsel as soon as the incident is confirmed. The clock starts when you become aware of it: GDPR Art. 33 expects notice to the supervisory authority within 72 hours unless the breach is unlikely to put people at risk, and the Turkish KVKK Board applies the same 72-hour window. If facts are incomplete, notify in phases. Tell affected people without undue delay when the risk to them is high (GDPR Art. 34).
+4. Assess notification with qualified counsel as soon as the incident is confirmed. The clock starts when you become aware of it: GDPR Art. 33 expects notice to the supervisory authority within 72 hours unless the breach is unlikely to put people at risk, and the Turkish KVKK Board applies the same 72-hour window. A controller outside the EU notifies the authority of every Member State where affected people live, even with an Article 27 representative (EDPB Guidelines 9/2022). If facts are incomplete, notify in phases. Tell affected people without undue delay when the risk to them is high (GDPR Art. 34).
 5. Record every incident in the access-restricted incident log, including those not notified: facts, effects, the decision and its reasons, corrective action, and post-incident retention/deletion date (GDPR Art. 33(5)).
 
 ### Subprocessor or transfer change

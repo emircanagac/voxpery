@@ -42,7 +42,7 @@ Web uygulaması oturumu açık tutan tek bir oturum çerezi ve Google ya da masa
 - **GIPHY ve jsDelivr:** GIF araması cihazınızdan doğrudan GIPHY'ye gider ve sohbetteki GIPHY GIF'leri doğrudan GIPHY'den yüklenir. Hazır çıkartmalar jsDelivr ağından yüklenir. Her ikisi de arayan veya görüntüleyen herkesin IP adresini görür. Sohbette gösterilen diğer sitelerin resimleri Voxpery sunucusu üzerinden yüklenir, o siteler IP adresinizi görmez.
 - **GitHub:** masaüstü uygulamaları güncellemeleri GitHub'dan denetler ve indirir; GitHub cihazınızın IP adresini görür.
 
-Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar aracılığıyla ABD dahil diğer ülkelere) aktarılır. Aktarımlar KVKK m.9'da öngörülen aktarım mekanizmalarına dayanılarak yapılır.
+Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar aracılığıyla ABD dahil diğer ülkelere) aktarılır. Aktarımlarda sağlayıcılarla yapılan veri işleme sözleşmeleri esas alınır; KVKK m.9 kapsamındaki standart sözleşme ve bildirim süreçleri sağlayıcı bazında yürütülür.
 
 ## Saklama süreleri
 
