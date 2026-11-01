@@ -397,8 +397,7 @@ async fn list_dm_channels(
     let mut with_presence: Vec<DmChannelInfo> = rows
         .into_iter()
         .map(|r| {
-            let peer_status =
-                visible_presence(&r.peer_status, state.sessions.contains_key(&r.peer_id));
+            let peer_status = visible_presence(&r.peer_status, state.is_online(r.peer_id));
             DmChannelInfo { peer_status, ..r }
         })
         .collect();
@@ -495,7 +494,7 @@ async fn load_group_dm_infos(
     .await?;
     let mut members_by_channel: HashMap<Uuid, Vec<DmMemberInfo>> = HashMap::new();
     for (channel_id, id, username, avatar_url, status) in member_rows {
-        let status = visible_presence(&status, state.sessions.contains_key(&id));
+        let status = visible_presence(&status, state.is_online(id));
         members_by_channel
             .entry(channel_id)
             .or_default()
@@ -736,10 +735,7 @@ async fn get_or_create_dm_channel(
 
     tx.commit().await?;
 
-    let peer_status = visible_presence(
-        &info.peer_status,
-        state.sessions.contains_key(&info.peer_id),
-    );
+    let peer_status = visible_presence(&info.peer_status, state.is_online(info.peer_id));
     let info = DmChannelInfo {
         peer_status,
         ..info

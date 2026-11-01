@@ -262,6 +262,7 @@ async fn build_test_app_with_storage(
         jwt_expiration: 86400,
         tx,
         sessions: DashMap::new(),
+        peers: Default::default(),
         voice_sessions: DashMap::new(),
         voice_session_connections: DashMap::new(),
         voice_participant_sids: DashMap::new(),

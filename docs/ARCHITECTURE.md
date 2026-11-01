@@ -69,8 +69,7 @@ Google callbacks require a verified provider email. Existing accounts keep the n
 - Requests share one multiplexed Redis connection (`services/shared_redis.rs`), which reconnects on its own after a Redis restart. Pub/Sub keeps a connection of its own.
 - Redis Pub/Sub bridges broadcast and targeted user WS events between backend instances.
 - A broadcast event carries its audience (`ws/audience.rs`): the first connection that needs it looks it up, and every other connection of the instance reads the same answer. The lookup runs once per event, so permissions are still checked at delivery while status, member and voice events cost a fixed number of queries however many clients are connected. Message and typing events keep the per-connection channel access cache.
-- Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket; REST list endpoints that derive online/offline from this map are instance-local until presence is externalized.
-- Voice session/control state is still tracked in-memory for low-latency UI sync; run sticky WebSocket routing for multi-instance voice until this state is moved to Redis or another shared coordinator.
+- Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket. Each instance also knows what the others hold (`ws/cluster.rs`): voice and presence changes are applied from the Redis bus, and a short-lived snapshot in Redis brings a new instance up to date, repairs lost events and shows when an instance has died, so `/ws` needs no sticky routing.
 
 ## Chat Scroll Ownership
 
@@ -136,7 +135,7 @@ Google callbacks require a verified provider email. Existing accounts keep the n
 - Frontend is static assets.
 - Postgres + Redis + LiveKit are external services (docker-compose in dev/self-host).
 - Multiple backend instances can share REST traffic and receive cross-instance WS event fan-out through Redis.
-- For multi-instance voice/signaling, use sticky routing on `/ws` until voice session/control state is externalized.
+- Multi-instance voice works without sticky routing on `/ws`; see Realtime Model.
 
 ## Public Web Routes
 

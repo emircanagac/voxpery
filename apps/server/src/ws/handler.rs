@@ -17,6 +17,7 @@ use std::{
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use super::cluster::ClusterUpdate;
 use super::{BroadcastEvent, SessionQueue, WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::Claims;
@@ -226,6 +227,14 @@ async fn complete_voice_member_move(
     else {
         return;
     };
+    super::publish_cluster_update(
+        state,
+        ClusterUpdate::VoiceMoveFinished {
+            target_user_id,
+            request_id,
+        },
+    )
+    .await;
 
     if !success {
         let error = client_error
@@ -338,6 +347,14 @@ async fn complete_voice_member_move(
     state
         .voice_participant_sids
         .insert(target_user_id, participant_sid.clone());
+    super::publish_cluster_update(
+        state,
+        ClusterUpdate::ParticipantSid {
+            user_id: target_user_id,
+            participant_sid: participant_sid.clone(),
+        },
+    )
+    .await;
 
     if let Err(error) = voice_revoke::remove_livekit_participant_checked(
         state,
@@ -1395,7 +1412,15 @@ async fn handle_socket(
                                         {
                                             recv_state
                                                 .voice_participant_sids
-                                                .insert(user_id, participant_sid);
+                                                .insert(user_id, participant_sid.clone());
+                                            super::publish_cluster_update(
+                                                &recv_state,
+                                                ClusterUpdate::ParticipantSid {
+                                                    user_id,
+                                                    participant_sid,
+                                                },
+                                            )
+                                            .await;
                                         } else {
                                             recv_state.voice_participant_sids.remove(&user_id);
                                         }
@@ -1789,6 +1814,13 @@ async fn handle_socket(
                                         entry.insert(pending.clone());
                                     }
                                 }
+                                super::publish_cluster_update(
+                                    &recv_state,
+                                    ClusterUpdate::VoiceMoveStarted {
+                                        pending: pending.clone(),
+                                    },
+                                )
+                                .await;
 
                                 super::publish_user_event(
                                     &recv_state,
@@ -1812,6 +1844,14 @@ async fn handle_socket(
                                             pending.request_id == request_id
                                         })
                                     {
+                                        super::publish_cluster_update(
+                                            &timeout_state,
+                                            ClusterUpdate::VoiceMoveFinished {
+                                                target_user_id,
+                                                request_id,
+                                            },
+                                        )
+                                        .await;
                                         publish_voice_move_result(
                                             &timeout_state,
                                             &timed_out,
@@ -2151,7 +2191,9 @@ async fn handle_socket(
             .is_some()
     };
 
-    if last_session_gone {
+    if last_session_gone && state.peers.is_online(user_id) {
+        super::publish_cluster_update(&state, ClusterUpdate::ConnectionsClosed { user_id }).await;
+    } else if last_session_gone {
         // Runtime presence becomes offline when the last active websocket session is gone.
         // Do not mutate users.status here; that column stores user preference.
         super::publish_event(
@@ -2171,7 +2213,7 @@ async fn handle_socket(
         .remove_if(&user_id, |_, holder| holder.0 == connection_id)
         .is_some();
     let holder_missing = !state.voice_session_connections.contains_key(&user_id);
-    if held_voice || (last_session_gone && holder_missing) {
+    if held_voice || (last_session_gone && holder_missing && !state.peers.holds_voice(user_id)) {
         let removed_voice = state.voice_sessions.remove(&user_id);
         if let Some((_, previous_channel_id)) = removed_voice {
             voice_revoke::clear_voice_claim(&state, user_id, previous_channel_id).await;

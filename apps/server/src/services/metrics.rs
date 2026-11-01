@@ -165,7 +165,7 @@ pub async fn render(state: &AppState) -> String {
         "voxpery_voice_sessions",
         "gauge",
         "Voice sessions on this instance.",
-        state.voice_sessions.len() as u64,
+        state.voice_session_connections.len() as u64,
     );
     write_metric(
         &mut out,

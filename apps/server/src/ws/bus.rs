@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::services::redact::ShortId;
 use crate::AppState;
 
+use super::cluster::{self, ClusterUpdate};
 use super::{BroadcastEvent, WsEvent};
 
 const WS_EVENTS_CHANNEL: &str = "voxpery:ws-events:v1";
@@ -29,6 +30,10 @@ enum WsBusEnvelope {
         origin: Uuid,
         user_id: Uuid,
         event: WsEvent,
+    },
+    Cluster {
+        origin: Uuid,
+        update: ClusterUpdate,
     },
 }
 
@@ -109,6 +114,18 @@ async fn publish_envelope(state: &AppState, envelope: WsBusEnvelope) {
     }
 }
 
+/// Sends a state change that has no client event to the other backend instances.
+pub async fn publish_cluster_update(state: &AppState, update: ClusterUpdate) {
+    publish_envelope(
+        state,
+        WsBusEnvelope::Cluster {
+            origin: state.instance_id,
+            update,
+        },
+    )
+    .await;
+}
+
 pub async fn publish_event(state: &Arc<AppState>, event: WsEvent) {
     let _ = state.tx.send(BroadcastEvent::new(event.clone()));
     publish_envelope(
@@ -179,6 +196,7 @@ pub fn spawn_redis_event_bridge(state: Arc<AppState>) {
                 match envelope {
                     WsBusEnvelope::Broadcast { origin, event } => {
                         if origin != state.instance_id {
+                            cluster::apply_peer_event(&state, origin, &event);
                             let _ = state.tx.send(BroadcastEvent::new(event));
                         }
                     }
@@ -189,6 +207,11 @@ pub fn spawn_redis_event_bridge(state: Arc<AppState>) {
                     } => {
                         if origin != state.instance_id {
                             deliver_user_event(&state, user_id, event);
+                        }
+                    }
+                    WsBusEnvelope::Cluster { origin, update } => {
+                        if origin != state.instance_id {
+                            cluster::apply_update(&state, origin, update);
                         }
                     }
                 }

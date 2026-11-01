@@ -26,7 +26,7 @@ pub mod routes;
 pub mod services;
 pub mod ws;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PendingVoiceMove {
     pub request_id: uuid::Uuid,
     pub actor_id: uuid::Uuid,
@@ -50,6 +50,8 @@ pub struct AppState {
     pub tx: broadcast::Sender<ws::BroadcastEvent>,
     /// Connected WebSocket sessions: user_id -> list of sender handles
     pub sessions: DashMap<uuid::Uuid, Vec<ws::SessionQueue>>,
+    /// Other backend instances of this deployment; see `ws::cluster`.
+    pub peers: ws::cluster::Peers,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// WebSocket connection that holds each user's voice session (connection id, sender). Only
@@ -111,6 +113,13 @@ pub struct AppState {
 pub struct LatestReleaseCacheEntry {
     pub response: routes::releases::LatestReleaseResponse,
     pub fetched_at: Instant,
+}
+
+impl AppState {
+    /// Whether the user has a connection on any backend instance.
+    pub fn is_online(&self, user_id: uuid::Uuid) -> bool {
+        self.sessions.contains_key(&user_id) || self.peers.is_online(user_id)
+    }
 }
 
 /// GET /health — liveness/readiness for load balancers and k8s.

@@ -21,7 +21,7 @@ Real-time transport for presence, channel updates, typing, and voice state.
 - Published events carry an instance origin ID so the publishing process does not deliver the Redis echo twice.
 - Targeted user events, such as DM and friend updates, are delivered to local sockets and also published so other instances can deliver them to sockets they own.
 - REST list endpoints that calculate online/offline from active socket maps are still instance-local until presence state is externalized.
-- Voice session/control state remains process-local today. Use sticky `/ws` routing when running multiple backend instances with voice enabled until that state is moved to Redis or another shared coordinator.
+- Voice session and presence state is shared between backend instances, so `/ws` needs no sticky routing when running multiple instances with voice enabled.
 
 ## Protocol Shape
 

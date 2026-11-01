@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Self-hosting: the prebuilt web image runs on any domain without a rebuild. Set `WEB_API_URL` and the related `WEB_*` values and restart the container.
 - Self-hosting: attachments can be stored in any S3 compatible bucket, such as Hetzner Object Storage or Cloudflare R2. New files go to the bucket and existing local files keep working.
+- Self-hosting: several backend instances can run without sticky WebSocket routing. Presence, voice sessions, moderation and voice moves work across instances.
 - Self-hosting: optional Prometheus metrics for requests, connections, voice sessions, the database and Redis, including Redis memory, on a separate internal listener (`METRICS_BIND`). They contain no personal data.
 
 ### Changed

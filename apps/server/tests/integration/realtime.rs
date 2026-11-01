@@ -2351,3 +2351,262 @@ async fn measure_broadcast_event_cost() {
         socket.abort();
     }
 }
+
+async fn wait_for(what: &str, condition: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting: {what}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
+    use voxpery_server::ws::{bus::spawn_redis_event_bridge, cluster::sync_peers};
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(
+                |axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    axum::Json(json!({ "sid": "PA_moved", "identity": body["identity"] }))
+                },
+            ),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(|| async { axum::Json(json!({})) }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let instance = || {
+        setup_app_with_features_and_livekit(
+            false,
+            false,
+            false,
+            false,
+            "wss://client-livekit.example.test".to_string(),
+            Some(format!("http://{livekit_addr}")),
+        )
+    };
+    let (mut app_a, state_a) = instance().await;
+    let (_, state_b) = instance().await;
+    let (_, state_c) = instance().await;
+    spawn_redis_event_bridge(state_a.clone());
+    spawn_redis_event_bridge(state_b.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let (addr_a, addr_b) = (spawn_ws_app(&state_a).await, spawn_ws_app(&state_b).await);
+
+    let (owner_auth, _, _) = register_named_user(&mut app_a, "clusterowner").await;
+    let (server_id, text_channel_id, invite) =
+        create_server_with_default_text_channel(&mut app_a, &state_a, &owner_auth, "Cluster").await;
+    let (target_auth, target_id, _) = register_named_user(&mut app_a, "clustertarget").await;
+    join_with_invite(&mut app_a, &target_auth, &invite).await;
+    let mut voice_channels = Vec::new();
+    for name in ["cluster-one", "cluster-two"] {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO channels (id, server_id, name, channel_type) VALUES ($1, $2, $3, 'voice')",
+        )
+        .bind(id)
+        .bind(server_id)
+        .bind(name)
+        .execute(&state_a.db)
+        .await
+        .unwrap();
+        voice_channels.push(id);
+    }
+    let (source, destination) = (voice_channels[0], voice_channels[1]);
+
+    // The owner's socket is on instance A, the target's on instance B.
+    let mut owner_ws = connect_ws(addr_a, &owner_auth).await;
+    ws_subscribe(&mut owner_ws, &[text_channel_id]).await;
+    let mut target_ws = connect_ws(addr_b, &target_auth).await;
+    ws_subscribe(&mut target_ws, &[text_channel_id]).await;
+
+    wait_for("A to see the target online", || {
+        state_a.is_online(target_id)
+    })
+    .await;
+    let (status, details) = api_json(
+        &mut app_a,
+        "GET",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let target_status = details["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == target_id.to_string())
+        .unwrap()["status"]
+        .clone();
+    assert_eq!(target_status, "online", "the member list covers instance B");
+
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": source, "participant_sid": "PA_source" }
+        }),
+    )
+    .await;
+    let joined = receive_ws_event(&mut owner_ws, "VoiceStateUpdate").await;
+    assert_eq!(joined["data"]["channel_id"], source.to_string());
+    wait_for("A to learn the voice session", || {
+        state_a.voice_sessions.get(&target_id).map(|entry| *entry) == Some(source)
+            && state_a
+                .voice_participant_sids
+                .get(&target_id)
+                .is_some_and(|sid| *sid == "PA_source")
+    })
+    .await;
+
+    // Moderation from A reaches a session B holds.
+    receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    ws_send(
+        &mut owner_ws,
+        json!({
+            "type": "SetVoiceControl",
+            "data": {
+                "target_user_id": target_id,
+                "muted": true,
+                "deafened": false,
+                "screen_sharing": false,
+                "camera_on": false
+            }
+        }),
+    )
+    .await;
+    let muted = receive_ws_event(&mut target_ws, "VoiceControlUpdate").await;
+    assert_eq!(muted["data"]["server_muted"], true);
+    wait_for("B to record the mute", || {
+        state_b
+            .voice_controls
+            .get(&target_id)
+            .is_some_and(|controls| controls.2)
+    })
+    .await;
+
+    // A brand new instance catches up from the snapshots alone.
+    sync_peers(&state_a).await.unwrap();
+    sync_peers(&state_b).await.unwrap();
+    sync_peers(&state_c).await.unwrap();
+    assert_eq!(
+        state_c.voice_sessions.get(&target_id).map(|entry| *entry),
+        Some(source)
+    );
+    assert!(state_c.is_online(target_id));
+    assert!(state_c
+        .voice_controls
+        .get(&target_id)
+        .is_some_and(|controls| controls.2));
+
+    // A move requested on A completes on B, where the target's socket is.
+    let request_id = Uuid::new_v4();
+    ws_send(
+        &mut owner_ws,
+        json!({
+            "type": "MoveVoiceMember",
+            "data": {
+                "request_id": request_id,
+                "target_user_id": target_id,
+                "channel_id": destination,
+                "reason": "Across instances"
+            }
+        }),
+    )
+    .await;
+    let requested = receive_ws_event(&mut target_ws, "VoiceMemberMoveRequested").await;
+    assert_eq!(requested["data"]["request_id"], request_id.to_string());
+    wait_for("B to know the pending move", || {
+        state_b.pending_voice_moves.contains_key(&target_id)
+    })
+    .await;
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": destination, "participant_sid": "PA_client" }
+        }),
+    )
+    .await;
+    ws_send(
+        &mut target_ws,
+        json!({
+            "type": "AcknowledgeVoiceMemberMove",
+            "data": { "request_id": request_id, "success": true }
+        }),
+    )
+    .await;
+    let result = receive_ws_event(&mut owner_ws, "VoiceMemberMoveResult").await;
+    assert_eq!(result["data"]["success"], true, "{result}");
+    wait_for("A to finish the move", || {
+        !state_a.pending_voice_moves.contains_key(&target_id)
+            && state_a.voice_sessions.get(&target_id).map(|entry| *entry) == Some(destination)
+    })
+    .await;
+
+    // An instance that stops reporting takes its sessions with it, for the others only.
+    let mut redis = state_c.redis.connection().await.unwrap();
+    let _: i64 = redis::cmd("DEL")
+        .arg(format!("voxpery:cluster:instance:{}", state_b.instance_id))
+        .query_async(&mut redis)
+        .await
+        .unwrap();
+    sync_peers(&state_c).await.unwrap();
+    assert!(!state_c.voice_sessions.contains_key(&target_id));
+    assert!(!state_c.is_online(target_id));
+    assert!(state_b.voice_sessions.contains_key(&target_id));
+
+    // The client reconnects to A and rejoins: closing its old socket on B must not end voice.
+    let mut reconnected_ws = connect_ws(addr_a, &target_auth).await;
+    ws_send(
+        &mut reconnected_ws,
+        json!({
+            "type": "JoinVoice",
+            "data": { "channel_id": destination, "participant_sid": "PA_rejoined" }
+        }),
+    )
+    .await;
+    wait_for("A to hold the session", || {
+        state_a.voice_session_connections.contains_key(&target_id)
+    })
+    .await;
+    wait_for("B to release the session", || {
+        !state_b.voice_session_connections.contains_key(&target_id)
+    })
+    .await;
+    drop(target_ws);
+    wait_for("B to close the old socket", || {
+        !state_b.sessions.contains_key(&target_id)
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        state_a.voice_sessions.get(&target_id).map(|entry| *entry),
+        Some(destination)
+    );
+    assert!(state_b.voice_sessions.contains_key(&target_id));
+    assert!(state_b.is_online(target_id));
+
+    // Leaving reaches the other instance as usual.
+    drop(reconnected_ws);
+    wait_for("B to see the target leave", || {
+        !state_b.voice_sessions.contains_key(&target_id) && !state_b.is_online(target_id)
+    })
+    .await;
+    assert!(!state_a.is_online(target_id));
+}

@@ -389,7 +389,17 @@ pub async fn end_unclaimed_participant(
         .get(&user_id)
         .is_some_and(|entry| *entry == channel_id);
     if has_session {
-        state.voice_participant_sids.insert(user_id, current_sid);
+        state
+            .voice_participant_sids
+            .insert(user_id, current_sid.clone());
+        crate::ws::publish_cluster_update(
+            &state,
+            crate::ws::cluster::ClusterUpdate::ParticipantSid {
+                user_id,
+                participant_sid: current_sid,
+            },
+        )
+        .await;
         return;
     }
     if voice_claim_exists(&state, user_id, channel_id).await {

@@ -112,6 +112,7 @@ async fn main() {
         jwt_expiration: config.jwt_expiration,
         tx,
         sessions: dashmap::DashMap::new(),
+        peers: Default::default(),
         voice_sessions: dashmap::DashMap::new(),
         voice_session_connections: dashmap::DashMap::new(),
         voice_participant_sids: dashmap::DashMap::new(),
@@ -159,6 +160,7 @@ async fn main() {
         latest_release_cache: tokio::sync::RwLock::new(None),
     });
     ws::bus::spawn_redis_event_bridge(state.clone());
+    ws::cluster::spawn_peer_sync(state.clone());
     let registration_db = state.db.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));

@@ -217,8 +217,7 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 - The bundled Redis runs with `--maxmemory ${REDIS_MAXMEMORY:-512mb}` and `--maxmemory-policy noeviction`: when full it rejects new writes instead of evicting keys, so revoked tokens and sessions are never dropped silently. An external Redis should use a memory cap and `noeviction` as well.
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
-- REST responses that derive online/offline from active socket maps are still instance-local. Use sticky routing or keep a single backend instance if exact presence in list responses is required before Redis-backed presence is added.
-- Voice session/control state currently remains process-local for `JoinVoice`, `LeaveVoice`, moderation controls, and legacy `Signal` forwarding. If you run more than one backend instance before this state is externalized, configure sticky routing for `/ws`. Instances share a Redis record of each voice join that lasts an hour at most, so a LiveKit webhook handled by another instance does not remove a participant that joined properly.
+- Presence and voice state are shared between instances through Redis, so `/ws` needs no sticky routing. Each instance writes a snapshot every 10 seconds; one that stops writing for 35 seconds is treated as gone and its sessions are cleared.
 - Local attachment storage is per-instance. For multiple backend instances, use S3 compatible storage or mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
 

@@ -96,7 +96,7 @@ async fn list_friends(
     let with_presence: Vec<FriendUser> = rows
         .into_iter()
         .map(|r| {
-            let status = visible_presence(&r.status, state.sessions.contains_key(&r.id));
+            let status = visible_presence(&r.status, state.is_online(r.id));
             FriendUser { status, ..r }
         })
         .collect();
