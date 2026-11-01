@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Personal notes: add a note to anyone's profile, from the profile card or by right-clicking a member. Only you can see it, it follows your account across devices, and it is part of your data export.
 - Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
-
 - Self-hosting: the prebuilt web image runs on any domain without a rebuild. Set `WEB_API_URL` and the related `WEB_*` values and restart the container.
 - Self-hosting: attachments can be stored in any S3 compatible bucket, such as Hetzner Object Storage or Cloudflare R2. New files go to the bucket and existing local files keep working.
 - Self-hosting: several backend instances can run without sticky WebSocket routing. Presence, voice sessions, moderation and voice moves work across instances.
@@ -23,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
 - Voice and screen sharing run on LiveKit server v1.13.11, which brings stability fixes for connections and reconnects.
 - Busy communities stay responsive: a status, member or voice change now costs the same few database queries however many people are online. With 100 connections a voice change took about 800 database transactions in a local test and now takes about 14.
-- Signing in a request or a WebSocket now reads the account once instead of up to five times, and requests reuse one Redis connection instead of opening a new one each time, and the server reconnects on its own after a Redis restart.
+- Checking a session now reads the account once instead of up to five times, and requests reuse one Redis connection instead of opening a new one each time, and the server reconnects on its own after a Redis restart.
 - Profile pictures move out of the database into file storage, so database rows and backups get smaller. Existing pictures move on their own and keep working.
 - Message search stays fast in large channels: searching one million messages for a rare word took about 4 ms instead of 240 ms in a local test.
 - Self-hosting: `stack_healthcheck.sh` warns when Redis memory passes 80% of its limit and fails from 90%, and the runbook covers Redis outages and full memory.
