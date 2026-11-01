@@ -898,6 +898,14 @@ async fn send_dm_message(
     )
     .await?;
 
+    let mut tx = state.db.begin().await?;
+    crate::services::attachment_release::lock_uploads_for_message(
+        &mut tx,
+        claims.sub,
+        normalized_attachments.as_ref(),
+    )
+    .await?;
+
     let id = Uuid::new_v4();
     let inserted_row = sqlx::query_as::<_, DmMessageRow>(
         r#"INSERT INTO dm_messages (
@@ -918,8 +926,9 @@ async fn send_dm_message(
     .bind(&content)
     .bind(&normalized_attachments)
     .bind(&client_request_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let (row, inserted) = if let Some(row) = inserted_row {
         (row, true)

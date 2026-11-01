@@ -55,6 +55,38 @@ pub fn attachment_ids(attachments: Option<&Value>) -> Vec<Uuid> {
         .unwrap_or_default()
 }
 
+/// Keeps a message's uploads until `tx`, which stores the message, ends. The release skips locked
+/// rows and deletes the others in one transaction, so an upload either stays until the message
+/// is committed and counts as used, or it is gone and the message is refused.
+pub async fn lock_uploads_for_message(
+    tx: &mut Transaction<'_, Postgres>,
+    owner_id: Uuid,
+    attachments: Option<&Value>,
+) -> Result<(), AppError> {
+    let mut ids = attachment_ids(attachments);
+    if ids.is_empty() {
+        return Ok(());
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    let locked = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id
+           FROM uploaded_attachments
+           WHERE id = ANY($1) AND user_id = $2 AND scan_status = 'clean'
+           FOR SHARE"#,
+    )
+    .bind(&ids)
+    .bind(owner_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    if locked.len() != ids.len() {
+        return Err(AppError::Validation(
+            "An attachment is no longer available. Upload it again.".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Checks the uploads that are due (or only `only`, e.g. the files of a message just deleted),
 /// releases the unused ones and removes their files after the commit.
 pub async fn release_unused_uploads(
