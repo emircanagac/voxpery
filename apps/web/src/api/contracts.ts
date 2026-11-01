@@ -67,6 +67,7 @@ export interface DataExportPayload {
         about_me: string
     }
     servers: unknown[]
+    personal_notes: unknown[]
     relationships: {
         friends: unknown[]
         friend_requests: unknown[]

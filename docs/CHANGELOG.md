@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security updates.
 
 ### Added
+- Personal notes: add a note to anyone's profile, from the profile card or by right-clicking a member. Only you can see it, it follows your account across devices, and it is part of your data export.
 - Screen sharing: pause your own preview to save resources. Viewers keep watching without interruption, your tile says the stream is still running, and the preview can be resumed at any time.
 
 ### Fixed

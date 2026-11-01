@@ -321,6 +321,14 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
 
+## Personal Notes
+
+- `GET /api/users/:user_id/note`
+  - Returns the caller's own note about a user as `{ "note": string | null, "updated_at": string | null }`. Notes are visible only to their author.
+- `PUT /api/users/:user_id/note`
+  - Body `{ "note": "..." }`, at most 1,000 characters after trimming; an empty note deletes it. An unknown user returns `404`. Limited to 30 changes per minute.
+- Notes are included in the author's data export as `personal_notes` and are deleted with either account.
+
 ## Friends Endpoints
 
 - `GET /api/friends`

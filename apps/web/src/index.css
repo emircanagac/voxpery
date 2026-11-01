@@ -7294,6 +7294,26 @@ body:has(.desktop-window-strip):not(:has(.shell-topbar)) #root {
   overflow-wrap: anywhere;
 }
 
+.member-profile-note-input {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  resize: vertical;
+  border: var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.member-profile-note-hint {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .member-profile-dates {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

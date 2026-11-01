@@ -316,6 +316,17 @@ pub(super) async fn export_my_data(
     .fetch_all(&state.db)
     .await?;
 
+    let personal_notes = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
+        r#"SELECT u.username, n.note, n.created_at, n.updated_at
+           FROM user_notes n
+           INNER JOIN users u ON u.id = n.target_user_id
+           WHERE n.author_id = $1
+           ORDER BY n.updated_at DESC"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
     let friend_requests = sqlx::query_as::<_, ExportFriendRequestRow>(
         r#"SELECT CASE WHEN fr.requester_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
                   CASE WHEN fr.requester_id = $1 THEN ur.username ELSE uq.username END AS other_username,
@@ -497,6 +508,14 @@ pub(super) async fn export_my_data(
                 "name": membership.server_name,
                 "role": membership.role,
                 "joined_at": membership.joined_at,
+            })
+        }).collect::<Vec<_>>(),
+        "personal_notes": personal_notes.iter().map(|(username, note, created_at, updated_at)| {
+            serde_json::json!({
+                "about_username": username,
+                "note": note,
+                "created_at": created_at,
+                "updated_at": updated_at,
             })
         }).collect::<Vec<_>>(),
         "relationships": {

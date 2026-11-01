@@ -13,6 +13,7 @@ mod platform;
 mod realtime;
 mod security;
 mod servers;
+mod user_notes;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
