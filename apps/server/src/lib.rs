@@ -49,7 +49,7 @@ pub struct AppState {
     /// Broadcast channel for real-time events (messages, presence, etc.)
     pub tx: broadcast::Sender<ws::WsEvent>,
     /// Connected WebSocket sessions: user_id -> list of sender handles
-    pub sessions: DashMap<uuid::Uuid, Vec<tokio::sync::mpsc::Sender<ws::WsEvent>>>,
+    pub sessions: DashMap<uuid::Uuid, Vec<ws::SessionQueue>>,
     /// Voice sessions: user_id -> channel_id
     pub voice_sessions: DashMap<uuid::Uuid, uuid::Uuid>,
     /// WebSocket connection that holds each user's voice session (connection id, sender). Only

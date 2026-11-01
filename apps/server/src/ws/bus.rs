@@ -1,7 +1,14 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::services::redact::ShortId;
@@ -25,14 +32,44 @@ enum WsBusEnvelope {
     },
 }
 
+/// The events addressed to one connection.
+#[derive(Clone)]
+pub struct SessionQueue {
+    sender: mpsc::Sender<WsEvent>,
+    overflowed: Arc<AtomicBool>,
+}
+
+impl SessionQueue {
+    pub fn new(sender: mpsc::Sender<WsEvent>) -> Self {
+        Self {
+            sender,
+            overflowed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
+
+    /// Returns false when the queue is full: the event is dropped instead of buffered without
+    /// bound, and the connection is marked so its client reloads what it missed.
+    fn deliver(&self, event: WsEvent) -> bool {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.sender.try_send(event) {
+            self.overflowed.store(true, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+
+    pub fn has_overflowed(&self) -> bool {
+        self.overflowed.load(Ordering::Relaxed)
+    }
+}
+
 fn deliver_user_event(state: &AppState, user_id: Uuid, event: WsEvent) {
-    if let Some(session_senders) = state.sessions.get(&user_id) {
-        for sender in session_senders.iter() {
-            // A full queue means the client stopped reading; its connection is closed by the
-            // send timeout, so the event is dropped instead of buffered without bound.
-            if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
-                sender.try_send(event.clone())
-            {
+    if let Some(sessions) = state.sessions.get(&user_id) {
+        for session in sessions.iter() {
+            if !session.deliver(event.clone()) {
                 tracing::debug!(
                     "WebSocket queue full for user {}; event dropped",
                     ShortId(user_id)
@@ -161,4 +198,22 @@ pub fn spawn_redis_event_bridge(state: Arc<AppState>) {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_session_queue_marks_the_connection() {
+        let (sender, _receiver) = mpsc::channel(1);
+        let session = SessionQueue::new(sender);
+        let event = WsEvent::FriendUpdate {
+            user_id: Uuid::new_v4(),
+        };
+        assert!(session.deliver(event.clone()));
+        assert!(!session.has_overflowed());
+        assert!(!session.deliver(event));
+        assert!(session.has_overflowed());
+    }
 }

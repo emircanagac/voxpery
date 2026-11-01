@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::models::MessageWithAuthor;
 
-pub use bus::{publish_event, publish_user_event};
+pub use bus::{publish_event, publish_user_event, SessionQueue};
 
 /// Events sent over WebSocket connections.
 #[derive(Debug, Clone, Serialize, Deserialize)]

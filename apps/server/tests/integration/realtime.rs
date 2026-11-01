@@ -2097,3 +2097,67 @@ async fn hidden_voice_channel_activity_is_not_broadcast_to_members_who_cannot_vi
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
     assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceControlUpdate", &marker, quiet).await;
 }
+
+#[tokio::test]
+async fn a_connection_that_missed_events_is_closed_and_reloads_them() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "fellbehind").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Busy").await;
+    let addr = spawn_ws_app(&state).await;
+    let mut ws = connect_ws(addr, &auth).await;
+    ws_subscribe(&mut ws, &[channel_id]).await;
+
+    // Nothing awaits here, so the connection cannot read while the 256 slot channel overflows.
+    for _ in 0..300 {
+        let _ = state.tx.send(voxpery_server::ws::WsEvent::FriendUpdate {
+            user_id: Uuid::new_v4(),
+        });
+    }
+    let (status, sent) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        Some(json!({ "content": "sent while the client was behind" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{sent}");
+
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .expect("the connection must be closed")
+            .expect("the close frame must arrive")
+            .unwrap();
+        match frame {
+            WsMessage::Close(Some(close)) => {
+                assert_eq!(u16::from(close.code), 1013);
+                break;
+            }
+            WsMessage::Text(text) => {
+                assert!(!text.contains("NewMessage"), "the event must be missed")
+            }
+            _ => {}
+        }
+    }
+
+    let _reconnected = connect_ws(addr, &auth).await;
+    let (status, messages) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        messages.to_string().contains(sent["id"].as_str().unwrap()),
+        "the reload returns the missed message"
+    );
+}

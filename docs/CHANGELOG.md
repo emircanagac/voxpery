@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: Redis moves to version 8, which is open source under the AGPL. Existing Redis 7.4 data loads as is, but data written by Redis 8 cannot be read by Redis 7.4 afterwards, so take a backup before upgrading.
 
 ### Fixed
+- Under heavy load a client that fell behind could miss messages, deletions and role changes until the page was reloaded. It now reconnects and reloads them on its own.
 - Markdown (`.md`) files can be uploaded as attachments.
 - Group DMs: when the owner deletes their account, the longest-standing member becomes the owner and the remaining members see the change right away. Groups already left without an owner are repaired, so members can manage them again.
 - Sending a message with a file uploaded more than a day ago can no longer lose the file to the cleanup of unused uploads: the file stays with the message, or the send fails with a clear error.

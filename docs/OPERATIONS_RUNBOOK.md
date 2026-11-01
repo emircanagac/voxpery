@@ -316,7 +316,7 @@ Alert when any of these conditions persist for more than one check window:
 - `voxpery-server` restart count increases repeatedly.
 - `/health` returns non-200 or any core dependency (`database`, `redis`, `attachments`) is not `ok`.
 - Server logs contain `Failed to run migrations`, `VersionMismatch`, `ParseIntError`, or `must be a number`.
-- Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` lines.
+- Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` / `WebSocket queue overflowed` lines. Each such line closes one connection with code `1013`, and its client reloads its state, so a surge also means a burst of API reads.
 - Attachment logs show repeated read/write, malware scanner, or upload failures.
 - Privacy-safe counters show falling OAuth/voice/reconnect success ratios or a sustained
   increase in `frontend_crash` or `backend_http_5xx`; metric formulas are documented in

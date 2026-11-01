@@ -262,6 +262,28 @@ describe('WebSocket Store', () => {
     unsubscribe()
   })
 
+  it('reconnects and refreshes after the server closes for missed events', async () => {
+    const { connect, onReconnect } = useSocketStore.getState()
+    const refresh = vi.fn()
+    const unsubscribe = onReconnect(refresh)
+
+    await act(async () => {
+      connect('test-token')
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    expect(refresh).not.toHaveBeenCalled()
+
+    await act(async () => {
+      MockWebSocket.instances[0].close(1013)
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(useSocketStore.getState().isConnected).toBe(true)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    unsubscribe()
+  })
+
   it('should not call removed reconnect listeners', async () => {
     const { connect } = useSocketStore.getState()
     const reconnectListener = vi.fn()

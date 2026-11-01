@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use dashmap::mapref::entry::Entry;
-use futures::{SinkExt, StreamExt};
+use futures::{stream::SplitSink, SinkExt, StreamExt};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
@@ -17,7 +17,7 @@ use std::{
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::{WsClientMessage, WsEvent};
+use super::{SessionQueue, WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
 use crate::middleware::auth::{
     claims_match_current_token_version, email_verification_pending, Claims,
@@ -32,6 +32,17 @@ use crate::ws::access::{
     ChannelAccessCache, TypingThrottle,
 };
 use crate::{AppState, PendingVoiceMove};
+
+async fn close_after_missed_events(sender: &mut SplitSink<WebSocket, Message>) {
+    let _ = tokio::time::timeout(
+        WS_SEND_TIMEOUT,
+        sender.send(Message::Close(Some(CloseFrame {
+            code: WS_MISSED_EVENTS_CLOSE_CODE,
+            reason: "Missed events".into(),
+        }))),
+    )
+    .await;
+}
 
 async fn server_id_for_channel(db: &sqlx::PgPool, channel_id: Uuid) -> Option<Uuid> {
     sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
@@ -129,6 +140,9 @@ const MAX_WS_MESSAGE_BYTES: usize = 256 * 1024;
 /// Events waiting for one connection. A client that keeps up never comes close; one that
 /// stops reading cannot make the server buffer events without bound.
 const WS_SESSION_QUEUE_CAPACITY: usize = 256;
+/// Sent when a connection missed events (1013 "try again later"). The client reconnects, which
+/// reloads its state, instead of showing stale data until the next page load.
+const WS_MISSED_EVENTS_CLOSE_CODE: u16 = 1013;
 /// A write that cannot complete in this time means the client stopped reading; the
 /// connection is closed and the client reconnects and reloads its state.
 const WS_SEND_TIMEOUT: Duration = Duration::from_secs(20);
@@ -901,7 +915,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     let connection_id = Uuid::new_v4();
 
     // Register this session
-    state.sessions.entry(user_id).or_default().push(tx.clone());
+    let session = SessionQueue::new(tx.clone());
+    state
+        .sessions
+        .entry(user_id)
+        .or_default()
+        .push(session.clone());
     if let Some(pending) = state.pending_voice_moves.get(&user_id) {
         let _ = tx.try_send(WsEvent::VoiceMemberMoveRequested {
             request_id: pending.request_id,
@@ -998,9 +1017,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         Ok(ev) => ev,
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("Broadcast receiver lagged by {} events (user {})", n, ShortId(user_id));
-                            // A skipped event may have changed permissions.
-                            access_cache.clear();
-                            continue;
+                            close_after_missed_events(&mut ws_sender).await;
+                            break;
                         }
                         Err(_) => break,
                     };
@@ -1147,6 +1165,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         Err(e) => {
                             tracing::warn!("WS direct serialization failed: {}", e);
                         }
+                    }
+                    if session.has_overflowed() {
+                        tracing::warn!("WebSocket queue overflowed (user {})", ShortId(user_id));
+                        close_after_missed_events(&mut ws_sender).await;
+                        break;
                     }
                 }
                 else => break,

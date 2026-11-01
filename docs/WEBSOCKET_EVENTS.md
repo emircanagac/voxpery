@@ -48,6 +48,8 @@ Limits: duplicate and already-subscribed ids are ignored, at most 1,000 new ids 
 
 Slow clients: events addressed to one connection wait in a queue of at most 256 events, and a write the client does not take within 20 seconds closes the connection. A client that stops reading is disconnected instead of making the server buffer its events; on reconnect it reloads its state as usual.
 
+Missed events: a connection that falls behind the shared event stream, or whose queue overflows, cannot know what it lost. The server closes it with code `1013`, and the client reconnects and reloads messages, servers, members, friends and voice state, so it never keeps showing stale data.
+
 ### `Unsubscribe`
 
 ```json
