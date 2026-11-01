@@ -157,6 +157,10 @@ Uniqueness (case-insensitive):
 - `author_id`, `target_user_id`, `note` (1-1,000 characters), `created_at`, `updated_at`
 - Primary key `(author_id, target_user_id)`; a user has one private note per other user. Both references cascade, so a note disappears with either account.
 
+### Message search
+
+- `idx_messages_content_trgm` and `idx_dm_messages_content_trgm` (migration `063`) are `pg_trgm` GIN indexes for substring search. Terms shorter than three characters cannot use them and fall back to the channel index.
+
 ### `dm_friendship_ends`
 
 - `user_a`, `user_b` (canonicalized like `friendships`), `ended_at`

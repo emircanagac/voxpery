@@ -1032,3 +1032,68 @@ async fn hiding_a_channel_stops_message_delivery_without_waiting_for_the_permiss
     )
     .await;
 }
+
+#[tokio::test]
+async fn message_search_combines_only_the_filters_a_request_uses() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "searcher").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Search").await;
+    for content in ["alpha plan", "beta plan", "100% sure", "100 percent"] {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            &format!("/api/messages/{channel_id}"),
+            &auth,
+            Some(json!({ "content": content })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let attachment = upload_text_file(&mut app, &auth, "plan.txt", b"attached bytes").await;
+    send_with_attachment(&mut app, &auth, channel_id, attachment).await;
+
+    let username: String = sqlx::query_scalar(
+        "SELECT u.username FROM users u JOIN messages m ON m.user_id = u.id WHERE m.channel_id = $1 LIMIT 1",
+    )
+    .bind(channel_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let mut search = async |query: String| {
+        let (status, body) = api_json(
+            &mut app,
+            "GET",
+            &format!("/api/messages/{channel_id}/search?{query}"),
+            &auth,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body.as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(search("q=PLAN".into()).await, ["alpha plan", "beta plan"]);
+    assert_eq!(
+        search("q=100%25".into()).await,
+        ["100% sure"],
+        "% is literal"
+    );
+    assert_eq!(search("has_attachment=true".into()).await, ["file"]);
+    assert_eq!(
+        search(format!("from={username}&q=beta")).await,
+        ["beta plan"]
+    );
+    assert!(search("from=nobody_matches_this&q=plan".into())
+        .await
+        .is_empty());
+    assert!(search("q=".into()).await.is_empty());
+}
