@@ -171,6 +171,8 @@ pub(super) fn export_avatar_file(avatar_url: Option<&str>) -> Option<(String, Ve
     let extension = match mime.to_ascii_lowercase().as_str() {
         "image/png" => "png",
         "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
         _ => return None,
     };
     let bytes = BASE64.decode(encoded.as_bytes()).ok()?;
@@ -422,7 +424,9 @@ pub(super) async fn export_my_data(
 
     let mut archive_files = Vec::with_capacity(attachments.len() + 1);
     let mut file_manifest = Vec::with_capacity(attachments.len() + 1);
-    if let Some((path, bytes)) = export_avatar_file(account.avatar_url.as_deref()) {
+    let avatar_file = export_avatar_file(account.avatar_url.as_deref());
+    let avatar_in_archive = avatar_file.is_some();
+    if let Some((path, bytes)) = avatar_file {
         file_manifest.push(serde_json::json!({
             "archive_path": path,
             "kind": "profile_avatar",
@@ -485,6 +489,7 @@ pub(super) async fn export_my_data(
         },
         "profile": {
             "has_avatar": account.avatar_url.is_some(),
+            "avatar_in_archive": avatar_in_archive,
             "about_me": account.about_me,
         },
         "servers": memberships.iter().map(|membership| {

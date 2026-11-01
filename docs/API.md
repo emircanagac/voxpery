@@ -97,7 +97,7 @@ Important behavior:
   - Provider-independent `{ "code": "...", "code_verifier": "..." }` exchange for desktop email/Google handoffs. Codes expire after 5 minutes and are consumed atomically; wrong PKCE, replay, expired/revoked JWTs and obsolete token versions fail closed. This endpoint does not require Google OAuth to be enabled. The older Google-specific exchange route remains feature-gated for compatibility.
 - `POST /api/auth/data-export`
   - Password accounts must submit `{ "password": "..." }`; Google-only accounts require a Google-authenticated session issued within the last 10 minutes.
-  - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files.
+  - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files. Stored PNG, JPEG, WebP and GIF avatars are included; `profile.avatar_in_archive` is `false` when the profile picture is an external link and no file could be added.
   - The manifest is explicitly a bounded convenience export (latest 20,000 authored server messages and 20,000 authored DMs), not a complete legal access-response package.
   - GDPR/KVKK data export JSON payload for authenticated user.
   - Export format: `voxpery-user-data-v2`.

@@ -63,6 +63,7 @@ export interface DataExportPayload {
     }
     profile: {
         has_avatar: boolean
+        avatar_in_archive: boolean
         about_me: string
     }
     servers: unknown[]

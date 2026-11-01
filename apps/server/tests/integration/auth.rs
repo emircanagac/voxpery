@@ -1579,6 +1579,57 @@ async fn data_export_returns_user_profile_and_messages() {
 }
 
 #[tokio::test]
+async fn data_export_includes_every_stored_avatar_format() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    for (avatar_url, archive_path) in [
+        ("data:image/png;base64,iVBORw0KGgo=", Some("files/avatar.png")),
+        ("data:image/jpeg;base64,/9j/4AAQ", Some("files/avatar.jpg")),
+        ("data:image/webp;base64,UklGRiQAAABXRUJQ", Some("files/avatar.webp")),
+        ("data:image/gif;base64,R0lGODlhAQAB", Some("files/avatar.gif")),
+        ("https://example.com/avatar.png", None),
+    ] {
+        // One account each: exports are rate limited per account.
+        let (auth, user_id, password) = register_named_user(&mut app, "avatarexport").await;
+        sqlx::query("UPDATE users SET avatar_url = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(avatar_url)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/data-export")
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "password": password })).unwrap(),
+            ))
+            .unwrap();
+        let (status, body) = oneshot(&mut app, req).await;
+        assert_eq!(status, StatusCode::OK, "export failed for {avatar_url}");
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(body.to_vec())).unwrap();
+        let mut manifest_json = String::new();
+        archive
+            .by_name("voxpery-data-export.json")
+            .unwrap()
+            .read_to_string(&mut manifest_json)
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&manifest_json).unwrap();
+        assert_eq!(payload["profile"]["has_avatar"], true);
+        assert_eq!(payload["profile"]["avatar_in_archive"], archive_path.is_some());
+        if let Some(path) = archive_path {
+            assert!(archive.by_name(path).is_ok(), "{path} must be in the ZIP");
+        }
+    }
+}
+
+#[tokio::test]
 async fn account_delete_endpoint_enforces_privacy() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
