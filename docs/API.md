@@ -101,9 +101,9 @@ Important behavior:
   - Returns a non-cacheable ZIP containing `voxpery-data-export.json` and eligible user-owned avatar/attachment files. Stored PNG, JPEG, WebP and GIF avatars are included; `profile.avatar_in_archive` is `false` when the profile picture is an external link and no file could be added.
   - The manifest is explicitly a bounded convenience export (latest 20,000 authored server messages and 20,000 authored DMs), not a complete legal access-response package.
   - GDPR/KVKK data export JSON payload for authenticated user.
-  - Export format: `voxpery-user-data-v2`.
+  - Export format: `voxpery-user-data-v3`; an archive larger than 256 MB is refused with `409`.
   - Export is intentionally user-readable and data-minimized: internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers are omitted.
-  - Payload sections include export metadata, account, profile summary, servers, relationships, and authored messages.
+  - Payload sections include export metadata, account, profile summary, servers, personal notes, relationships, and authored messages.
 - `DELETE /api/auth/account`
   - Body: `{ "confirm": "DELETE", "password"?: "..." }`
   - Permanently deletes account and authored content, including the files the account uploaded (removed from storage after the database commit).

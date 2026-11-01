@@ -231,7 +231,7 @@ let query = format!("SELECT * FROM users WHERE username = '{}'", username); // S
 ### XSS (Cross-Site Scripting)
 
 - **React**: Auto-escapes by default (`dangerouslySetInnerHTML` avoided)
-- **Backend**: No HTML rendering (JSON API only)
+- **Backend**: A JSON API, apart from a few server-rendered pages: Google and desktop registration, the desktop OAuth handoff and the CAPTCHA frame. They escape every value they insert, send a strict nonce-based CSP and `Cache-Control: no-store`, and the registration forms carry a per-registration CSRF token.
 - **Message content**: Stored as plain text, rendered as text (no `<script>` execution)
 
 ### Remote Image Proxy
@@ -306,7 +306,7 @@ The API applies a restrictive response policy at the Axum router boundary, inclu
 - `Referrer-Policy: no-referrer`
 - `Permissions-Policy` with camera, microphone, display capture, geolocation, and payment disabled
 
-The desktop Google OAuth handoff is the only API HTML response that needs executable browser code. It supplies a per-response CSP nonce for its fixed inline style and handoff script, retains the restrictive API directives, and uses `Cache-Control: no-store`. The global middleware preserves this stricter route-specific policy instead of replacing it.
+The desktop Google OAuth handoff, desktop registration and the CAPTCHA frame are the only API HTML responses that need executable browser code. Each supplies a per-response CSP nonce for its fixed inline style and script, retains the restrictive API directives, and uses `Cache-Control: no-store`. The global middleware preserves this stricter route-specific policy instead of replacing it.
 
 The production web container applies the browser-facing policy:
 
@@ -432,7 +432,7 @@ The web lockfile resolves Vitest UI's development-only `fflate` dependency to 0.
 
 ## Compliance
 
-- **GDPR/KVKK**: Implemented self-service account data export (`GET /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`). Data exports use the `voxpery-user-data-v2` format and intentionally omit internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers.
+- **GDPR/KVKK**: Implemented self-service account data export (`POST /api/auth/data-export`) and permanent account delete (`DELETE /api/auth/account`). Data exports are ZIP archives of at most 256 MB with a manifest in the `voxpery-user-data-v3` format and intentionally omit internal database IDs, tokens, sessions, password hashes, raw avatar URLs, signed attachment URLs, and storage identifiers.
 - **COPPA**: No age verification (assume 13+)
 - **Privacy**: No biometrics, no hidden telemetry
 
