@@ -1,3 +1,4 @@
+import type { Message } from '../api'
 import type { ReactNode } from 'react'
 import type { Channel } from '../types'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
@@ -21,7 +22,7 @@ interface ChatHeaderProps {
   onUnpinMessage: ((messageId: string) => void) | undefined
   pinnedDropdownRef: RefObject<HTMLDivElement | null>
   pinnedJumpLoadingId: string | null
-  pinnedMessages: import("D:/project_codes/voxpery/apps/web/src/api").Message[]
+  pinnedMessages: Message[]
   pinnedOpen: boolean
   scrollToMessageId: (messageId: string, behavior?: ScrollBehavior) => void
   searchDropdownRef: RefObject<HTMLDivElement | null>

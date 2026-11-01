@@ -1,3 +1,5 @@
+import type { NavigateFunction } from 'react-router'
+import type { Message, Server, User } from '../api'
 import { presenceLabel, type SocialContextMenu } from './homeSocialModel'
 import type { SocialView } from '../socialView'
 import type { MemberProfileMember } from '../components/MemberProfileDialog'
@@ -26,11 +28,11 @@ interface HomeSocialContentProps {
   dmHasMoreOlder: boolean
   dmInput: string
   dmLoadingOlder: boolean
-  dmPins: import("D:/project_codes/voxpery/apps/web/src/api").Message[]
+  dmPins: Message[]
   dmSearch: string
   dmSearchJump: { channelId: string; messageId: string; } | null
   dmSearchJumpLoadingId: string | null
-  dmSearchResults: import("D:/project_codes/voxpery/apps/web/src/api").Message[] | null
+  dmSearchResults: Message[] | null
   dmUnreadDividerCount: number
   editingDmContent: string
   editingDmMessageId: string | null
@@ -52,7 +54,7 @@ interface HomeSocialContentProps {
   isMessagesView: boolean
   isNotificationHistoryPending: boolean
   loadOlderDmMessages: () => Promise<void>
-  navigate: import("D:/project_codes/voxpery/apps/web/node_modules/react-router/dist/production/index").NavigateFunction
+  navigate: NavigateFunction
   notificationJumpMessageId: string | null
   onlineFriends: Friend[]
   openAddFriend: () => void
@@ -82,12 +84,12 @@ interface HomeSocialContentProps {
   showSocialBootstrapLoading: boolean
   socialContentRef: RefObject<HTMLDivElement | null>
   storeDmChannels: DmChannel[]
-  user: import("D:/project_codes/voxpery/apps/web/src/api").User | null
+  user: User | null
   view: SocialView
   visibleFriends: Friend[]
   visibleIncomingRequests: FriendRequest[]
   visibleOutgoingRequests: FriendRequest[]
-  voxperyServer: import("D:/project_codes/voxpery/apps/web/src/api").Server | null
+  voxperyServer: Server | null
 }
 
 export default function HomeSocialContent({

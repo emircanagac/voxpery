@@ -1,3 +1,4 @@
+import type { UseLiveKitVoiceState } from '../webrtc/useLiveKitVoice'
 import { attachRemoteVideoElement } from '../webrtc/livekitVideoAttachment'
 import type { User } from '../types'
 import type { MemberInfo } from '../api/contracts'
@@ -109,7 +110,7 @@ interface VoiceStageProps {
   stageColumns: number
   stageDensity: "dense" | "crowded" | "standard"
   stageStyle: CSSProperties | undefined
-  state: import("D:/project_codes/voxpery/apps/web/src/webrtc/useLiveKitVoice").UseLiveKitVoiceState
+  state: UseLiveKitVoiceState
   stripHiddenCount: number
   theaterStreamKey: string | null
   theaterStripVisible: boolean
