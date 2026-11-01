@@ -532,7 +532,10 @@ async fn a_message_and_the_upload_release_cannot_both_win_an_old_upload() {
         .unwrap();
     let mut tx = state.db.begin().await.unwrap();
     let refused = lock_uploads_for_message(&mut tx, user_id, Some(&attachments)).await;
-    assert!(refused.is_err(), "a released upload must refuse the message");
+    assert!(
+        refused.is_err(),
+        "a released upload must refuse the message"
+    );
     let (status, _) = api_json(
         &mut app,
         "POST",

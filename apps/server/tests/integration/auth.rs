@@ -1602,10 +1602,19 @@ async fn data_export_includes_every_stored_avatar_format() {
     let (mut app, state) = setup_app().await;
 
     for (avatar_url, archive_path) in [
-        ("data:image/png;base64,iVBORw0KGgo=", Some("files/avatar.png")),
+        (
+            "data:image/png;base64,iVBORw0KGgo=",
+            Some("files/avatar.png"),
+        ),
         ("data:image/jpeg;base64,/9j/4AAQ", Some("files/avatar.jpg")),
-        ("data:image/webp;base64,UklGRiQAAABXRUJQ", Some("files/avatar.webp")),
-        ("data:image/gif;base64,R0lGODlhAQAB", Some("files/avatar.gif")),
+        (
+            "data:image/webp;base64,UklGRiQAAABXRUJQ",
+            Some("files/avatar.webp"),
+        ),
+        (
+            "data:image/gif;base64,R0lGODlhAQAB",
+            Some("files/avatar.gif"),
+        ),
         ("https://example.com/avatar.png", None),
     ] {
         // One account each: exports are rate limited per account.
@@ -1637,7 +1646,10 @@ async fn data_export_includes_every_stored_avatar_format() {
             .unwrap();
         let payload: serde_json::Value = serde_json::from_str(&manifest_json).unwrap();
         assert_eq!(payload["profile"]["has_avatar"], true);
-        assert_eq!(payload["profile"]["avatar_in_archive"], archive_path.is_some());
+        assert_eq!(
+            payload["profile"]["avatar_in_archive"],
+            archive_path.is_some()
+        );
         if let Some(path) = archive_path {
             assert!(archive.by_name(path).is_ok(), "{path} must be in the ZIP");
         }

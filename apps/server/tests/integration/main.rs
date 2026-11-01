@@ -46,9 +46,7 @@ use uuid::Uuid;
 use voxpery_server::{
     build_app, run_migrations,
     services::{
-        auth::generate_token,
-        image_proxy_grant,
-        privacy::SELF_HOSTED_DEFAULT_LEGAL_VERSION,
+        auth::generate_token, image_proxy_grant, privacy::SELF_HOSTED_DEFAULT_LEGAL_VERSION,
     },
     AppState,
 };

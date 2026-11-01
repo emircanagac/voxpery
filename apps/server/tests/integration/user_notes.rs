@@ -109,8 +109,10 @@ async fn personal_notes_follow_data_export_and_account_deletion() {
         return;
     };
     let (mut app, state) = setup_app().await;
-    let (author_auth, author_id, author_password) = register_named_user(&mut app, "noteauthor").await;
-    let (target_auth, target_id, target_password) = register_named_user(&mut app, "notesubject").await;
+    let (author_auth, author_id, author_password) =
+        register_named_user(&mut app, "noteauthor").await;
+    let (target_auth, target_id, target_password) =
+        register_named_user(&mut app, "notesubject").await;
     let (status, _) = api_json(
         &mut app,
         "PUT",

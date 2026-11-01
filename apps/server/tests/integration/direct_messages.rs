@@ -1107,5 +1107,9 @@ async fn deleting_a_group_owner_hands_the_group_to_the_longest_standing_member()
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "the new owner removes members: {body}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the new owner removes members: {body}"
+    );
 }

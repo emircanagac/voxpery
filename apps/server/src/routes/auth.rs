@@ -39,7 +39,8 @@ use crate::{
     services::privacy::{
         current_kvkk_notice_version, current_privacy_notice_version, current_terms_version,
         has_current_legal_consent, legal_documents, record_privacy_event,
-        validate_current_legal_documents, DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT, DATA_EXPORT_REAUTH_MAX_AGE_SECS,
+        validate_current_legal_documents, DATA_EXPORT_MAX_ARCHIVE_BYTES, DATA_EXPORT_MESSAGE_LIMIT,
+        DATA_EXPORT_REAUTH_MAX_AGE_SECS,
     },
     services::rate_limit::enforce_rate_limit,
     services::server_membership,

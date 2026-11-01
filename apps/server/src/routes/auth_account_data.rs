@@ -316,7 +316,15 @@ pub(super) async fn export_my_data(
     .fetch_all(&state.db)
     .await?;
 
-    let personal_notes = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
+    let personal_notes = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            chrono::DateTime<chrono::Utc>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
         r#"SELECT u.username, n.note, n.created_at, n.updated_at
            FROM user_notes n
            INNER JOIN users u ON u.id = n.target_user_id

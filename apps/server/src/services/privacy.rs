@@ -100,9 +100,8 @@ fn is_valid_legal_version(value: &str) -> bool {
 
 fn is_valid_legal_url(value: &str) -> bool {
     value.len() <= MAX_LEGAL_URL_LEN
-        && Url::parse(value).is_ok_and(|url| {
-            matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
-        })
+        && Url::parse(value)
+            .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
 }
 
 pub fn legal_documents() -> &'static LegalDocuments {
@@ -327,8 +326,14 @@ mod legal_documents_tests {
             ("LEGAL_KVKK_URL", ""),
         ]);
         assert_eq!(own.kvkk_notice_version, "2027.1");
-        assert_eq!(own.terms_url.as_deref(), Some("https://chat.example.org/terms"));
-        assert_eq!(own.privacy_url.as_deref(), Some("https://chat.example.org/privacy"));
+        assert_eq!(
+            own.terms_url.as_deref(),
+            Some("https://chat.example.org/terms")
+        );
+        assert_eq!(
+            own.privacy_url.as_deref(),
+            Some("https://chat.example.org/privacy")
+        );
         assert_eq!(own.kvkk_url, None);
     }
 
@@ -339,7 +344,10 @@ mod legal_documents_tests {
             ("LEGAL_TERMS_URL", "javascript:alert(1)"),
             ("LEGAL_PRIVACY_URL", "data:text/html,hi"),
         ]);
-        assert_eq!(unsafe_values.terms_version, SELF_HOSTED_DEFAULT_LEGAL_VERSION);
+        assert_eq!(
+            unsafe_values.terms_version,
+            SELF_HOSTED_DEFAULT_LEGAL_VERSION
+        );
         assert_eq!(unsafe_values.terms_url, None);
         assert_eq!(unsafe_values.privacy_url, None);
     }
