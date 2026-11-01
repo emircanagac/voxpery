@@ -32,7 +32,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 use tokio::sync::broadcast;
@@ -65,8 +65,12 @@ fn test_db_url() -> Option<String> {
     Some(normalize_compose_host(raw, "postgres", "127.0.0.1"))
 }
 
+/// One secret per test run: backend instances of a deployment share it, and tests that run
+/// two instances need their tokens to work on both.
 fn jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| test_credential("jwt").to_string())
+    static GENERATED: OnceLock<&'static str> = OnceLock::new();
+    std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| GENERATED.get_or_init(|| test_credential("jwt")).to_string())
 }
 
 fn test_credential(label: &str) -> &'static str {
