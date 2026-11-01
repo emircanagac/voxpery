@@ -188,21 +188,34 @@ pub async fn has_current_legal_consent(db: &PgPool, user_id: Uuid) -> Result<boo
     Ok(current)
 }
 
-pub async fn legal_consent_for_token_version(
+/// What a session check needs from the account, read in one query.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SessionAccount {
+    pub legal_consent_current: bool,
+    pub email_verified: bool,
+    pub username: String,
+    pub status: String,
+}
+
+/// The account behind a token; `None` when it is gone or the token's version is stale.
+pub async fn session_account(
     db: &PgPool,
     user_id: Uuid,
     token_version: i64,
-) -> Result<Option<bool>, AppError> {
-    let current = sqlx::query_scalar::<_, bool>(
+) -> Result<Option<SessionAccount>, sqlx::Error> {
+    sqlx::query_as::<_, SessionAccount>(
         r#"SELECT COALESCE(
-               terms_version = $3
-               AND terms_accepted_at IS NOT NULL
-               AND privacy_notice_version = $4
-               AND privacy_notice_acknowledged_at IS NOT NULL
-               AND kvkk_notice_version = $5
-               AND kvkk_notice_acknowledged_at IS NOT NULL,
-               FALSE
-           )
+                   terms_version = $3
+                   AND terms_accepted_at IS NOT NULL
+                   AND privacy_notice_version = $4
+                   AND privacy_notice_acknowledged_at IS NOT NULL
+                   AND kvkk_notice_version = $5
+                   AND kvkk_notice_acknowledged_at IS NOT NULL,
+                   FALSE
+               ) AS legal_consent_current,
+               email_verified,
+               username,
+               status
            FROM users
            WHERE id = $1 AND token_version = $2"#,
     )
@@ -212,8 +225,7 @@ pub async fn legal_consent_for_token_version(
     .bind(current_privacy_notice_version())
     .bind(current_kvkk_notice_version())
     .fetch_optional(db)
-    .await?;
-    Ok(current)
+    .await
 }
 
 pub async fn record_privacy_event(

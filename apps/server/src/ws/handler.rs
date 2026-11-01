@@ -19,11 +19,10 @@ use uuid::Uuid;
 
 use super::{BroadcastEvent, SessionQueue, WsClientMessage, WsEvent};
 use crate::middleware::auth::token_from_request;
-use crate::middleware::auth::{
-    claims_match_current_token_version, email_verification_pending, Claims,
-};
+use crate::middleware::auth::Claims;
 use crate::services::audit::{self, VoiceModerationAuditEntry};
 use crate::services::permissions::{get_user_channel_permissions, Permissions};
+use crate::services::privacy::SessionAccount;
 use crate::services::redact::ShortId;
 use crate::services::voice_moderation::{self, ServerVoiceModeration};
 use crate::services::voice_revoke;
@@ -699,41 +698,34 @@ pub async fn ws_handler(
         }
     };
 
-    match crate::services::privacy::has_current_legal_consent(&state.db, claims.sub).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return (
-                axum::http::StatusCode::PRECONDITION_REQUIRED,
-                "Current legal documents must be acknowledged",
-            )
-                .into_response();
-        }
-        Err(error) => {
-            tracing::warn!("WebSocket legal-consent check failed: {}", error);
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                "Session validation unavailable",
-            )
-                .into_response();
-        }
+    let account =
+        match crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await {
+            Ok(Some(account)) => account,
+            Ok(None) => {
+                return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+            Err(error) => {
+                tracing::warn!("WebSocket session check failed: {}", error);
+                return (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "Session validation unavailable",
+                )
+                    .into_response();
+            }
+        };
+    if !account.legal_consent_current {
+        return (
+            axum::http::StatusCode::PRECONDITION_REQUIRED,
+            "Current legal documents must be acknowledged",
+        )
+            .into_response();
     }
-    match email_verification_pending(&state, claims.sub).await {
-        Ok(false) => {}
-        Ok(true) => {
-            return (
-                axum::http::StatusCode::FORBIDDEN,
-                "Verify your email address to continue",
-            )
-                .into_response();
-        }
-        Err(error) => {
-            tracing::warn!("WebSocket email-verification check failed: {}", error);
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                "Session validation unavailable",
-            )
-                .into_response();
-        }
+    if state.email_verification_required && !account.email_verified {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            "Verify your email address to continue",
+        )
+            .into_response();
     }
 
     if let Err(e) = crate::services::rate_limit::enforce_rate_limit(
@@ -774,7 +766,7 @@ pub async fn ws_handler(
 
     ws.max_message_size(MAX_WS_MESSAGE_BYTES)
         .max_frame_size(MAX_WS_MESSAGE_BYTES)
-        .on_upgrade(move |socket| handle_socket(socket, state, claims, token))
+        .on_upgrade(move |socket| handle_socket(socket, state, claims, token, account))
 }
 
 async fn validate_ws_token(
@@ -799,13 +791,6 @@ async fn validate_ws_token(
     .ok()?
     .claims;
 
-    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
-        .await
-        .ok()?;
-    if !version_ok {
-        return None;
-    }
-
     Some(claims)
 }
 
@@ -828,23 +813,20 @@ async fn is_ws_session_still_valid(state: &AppState, token: &str, claims: &Claim
     }
 
     matches!(
-        claims_match_current_token_version(&state.db, claims.sub, claims.ver).await,
-        Ok(true)
-    ) && matches!(
-        crate::services::privacy::has_current_legal_consent(&state.db, claims.sub).await,
-        Ok(true)
+        crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await,
+        Ok(Some(account)) if account.legal_consent_current
     )
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, token: String) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: Arc<AppState>,
+    claims: Claims,
+    token: String,
+    account: SessionAccount,
+) {
     let user_id = claims.sub;
-    let username = sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| claims.username.clone());
+    let username = account.username;
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
@@ -888,19 +870,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
     let send_token = token.clone();
 
     // Do not overwrite persisted status on connect (online/dnd/offline).
-    let current_status =
-        match sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(Some(status)) => status,
-            Ok(None) => "online".to_string(),
-            Err(e) => {
-                tracing::warn!("Failed to read user status on WS connect: {}", e);
-                "online".to_string()
-            }
-        };
+    let current_status = account.status;
     super::publish_event(
         &state,
         WsEvent::PresenceUpdate {
