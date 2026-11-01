@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Voice and screen sharing run on LiveKit server v1.13.11, which brings stability fixes for connections and reconnects.
 - Busy communities stay responsive: a status, member or voice change now costs the same few database queries however many people are online. With 100 connections a voice change took about 800 database transactions in a local test and now takes about 14.
 - Signing in a request or a WebSocket now reads the account once instead of up to five times, and requests reuse one Redis connection instead of opening a new one each time, and the server reconnects on its own after a Redis restart.
+- Profile pictures move out of the database into file storage, so database rows and backups get smaller. Existing pictures move on their own and keep working.
 - Message search stays fast in large channels: searching one million messages for a rare word took about 4 ms instead of 240 ms in a local test.
 - Self-hosting: `stack_healthcheck.sh` warns when Redis memory passes 80% of its limit and fails from 90%, and the runbook covers Redis outages and full memory.
 - Self-hosting: Redis moves to version 8, which is open source under the AGPL. Existing Redis 7.4 data loads as is, but data written by Redis 8 cannot be read by Redis 7.4 afterwards, so take a backup before upgrading.

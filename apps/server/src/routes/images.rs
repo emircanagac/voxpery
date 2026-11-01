@@ -1,3 +1,4 @@
+use crate::services::avatar_files::read_avatar;
 use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
@@ -185,15 +186,20 @@ async fn stored_user_avatar(
     )
     .await?;
 
-    let stored: Option<String> = sqlx::query_scalar("SELECT avatar_url FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .flatten();
-    let (content_type, body) = stored
-        .as_deref()
-        .and_then(decode_stored_image_data_url)
-        .ok_or_else(|| AppError::NotFound("Avatar not found".into()))?;
+    let stored: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT avatar_url, avatar_file_backend, avatar_file_key FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (content_type, body) = match stored {
+        Some((_, Some(backend), Some(key))) => {
+            read_avatar(&state.attachment_service, &backend, &key).await?
+        }
+        Some((Some(data_url), _, _)) => decode_stored_image_data_url(&data_url)
+            .ok_or_else(|| AppError::NotFound("Avatar not found".into()))?,
+        _ => return Err(AppError::NotFound("Avatar not found".into())),
+    };
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));

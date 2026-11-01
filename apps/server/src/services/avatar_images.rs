@@ -192,7 +192,7 @@ fn has_image_signature(media_type: &str, bytes: &[u8]) -> bool {
 }
 
 /// The supported image type whose signature `bytes` start with.
-fn sniff_image_type(bytes: &[u8]) -> Option<&'static str> {
+pub fn sniff_image_type(bytes: &[u8]) -> Option<&'static str> {
     ["image/png", "image/jpeg", "image/gif", "image/webp"]
         .into_iter()
         .find(|media_type| has_image_signature(media_type, bytes))

@@ -992,6 +992,35 @@ async fn attachments_work_end_to_end_on_object_storage() {
         .unwrap());
     send_with_attachment(&mut app, &auth, channel_id, attachment).await;
 
+    let avatar = format!(
+        "data:image/png;base64,{}",
+        BASE64.encode(
+            [
+                &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..],
+                &[7; 64]
+            ]
+            .concat()
+        )
+    );
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/profile",
+        &auth,
+        Some(json!({ "avatar_url": avatar })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "avatar failed: {body}");
+    let avatar_key: String = sqlx::query_scalar("SELECT avatar_file_key FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert!(
+        store.get(&avatar_key).await.is_ok(),
+        "the avatar is an object"
+    );
+
     // Signed download through the API, not from the bucket.
     let url = state
         .attachment_service
@@ -1042,6 +1071,10 @@ async fn attachments_work_end_to_end_on_object_storage() {
         store.get(&storage_key).await.is_err(),
         "object must be gone"
     );
+    assert!(
+        store.get(&avatar_key).await.is_err(),
+        "the avatar must be gone"
+    );
     let remaining: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM uploaded_attachments WHERE user_id = $1")
             .bind(user_id)
@@ -1049,4 +1082,117 @@ async fn attachments_work_end_to_end_on_object_storage() {
             .await
             .unwrap();
     assert_eq!(remaining, 0);
+}
+
+fn stored_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+#[tokio::test]
+async fn avatars_live_in_file_storage_and_older_ones_move_there() {
+    use voxpery_server::services::avatar_files::move_data_url_avatars;
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, password) = register_named_user(&mut app, "avatarfile").await;
+    let root = state.attachment_service.local_storage_dir().unwrap();
+    let png = |fill: u8| {
+        let bytes = [
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..],
+            &[fill; 256][..],
+        ]
+        .concat();
+        format!("data:image/png;base64,{}", BASE64.encode(bytes))
+    };
+    let set_avatar = |body: serde_json::Value| {
+        Request::builder()
+            .method("PATCH")
+            .uri("/api/auth/profile")
+            .header("Authorization", &auth)
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap()
+    };
+    let columns = |state: Arc<AppState>| async move {
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            "SELECT avatar_url, avatar_version, avatar_file_key FROM users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+    };
+
+    let (status, body) = oneshot(&mut app, set_avatar(json!({ "avatar_url": png(1) }))).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let profile: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let (stored, version, key) = columns(state.clone()).await;
+    assert!(stored.unwrap().starts_with("file:"));
+    assert_eq!(
+        profile["avatar_url"],
+        format!(
+            "/api/images/users/{user_id}/avatar?v={}",
+            version.as_deref().unwrap()
+        )
+    );
+    assert!(key.is_some());
+    assert_eq!(stored_files(&root).len(), 1);
+
+    // A new picture replaces the file, and removing the picture removes it.
+    let (status, _) = oneshot(&mut app, set_avatar(json!({ "avatar_url": png(2) }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stored_files(&root).len(), 1);
+    let (status, _) = oneshot(&mut app, set_avatar(json!({ "clear_avatar": true }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(stored_files(&root).is_empty());
+    assert_eq!(columns(state.clone()).await, (None, None, None));
+
+    // An avatar from before this release moves over and keeps its version.
+    sqlx::query("UPDATE users SET avatar_url = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(png(3))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (_, version_before, _) = columns(state.clone()).await;
+    let moved = move_data_url_avatars(&state.db, &state.attachment_service)
+        .await
+        .unwrap();
+    assert!(moved >= 1);
+    let (stored, version_after, key) = columns(state.clone()).await;
+    assert_eq!(version_before, version_after);
+    assert!(stored.unwrap().starts_with("file:"));
+    // Other rows in the shared test database may have moved too, so look for this one file.
+    let file_name = key.unwrap().rsplit('/').next().unwrap().to_string();
+    let has_file = || {
+        stored_files(&root)
+            .iter()
+            .any(|path| path.ends_with(&file_name))
+    };
+    assert!(has_file());
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &auth,
+        Some(json!({ "confirm": "DELETE", "password": password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "delete failed: {body}");
+    assert!(!has_file(), "the file goes with the account");
 }

@@ -84,6 +84,8 @@ Attachments note:
 
 `ATTACHMENTS_KEY_PREFIX` is part of the persisted storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
 
+Profile pictures are stored the same way as attachments, so back up `attachments_data` or the bucket with the database. A background job moves pictures uploaded before v0.5.0 out of the database after the upgrade.
+
 S3 compatible storage is optional:
 
 - Set `ATTACHMENTS_S3_ENDPOINT`, `ATTACHMENTS_S3_BUCKET`, `ATTACHMENTS_S3_ACCESS_KEY` and `ATTACHMENTS_S3_SECRET_KEY`, plus `ATTACHMENTS_S3_REGION` where the provider needs one (default `auto`). `ATTACHMENTS_S3_VIRTUAL_HOST=true` selects `bucket.host` addresses for providers that do not offer `host/bucket`. Setting only one of the endpoint and the bucket stops the server at startup.

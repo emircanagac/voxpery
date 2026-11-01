@@ -204,6 +204,14 @@ async fn main() {
             {
                 tracing::warn!("Retrying queued file removals failed: {error}");
             }
+            if let Err(error) = voxpery_server::services::avatar_files::move_data_url_avatars(
+                &release_state.db,
+                &release_state.attachment_service,
+            )
+            .await
+            {
+                tracing::warn!("Moving stored avatars failed: {error}");
+            }
         }
     });
 

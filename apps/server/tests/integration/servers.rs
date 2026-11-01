@@ -669,15 +669,17 @@ async fn lists_reference_uploaded_avatars_by_url_and_serve_them_with_a_grant() {
         "mislabeled profile: {}",
         String::from_utf8_lossy(&body)
     );
-    let stored: Option<String> = sqlx::query_scalar("SELECT avatar_url FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_one(&state.db)
+    let response = app
+        .clone()
+        .oneshot(get(format!(
+            "/api/images/users/{user_id}/avatar?grant={grant}"
+        )))
         .await
         .unwrap();
-    assert!(
-        stored
-            .as_deref()
-            .is_some_and(|url| url.starts_with("data:image/jpeg;base64,")),
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["content-type"],
+        "image/jpeg",
         "mislabeled upload must be stored as JPEG"
     );
 

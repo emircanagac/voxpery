@@ -836,6 +836,23 @@ impl AttachmentService {
         })
     }
 
+    /// Stores a file the server has already checked, such as an avatar.
+    pub async fn store_generated_file(
+        &self,
+        name: &str,
+        content_type: &str,
+        bytes: Vec<u8>,
+    ) -> Result<StoredAttachment, AppError> {
+        self.store_prepared_file(PreparedAttachment {
+            original_name: name.to_string(),
+            content_type: content_type.to_string(),
+            size_bytes: bytes.len() as i64,
+            sha256: hex_encode(&Sha256::digest(&bytes)),
+            bytes,
+        })
+        .await
+    }
+
     pub async fn store_prepared_file(
         &self,
         prepared: PreparedAttachment,

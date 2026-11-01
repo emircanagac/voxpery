@@ -1,5 +1,7 @@
 //! Signed-in account settings: status, profile, username check, email change and passwords.
 use super::*;
+use crate::services::attachment_release::{delete_queued_files, queue_file_deletions};
+use crate::services::avatar_files::store_avatar;
 
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct UpdateStatusRequest {
@@ -295,11 +297,30 @@ pub(super) async fn update_profile(
         next_about_me = validate_profile_text(about_me, "About me", 190)?;
     }
 
+    let avatar_changed = next_avatar != user.avatar_url;
+    let new_avatar_file = match next_avatar.as_deref() {
+        Some(url) if avatar_changed && url.starts_with("data:") => {
+            Some(store_avatar(&state.attachment_service, url).await?)
+        }
+        _ => None,
+    };
+    if let Some(stored) = &new_avatar_file {
+        next_avatar = Some(stored.avatar_url.clone());
+    }
+
     let username_changed = next_username != user.username;
+    let mut tx = state.db.begin().await?;
+    let previous_file_key: Option<String> =
+        sqlx::query_scalar("SELECT avatar_file_key FROM users WHERE id = $1 FOR UPDATE")
+            .bind(claims.sub)
+            .fetch_one(&mut *tx)
+            .await?;
     let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
             SET avatar_url = $1, dm_privacy = $2, username = $3, about_me = $4,
-                username_changed_at = CASE WHEN $6 THEN NOW() ELSE username_changed_at END
+                username_changed_at = CASE WHEN $6 THEN NOW() ELSE username_changed_at END,
+                avatar_file_backend = CASE WHEN $7 THEN $8 ELSE avatar_file_backend END,
+                avatar_file_key = CASE WHEN $7 THEN $9 ELSE avatar_file_key END
             WHERE id = $5
            RETURNING *"#,
     )
@@ -309,8 +330,18 @@ pub(super) async fn update_profile(
     .bind(next_about_me)
     .bind(claims.sub)
     .bind(username_changed)
-    .fetch_one(&state.db)
+    .bind(avatar_changed)
+    .bind(new_avatar_file.as_ref().map(|stored| stored.backend))
+    .bind(new_avatar_file.as_ref().map(|stored| stored.key.as_str()))
+    .fetch_one(&mut *tx)
     .await?;
+    let replaced_files: Vec<String> = previous_file_key
+        .filter(|_| avatar_changed)
+        .into_iter()
+        .collect();
+    queue_file_deletions(&mut tx, &replaced_files).await?;
+    tx.commit().await?;
+    delete_queued_files(&state.db, &state.attachment_service, &replaced_files).await;
 
     let public_user = UserPublic::from(updated);
     crate::ws::publish_event(

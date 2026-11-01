@@ -3,6 +3,7 @@ pub mod attachments;
 pub mod audit;
 pub mod auth;
 pub mod automod;
+pub mod avatar_files;
 pub mod avatar_images;
 pub mod client_ip;
 pub mod email;
