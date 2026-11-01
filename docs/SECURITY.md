@@ -22,6 +22,8 @@ These notes are written for users who want a short answer before reading the ful
 - **Claims**: `sub` (user ID), `username`, `exp` (expiration time), `iat` (issue time), `ver` (token version), `jti` (random sign-in id; tokens issued before v0.4.6 have none)
 - **Sensitive comparisons**: OAuth state and desktop PKCE checks use constant-time comparison helpers.
 
+**Session lifetime**: one signed token per sign-in, with no refresh token. Decision (November 2026): keep it this way. A token can be ended on the server at any time: signing out blacklists it, and a password change or reset raises `token_version`, which ends every session of the account. Short-lived access tokens with rotating refresh tokens would shorten the window for a stolen token, but the refresh token would sit in the same keyring or cookie, and a rotation failure signs real users out. Operators who want a shorter window can lower `JWT_EXPIRATION`. Revisit this if a token theft is reported or when device and session management is added.
+
 **Token storage**:
 - **Web**: httpOnly cookie (`Secure` flag in production)
 - **Desktop**: Secure keyring (OS-native credential store via Tauri)
