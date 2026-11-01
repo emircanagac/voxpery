@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
 
 ### Fixed
+- Markdown (`.md`) files can be uploaded as attachments.
 - Group DMs: when the owner deletes their account, the longest-standing member becomes the owner and the remaining members see the change right away. Groups already left without an owner are repaired, so members can manage them again.
 - Sending a message with a file uploaded more than a day ago can no longer lose the file to the cleanup of unused uploads: the file stays with the message, or the send fails with a clear error.
 - Data export: WebP and GIF profile pictures are now in the ZIP archive next to PNG and JPEG ones, and the archive says when a profile picture is an external link that could not be included.

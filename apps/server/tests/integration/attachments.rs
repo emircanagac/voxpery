@@ -480,6 +480,41 @@ async fn repeated_attachment_upload_reuses_storage_and_quota() {
 }
 
 #[tokio::test]
+async fn markdown_files_upload_as_plain_text() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "markdown").await;
+
+    let boundary = format!("----voxperymarkdown{}", Uuid::new_v4());
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"notes.md\"\r\nContent-Type: text/markdown\r\n\r\n# Notes\n\n- one\n\r\n--{boundary}--\r\n"
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", &auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body.into_bytes()))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "markdown upload failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let uploaded: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(uploaded[0]["name"], "notes.md");
+    assert_eq!(uploaded[0]["type"], "text/plain");
+}
+
+#[tokio::test]
 async fn a_message_and_the_upload_release_cannot_both_win_an_old_upload() {
     use voxpery_server::services::attachment_release::{
         lock_uploads_for_message, release_unused_uploads,

@@ -641,6 +641,11 @@ impl AttachmentService {
         }
 
         let normalized = content_type.trim().to_ascii_lowercase();
+        let normalized = if is_markdown_mime(&normalize_mime_type(&normalized)) {
+            "text/plain".to_string()
+        } else {
+            normalized
+        };
         if !self
             .allowed_mime_prefixes
             .iter()
@@ -978,9 +983,17 @@ fn normalize_mime_type(content_type: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// Markdown is plain text: it passes the same checks and is stored and served as `text/plain`.
+fn is_markdown_mime(mime: &str) -> bool {
+    matches!(mime, "text/markdown" | "text/x-markdown")
+}
+
 fn declared_mime_matches_detected(declared: &str, detected: &str) -> bool {
     if declared == GENERIC_BINARY_MIME || declared == detected {
         return true;
+    }
+    if is_markdown_mime(declared) {
+        return detected == "text/plain";
     }
 
     matches!(
@@ -1646,6 +1659,40 @@ mod tests {
                 .unwrap(),
             "text/plain"
         );
+    }
+
+    #[test]
+    fn markdown_uploads_are_stored_as_plain_text() {
+        for declared in [
+            "text/markdown",
+            "text/markdown; charset=utf-8",
+            "text/x-markdown",
+        ] {
+            assert_eq!(
+                validate_upload_content("notes.md", declared, b"# Notes\n\n- one\n").unwrap(),
+                "text/plain"
+            );
+        }
+        assert_eq!(
+            validate_upload_content(
+                "readme.md",
+                "text/markdown",
+                b"<h1 align=\"center\">Hi</h1>"
+            )
+            .unwrap(),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn markdown_type_does_not_excuse_active_or_binary_content() {
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        assert!(validate_upload_content("fake.md", "text/markdown", png).is_err());
+        assert!(
+            validate_upload_content("page.md", "text/markdown", b"<!doctype html><script>")
+                .is_err()
+        );
+        assert!(validate_upload_content("run.ps1", "text/markdown", b"# not markdown").is_err());
     }
 
     #[test]
