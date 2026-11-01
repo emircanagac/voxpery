@@ -348,7 +348,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `POST /api/dm/groups/:channel_id/members`
   - Accepts `{ "user_ids": [uuid, ...] }`; any member can add their own friends while the group has room. Lists longer than 8 ids are refused with `400`.
 - `DELETE /api/dm/groups/:channel_id/members/:user_id`
-  - Members can remove themselves (leave); only the owner can remove others. When the owner leaves, the longest-standing member becomes owner; the group is deleted when its last member leaves.
+  - Members can remove themselves (leave); only the owner can remove others. When the owner leaves or deletes their account, the longest-standing member becomes owner; the group is deleted when its last member leaves.
   - Every create, rename and membership change sends `DmChannelsUpdated` to the current and removed members.
 - `POST /api/dm/channels/:channel_id/hide`
   - Hides and unpins the channel for the current user without deleting messages or hiding it for the peer.

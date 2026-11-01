@@ -711,13 +711,47 @@ pub(super) async fn delete_my_account(
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
+    // Locked in id order before the membership goes, the same lock a membership change takes.
+    let group_dm_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT c.id
+           FROM dm_channels c
+           JOIN dm_channel_members m ON m.channel_id = c.id
+           WHERE m.user_id = $1 AND c.is_group
+           ORDER BY c.id
+           FOR UPDATE OF c"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM dm_channel_members WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
+    // A group stays manageable: as when an owner leaves, the longest-standing member takes over.
+    sqlx::query(
+        r#"UPDATE dm_channels c
+           SET owner_id = (
+               SELECT m.user_id
+               FROM dm_channel_members m
+               WHERE m.channel_id = c.id
+               ORDER BY m.joined_at ASC, m.user_id ASC
+               LIMIT 1
+           )
+           WHERE c.id = ANY($1) AND (c.owner_id = $2 OR c.owner_id IS NULL)"#,
+    )
+    .bind(&group_dm_ids)
+    .bind(claims.sub)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM dm_channels c WHERE NOT EXISTS (SELECT 1 FROM dm_channel_members m WHERE m.channel_id = c.id)")
         .execute(&mut *tx)
         .await?;
+    let group_dm_members = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT channel_id, user_id FROM dm_channel_members WHERE channel_id = ANY($1)",
+    )
+    .bind(&group_dm_ids)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM server_member_roles WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
@@ -759,6 +793,10 @@ pub(super) async fn delete_my_account(
     .await;
     for server_id in transferred_server_ids {
         crate::ws::publish_event(&state, WsEvent::ServerRolesUpdated { server_id }).await;
+    }
+    for (channel_id, user_id) in group_dm_members {
+        crate::ws::publish_user_event(&state, user_id, WsEvent::DmChannelsUpdated { channel_id })
+            .await;
     }
 
     if let Some(token) = token_from_request(&headers, &state.cookie_name) {

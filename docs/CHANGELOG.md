@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - Unreleased
+
+### Fixed
+- Group DMs: when the owner deletes their account, the longest-standing member becomes the owner and the remaining members see the change right away. Groups already left without an owner are repaired, so members can manage them again.
+
 ## [0.4.11] - 2026-10-31
 
 ### Security
