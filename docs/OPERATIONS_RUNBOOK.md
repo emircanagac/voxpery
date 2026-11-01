@@ -28,7 +28,7 @@ be reviewed and smoke-tested deliberately:
 
 | Service | Pinned image |
 | --- | --- |
-| LiveKit | `livekit/livekit-server:v1.13.5` |
+| LiveKit | `livekit/livekit-server:v1.13.11` |
 | PostgreSQL | `postgres:16.15-alpine3.24` |
 | Redis | `redis:7.4.11-alpine` |
 | ClamAV | `clamav/clamav:1.4.6` |

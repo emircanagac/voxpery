@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The Privacy Notice now follows the GDPR for everyone: it lists the legal basis for each kind of processing, gives every user the same rights wherever they live, and names where to complain. The Privacy Notice and KVKK notice also cover personal notes and group DM ownership. Everyone on voxpery.com is asked to acknowledge the new version.
+- Voice and screen sharing run on LiveKit server v1.13.11, which brings stability fixes for connections and reconnects.
 
 ### Fixed
 - Markdown (`.md`) files can be uploaded as attachments.
