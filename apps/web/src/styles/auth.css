@@ -426,7 +426,8 @@
 
 .auth-footer a {
   color: var(--text-link);
-  text-decoration: none;
+  /* The underline, not only the colour, sets the link apart from the sentence around it. */
+  text-decoration: underline;
   cursor: pointer;
 }
 
@@ -654,7 +655,8 @@
 }
 
 .auth-error {
-  background: rgba(240, 71, 71, 0.1);
+  /* A lighter tint keeps --text-danger above 4.5:1 contrast in every theme. */
+  background: rgba(240, 71, 71, 0.06);
   border: 1px solid rgba(240, 71, 71, 0.3);
   border-radius: var(--border-radius-sm);
   padding: 10px 12px;
