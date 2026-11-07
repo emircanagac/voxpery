@@ -218,6 +218,7 @@
 
 .not-found-home {
   margin-top: 20px;
+  text-decoration: none;
 }
 
 .auth-btn {
