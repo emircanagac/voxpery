@@ -1,6 +1,15 @@
 import { renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useVoiceMediaSession, VOICE_SESSION_ANCHOR_URL } from './useVoiceMediaSession'
+import { supportsVoiceMediaSessionAnchor, useVoiceMediaSession, VOICE_SESSION_ANCHOR_URL } from './useVoiceMediaSession'
+
+describe('voice media session support', () => {
+  it('is limited to Android browsers', () => {
+    expect(supportsVoiceMediaSessionAnchor({ userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/142.0 Mobile Safari/537.36' })).toBe(true)
+    expect(supportsVoiceMediaSessionAnchor({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) Version/26.0 Mobile/15E148 Safari/604.1' })).toBe(false)
+    expect(supportsVoiceMediaSessionAnchor({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/142.0 Safari/537.36' })).toBe(false)
+    expect(supportsVoiceMediaSessionAnchor(undefined)).toBe(false)
+  })
+})
 
 type Handler = (() => void) | null
 

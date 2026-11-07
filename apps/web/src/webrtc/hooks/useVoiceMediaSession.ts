@@ -5,8 +5,19 @@ import { useEffect, useRef } from 'react'
 // WebRTC streams, which get neither. Unverified on real devices: see docs/VOICE_SYSTEM.md.
 export const VOICE_SESSION_ANCHOR_URL = '/voice-session-anchor.wav'
 
+/**
+ * Only Android browsers can keep a backgrounded page alive through media playback. iOS Safari
+ * suspends capture in the background regardless, so an extra audio element there would only
+ * add a lock-screen player without helping the call.
+ */
+export function supportsVoiceMediaSessionAnchor(
+  navigatorTarget: Pick<Navigator, 'userAgent'> | undefined = typeof navigator === 'undefined' ? undefined : navigator,
+): boolean {
+  return Boolean(navigatorTarget && /android/i.test(navigatorTarget.userAgent))
+}
+
 type Options = {
-  /** True while connected to a voice channel in a mobile browser. */
+  /** True while connected to a voice channel in an Android browser. */
   active: boolean
   title: string
   muted: boolean
