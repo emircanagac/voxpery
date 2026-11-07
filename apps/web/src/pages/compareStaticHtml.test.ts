@@ -38,4 +38,9 @@ describe('static public page HTML', () => {
     const schema = JSON.parse(doc.querySelector('script[type="application/ld+json"]')?.textContent ?? '')
     expect(schema).toMatchObject({ '@type': 'SoftwareApplication', name: 'Voxpery' })
   })
+
+  it('hides the landing text in the installed app, which also starts at /', () => {
+    const style = readEntry('landing.html').querySelector('style')?.textContent ?? ''
+    expect(style).toMatch(/@media \(display-mode:standalone\)[^{]*\{\.static-page\{display:none\}\}/)
+  })
 })
