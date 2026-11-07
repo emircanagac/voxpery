@@ -37,7 +37,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.1` an
 ### v0.5.1 checks
 
 - [ ] Desktop on Tauri 3.0.0-alpha.5 (Windows, macOS, Linux .deb, .rpm and Flatpak): sign in with Google through `voxpery://`, restart and stay signed in (keyring), log out, check the custom server dialog against a self-hosted server (it uses the TLS provider installed in `custom_server.rs`), and update an installed 0.5.0 to 0.5.1 with the in-app updater (new signature verifier `minisign-verify` 0.3).
-- [ ] Linux on CEF 154: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
+- [ ] Linux on CEF 152: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
 - [ ] `cargo tree --locked --target x86_64-unknown-linux-gnu -i glib` in `apps/desktop/src-tauri` shows only `glib` 0.22; then dismiss the Dependabot glib alert as "vulnerable code is not actually used" and close #242 with that output.
 - [ ] Arch Linux (clean system, Wayland/Hyprland and X11): build the `aur-voxpery-bin` artifact with `makepkg -si`; the launcher starts the app, Google sign-in returns through `voxpery://`, microphone and screen sharing work, and Settings > Desktop says updates come from the package manager. Then push `PKGBUILD` and `.SRCINFO` to the AUR `voxpery-bin` repository.
 - [ ] Mobile voice media notification: run the media notification check in `docs/VOICE_RELEASE_SMOKE_TEST.md` on a real Android phone (Chrome tab and installed PWA). If it does not keep calls alive or the anchor is audible, revert the media session commit before tagging.
