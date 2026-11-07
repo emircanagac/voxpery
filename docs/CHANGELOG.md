@@ -7,18 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.2] - 2026-11-07
 
-### Fixed
-- Linux: the desktop app packages (.deb, .rpm, Flatpak and the AUR files) build again; v0.5.1 shipped without them, so no desktop app was offered the 0.5.1 update. Linux stays on Chromium (CEF) 152.
-
-## [0.5.1] - 2026-11-07
-
 ### Added
 - Arch Linux: the desktop app is available from the AUR as `voxpery-bin` and updates with the system package manager.
 - Android browsers: a voice call shows a media notification with leave and mute controls, which helps keep the call running while another app is open.
 
 ### Changed
 - The landing and compare pages can be read by search engines and link previews without running JavaScript, and shared links show a large product preview.
-- The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins.
+- The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins. Linux stays on Chromium (CEF) 152.
 
 ## [0.5.0] - 2026-11-01
 

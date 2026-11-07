@@ -37,10 +37,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.2` an
 ### v0.5.2 checks
 
 - [ ] The release run builds every platform: the GitHub release has `Voxpery_0.5.2_amd64.deb`, the `.rpm`, `Voxpery_0.5.2_x86_64.flatpak`, the Windows and macOS installers, and `latest.json` lists all platforms at 0.5.2; the `aur-voxpery-bin` artifact exists.
-- [ ] A desktop app on 0.5.0 is offered 0.5.2 and updates (v0.5.1 never published `latest.json`). Then run the v0.5.1 checks below, which were not done.
-
-### v0.5.1 checks
-
+- [ ] A desktop app on 0.5.0 is offered 0.5.2 and updates with the in-app updater.
 - [ ] Desktop on Tauri 3.0.0-alpha.5 (Windows, macOS, Linux .deb, .rpm and Flatpak): sign in with Google through `voxpery://`, restart and stay signed in (keyring), log out, check the custom server dialog against a self-hosted server (it uses the TLS provider installed in `custom_server.rs`), and update an installed 0.5.0 to 0.5.1 with the in-app updater (new signature verifier `minisign-verify` 0.3).
 - [ ] Linux on CEF 152: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
 - [ ] `cargo tree --locked --target x86_64-unknown-linux-gnu -i glib` in `apps/desktop/src-tauri` shows only `glib` 0.22; then dismiss the Dependabot glib alert as "vulnerable code is not actually used" and close #242 with that output.
