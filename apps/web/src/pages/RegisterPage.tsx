@@ -217,7 +217,6 @@ export default function RegisterPage() {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
                         required
                         minLength={8}
                     />
@@ -232,7 +231,6 @@ export default function RegisterPage() {
                         type="password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••"
                         required
                         minLength={8}
                     />
