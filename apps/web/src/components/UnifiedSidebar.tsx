@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useId, useState, type MouseEvent } from 'react'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { NavLink, useNavigate, useLocation } from 'react-router'
 import { MessageCircle } from 'lucide-react'
@@ -48,6 +48,8 @@ export default function UnifiedSidebar({
   const displayActiveServerId = isServerRoute ? activeServerId : null
   const isSocialRoute = location.pathname === ROUTES.home || location.pathname === ROUTES.dm
   const totalSocialUnread = totalDmUnread + incomingRequestCount
+  // Unread DMs plus pending friend requests; read out after the "Social" name.
+  const socialUnreadId = useId()
   const hasMessagesNotify = totalSocialUnread > 0
   const savedSocialView = getPersistedSocialView()
   const socialHref = savedSocialView === 'dm' && activeDmChannelId ? ROUTES.dm : ROUTES.home
@@ -202,10 +204,17 @@ export default function UnifiedSidebar({
           }
           title="Friends, requests, and direct messages"
           aria-label="Social"
+          aria-describedby={totalSocialUnread > 0 ? socialUnreadId : undefined}
         >
           <MessageCircle size={22} />
           {totalSocialUnread > 0 && (
-            <span className="server-unread-badge">{formatBadgeCount(totalSocialUnread)}</span>
+            <span
+              id={socialUnreadId}
+              className="server-unread-badge"
+              aria-label={`${totalSocialUnread} unread`}
+            >
+              {formatBadgeCount(totalSocialUnread)}
+            </span>
           )}
         </NavLink>
       </div>

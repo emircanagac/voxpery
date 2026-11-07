@@ -178,6 +178,8 @@ test.describe('mocked social friend UI regressions', () => {
       }))
       await installMockCoreApi(page, createMockCoreState({ dmChannels: channels }))
       await page.goto('/social')
+      // The exact unread count (DMs plus friend requests; the badge caps at 19+) is read out after the name "Social".
+      await expect(page.getByRole('link', { name: 'Social', exact: true })).toHaveAccessibleDescription(/^\d+ unread$/)
       if (width < 960) await page.getByRole('link', { name: 'Social', exact: true }).click()
       const sidebar = page.locator('.social-sidebar')
       if (width < 960) await expect(sidebar).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
