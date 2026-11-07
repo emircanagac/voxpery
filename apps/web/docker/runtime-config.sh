@@ -52,4 +52,18 @@ if grep -Fq "$hosted_sources" "$conf"; then
   rm -f "$tmp"
 fi
 
+# img-src allows any https: origin; a plain-HTTP API (LAN or local setups) also serves avatars and
+# images, so allow that one origin too. HTTPS deployments keep the policy unchanged.
+api_http=$(to_http "$api")
+case "$api_http" in
+  http://*)
+    if ! grep -Fq "img-src 'self' data: blob: https: $api_http;" "$conf"; then
+      tmp=$(mktemp)
+      sed "s#img-src 'self' data: blob: https:;#img-src 'self' data: blob: https: $api_http;#" "$conf" > "$tmp"
+      cat "$tmp" > "$conf"
+      rm -f "$tmp"
+    fi
+    ;;
+esac
+
 echo "voxpery runtime config: API $(to_http "$api")"
