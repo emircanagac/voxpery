@@ -1,0 +1,34 @@
+# Template for the AUR package voxpery-bin, built from the release .deb.
+# The release workflow fills in @VERSION@ and @SHA256@ with
+# .github/scripts/render-aur-package.mjs and attaches the result as the
+# `aur-voxpery-bin` artifact; see docs/DESKTOP_RELEASE_HARDENING.md.
+# Maintainer: Emircan Agac <voxpery at gmail dot com>
+pkgname=voxpery-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Open-source and self-hostable community chat with voice and screen sharing'
+arch=('x86_64')
+url='https://voxpery.com'
+license=('AGPL-3.0-only')
+# The .deb bundles Chromium (CEF); these are the system libraries it and the app load.
+depends=('gtk4' 'nss' 'alsa-lib' 'libcups' 'libdrm' 'mesa' 'libxkbcommon' 'libxcomposite'
+         'libxdamage' 'libxrandr' 'libx11' 'at-spi2-core' 'dbus' 'hicolor-icon-theme')
+optdepends=('gnome-keyring: keeps you signed in (or another Secret Service provider)'
+            'xdg-desktop-portal: file dialogs and screen sharing on Wayland')
+provides=('voxpery')
+conflicts=('voxpery')
+options=('!strip' '!debug')
+source=("https://github.com/emircanagac/voxpery/releases/download/v${pkgver}/Voxpery_${pkgver}_amd64.deb")
+sha256sums=('@SHA256@')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  # The app and CEF live in /usr/share/Voxpery; fail if the .deb layout changes.
+  test -x "$pkgdir/usr/share/Voxpery/voxpery-desktop"
+  # Chromium's sandbox helper must stay setuid root, as in the .deb.
+  if [ -f "$pkgdir/usr/share/Voxpery/chrome-sandbox" ]; then
+    chmod 4755 "$pkgdir/usr/share/Voxpery/chrome-sandbox"
+  fi
+  # Tells the app that pacman updates it, so the in-app updater stays off.
+  install -Dm644 /dev/null "$pkgdir/usr/share/Voxpery/voxpery-aur-package"
+}

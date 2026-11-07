@@ -36,6 +36,8 @@ Voxpery is still growing. Larger platforms have broader integrations and more ma
 
 **Use the hosted app:** [Create an account](https://voxpery.com/register) and start chatting in your browser. No server setup is required.
 
+**Desktop app:** Download it for Windows, macOS, or Linux (.deb, .rpm, Flatpak) from the [latest release](https://github.com/emircanagac/voxpery/releases/latest). On Arch Linux, install the AUR package with `yay -S voxpery-bin`.
+
 **Self-host:** Start the web app, server, LiveKit, PostgreSQL, and Redis with Docker Compose:
 
 ```bash
