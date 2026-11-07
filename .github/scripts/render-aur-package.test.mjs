@@ -53,5 +53,5 @@ test('rejects versions pacman cannot use and malformed checksums', () => {
   assert.throws(() => renderAurTemplate(template, { version: '1.2.3-beta.1', sha256: SHA }))
   assert.throws(() => renderAurTemplate(template, { version: '1.2.3', sha256: 'abc' }))
   assert.throws(() => renderAurTemplate('pkgver=1.0.0\n', { version: '1.2.3', sha256: SHA }))
-  assert.throws(() => renderAurTemplate(template.replace('\n', '\r\n'), { version: '1.2.3', sha256: SHA }))
+  assert.throws(() => renderAurTemplate(template.replaceAll('\n', '\r\n'), { version: '1.2.3', sha256: SHA }))
 })
