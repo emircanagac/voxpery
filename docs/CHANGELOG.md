@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - Unreleased
+
+### Fixed
+- Self-hosting: the prebuilt web image starts when `WEB_API_URL` is set without the Turnstile or GIPHY keys, and avatars load when the API runs on plain HTTP.
+- The home and compare pages open without a loading flash, and signed-in visitors opening voxpery.com go straight to the app without seeing the landing text.
+- Addresses with a trailing slash, such as voxpery.com/about/, no longer send browsers to an internal address.
+- Accessibility: sign-in and sign-up links are underlined, error messages are easier to read, and screen readers announce the unread count on Social.
+- Sign-up spells "KVKK Aydınlatma Metni" correctly, empty password fields no longer show dots, and the page-not-found button matches the others and stays out of search results.
+
+### Changed
+- Android browsers no longer play an inaudible audio loop during voice calls; the experiment from v0.5.2 did not show a notification.
+
 ## [0.5.2] - 2026-11-07
 
 ### Added

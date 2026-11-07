@@ -36,11 +36,11 @@ export default function LegalAcknowledgements({ documents, terms, privacy, kvkk,
       <label className="auth-legal-check">
         <input type="checkbox" checked={privacy} onChange={(event) => onPrivacy(event.target.checked)} disabled={disabled} />
         <span>I have read the <DocumentLink href={legalDocumentHref(documents, 'privacy')}>Privacy Notice</DocumentLink>
-          {!onKvkk && <> and <DocumentLink href={legalDocumentHref(documents, 'kvkk')}>KVKK Aydinlatma Metni</DocumentLink></>}.</span>
+          {!onKvkk && <> and <DocumentLink href={legalDocumentHref(documents, 'kvkk')}>KVKK Aydınlatma Metni</DocumentLink></>}.</span>
       </label>
       {onKvkk && <label className="auth-legal-check">
         <input type="checkbox" checked={!!kvkk} onChange={(event) => onKvkk(event.target.checked)} disabled={disabled} />
-        <span>I have read the <DocumentLink href={legalDocumentHref(documents, 'kvkk')}>KVKK Aydinlatma Metni</DocumentLink>.</span>
+        <span>I have read the <DocumentLink href={legalDocumentHref(documents, 'kvkk')}>KVKK Aydınlatma Metni</DocumentLink>.</span>
       </label>}
     </div>
   )

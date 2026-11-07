@@ -52,7 +52,7 @@ Edit `.env` and set strong production values at minimum:
 - If a reverse proxy supplies client IP headers, set `TRUSTED_PROXY_CIDRS` to that
   proxy's exact IP or dedicated network CIDR. Leave it empty for direct deployments.
 - `VITE_API_URL` (public backend URL used by frontend build)
-- `WEB_API_URL`, `WEB_LIVEKIT_URL`, `WEB_TURNSTILE_SITE_KEY`, `WEB_GIPHY_API_KEY` (optional: run the prebuilt web image on your own domain without rebuilding it. The container writes `runtime-config.js`, the desktop discovery file and the CSP sources when it starts; invalid values stop the container.)
+- `WEB_API_URL`, `WEB_LIVEKIT_URL`, `WEB_TURNSTILE_SITE_KEY`, `WEB_GIPHY_API_KEY` (optional: run the prebuilt web image on your own domain without rebuilding it. The container writes `runtime-config.js`, the desktop discovery file and the CSP sources when it starts; invalid values stop the container. The Turnstile and GIPHY keys may stay empty. When `WEB_API_URL` is a plain `http://` origin (LAN or local setups), that origin is also allowed in `img-src` so avatars and images load; HTTPS deployments keep the policy unchanged.)
 - `VITE_GIPHY_API_KEY` (optional public client key for GIPHY search/trending; configure the same repository variable for web and desktop release builds)
 - `FRONTEND_URL` (public web app URL used in password reset and email verification links)
 - `LEGAL_TERMS_URL`, `LEGAL_PRIVACY_URL`, `LEGAL_KVKK_URL` and `LEGAL_DOCUMENTS_VERSION` (self-hosted servers: the operator's own documents and their version; see `docs/SELF_HOST_PRIVACY_TEMPLATE.md`)

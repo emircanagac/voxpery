@@ -38,4 +38,13 @@
 
   var themeColor = document.querySelector('meta[name="theme-color"]')
   if (themeColor) themeColor.setAttribute('content', themes[theme].chrome)
+
+  // A stored profile hint (voxpery-auth, written at sign-in, removed at sign-out) means / will
+  // redirect into the app, so landing.html hides its readable text instead of flashing it.
+  if (window.location.pathname === '/') try {
+    var auth = JSON.parse(localStorage.getItem('voxpery-auth') || 'null')
+    if (auth && auth.state && auth.state.user) root.dataset.sessionHint = 'true'
+  } catch (_) {
+    // Missing or malformed storage leaves the landing text visible.
+  }
 })()

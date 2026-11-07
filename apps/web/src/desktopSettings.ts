@@ -93,15 +93,23 @@ async function getStoredDesktopAutostartPreference(): Promise<boolean | null> {
 let desktopInstallChannel: Promise<string> | null = null
 
 /**
+ * How this desktop install is updated: `app` (in-app updater), `flatpak` (a newer .flatpak file)
+ * or `pacman` (the AUR package). Read once from Rust and shared by the updater and settings.
+ */
+export function getDesktopUpdateChannel(): Promise<string> {
+  desktopInstallChannel ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string>('desktop_update_channel'))
+    .catch(() => 'app')
+  return desktopInstallChannel
+}
+
+/**
  * Launch on startup needs a host autostart entry. A Flatpak cannot write one from its sandbox
  * (the entry would point inside it), so the setting is not offered there.
  */
 export function isDesktopAutostartSupported(): Promise<boolean> {
   if (!isTauri()) return Promise.resolve(false)
-  desktopInstallChannel ??= import('@tauri-apps/api/core')
-    .then(({ invoke }) => invoke<string>('desktop_update_channel'))
-    .catch(() => 'app')
-  return desktopInstallChannel.then((channel) => channel !== 'flatpak')
+  return getDesktopUpdateChannel().then((channel) => channel !== 'flatpak')
 }
 
 /** Launch on startup defaults to on for every desktop platform until the user records a choice. */

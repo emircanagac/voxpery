@@ -120,7 +120,6 @@ export default function ResetPasswordPage() {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
                         required
                         disabled={!token || !!message}
                     />
@@ -132,7 +131,6 @@ export default function ResetPasswordPage() {
                         type="password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••"
                         required
                         disabled={!token || !!message}
                     />

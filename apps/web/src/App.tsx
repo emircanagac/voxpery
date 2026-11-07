@@ -16,6 +16,7 @@ import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks, setDe
 import { configureObservability, reportObservabilityEvent } from './observability'
 import { THEME_CHANGED_EVENT, applyThemeForPath } from './theme'
 import { rememberExpiredSession } from './authRedirect'
+import { AboutPage, ComparePage } from './pages/publicPageModules'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
 const UnifiedLayout = lazy(() => import('./pages/UnifiedLayout'))
@@ -25,8 +26,6 @@ const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 const InvitePage = lazy(() => import('./pages/InvitePage'))
-const AboutPage = lazy(() => import('./pages/AboutPage'))
-const ComparePage = lazy(() => import('./pages/ComparePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const LegalConsentBoundary = lazy(() => import('./components/LegalConsentBoundary'))
@@ -221,7 +220,9 @@ function App() {
     }
   }, [isDesktopApp, navigate, restoreSession])
 
-  if (restoring && !publicRoute) {
+  // A remembered profile on / means the visitor is about to be sent into the app; show the
+  // loading card rather than the landing page while the session is checked.
+  if (restoring && (!publicRoute || (location.pathname === ROUTES.landing && user))) {
     return <GlobalLoading label="Loading…" description="Please wait." />
   }
 

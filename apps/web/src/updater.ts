@@ -4,7 +4,7 @@
  */
 import type { DownloadEvent } from '@tauri-apps/plugin-updater'
 import { isTauri } from './secureStorage'
-import { prepareDesktopForUpdateInstall } from './desktopSettings'
+import { getDesktopUpdateChannel, prepareDesktopForUpdateInstall } from './desktopSettings'
 
 export type ExternalUpdateChannel = 'flatpak' | 'pacman'
 
@@ -54,17 +54,12 @@ function emitDesktopUpdateStatus(result: UpdateResult) {
   )
 }
 
-let updateChannel: Promise<string> | null = null
-
 /**
  * Flatpak installs report the `flatpak` channel and update by installing a newer .flatpak file;
  * the AUR package reports `pacman` and updates through the system package manager.
  */
 function externalUpdateChannel(): Promise<ExternalUpdateChannel | null> {
-  updateChannel ??= import('@tauri-apps/api/core')
-    .then(({ invoke }) => invoke<string>('desktop_update_channel'))
-    .catch(() => 'app')
-  return updateChannel.then((channel) => (channel === 'flatpak' || channel === 'pacman' ? channel : null))
+  return getDesktopUpdateChannel().then((channel) => (channel === 'flatpak' || channel === 'pacman' ? channel : null))
 }
 
 async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {

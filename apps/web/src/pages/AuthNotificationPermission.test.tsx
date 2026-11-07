@@ -99,7 +99,7 @@ describe('auth notification permission behavior', () => {
     renderAuthPage('login')
 
     await user.type(screen.getByPlaceholderText('you@example.com or your_username'), 'auth@example.test')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'password-123')
+    await user.type(screen.getByLabelText('Password'), 'password-123')
     await user.click(screen.getByRole('button', { name: 'Sign In' }))
 
     await waitFor(() => expect(authApiMocks.login).toHaveBeenCalledTimes(1))
@@ -113,9 +113,8 @@ describe('auth notification permission behavior', () => {
 
     await user.type(screen.getByPlaceholderText('your_username'), 'auth_user')
     await user.type(screen.getByPlaceholderText('you@example.com'), 'auth@example.test')
-    const passwordInputs = screen.getAllByPlaceholderText('••••••••')
-    await user.type(passwordInputs[0], 'password-123')
-    await user.type(passwordInputs[1], 'password-123')
+    await user.type(screen.getByLabelText('Password'), 'password-123')
+    await user.type(screen.getByLabelText('Confirm password'), 'password-123')
     const legalCheckboxes = screen.getAllByRole('checkbox')
     await user.click(legalCheckboxes[0])
     await user.click(legalCheckboxes[1])
