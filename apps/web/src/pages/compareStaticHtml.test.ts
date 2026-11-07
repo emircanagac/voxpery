@@ -43,4 +43,9 @@ describe('static public page HTML', () => {
     const style = readEntry('landing.html').querySelector('style')?.textContent ?? ''
     expect(style).toMatch(/@media \(display-mode:standalone\)[^{]*\{\.static-page\{display:none\}\}/)
   })
+
+  it('hides the landing text for a visitor with a remembered profile (theme-init.js sets the hint)', () => {
+    const style = readEntry('landing.html').querySelector('style')?.textContent ?? ''
+    expect(style).toContain('html[data-session-hint] .static-page{display:none}')
+  })
 })
