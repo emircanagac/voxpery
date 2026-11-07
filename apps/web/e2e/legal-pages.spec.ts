@@ -174,7 +174,7 @@ test.describe('versioned legal consent gate', () => {
     await expect(page.getByRole('button', { name: 'Accept and continue' })).toBeDisabled()
     await expect(page.getByRole('link', { name: /Terms of Service/ })).toHaveAttribute('href', '/terms')
     await expect(page.getByRole('link', { name: /Privacy Notice/ })).toHaveAttribute('href', '/privacy')
-    await expect(page.getByRole('link', { name: /KVKK Aydinlatma Metni/ })).toHaveAttribute('href', '/kvkk')
+    await expect(page.getByRole('link', { name: /KVKK Aydınlatma Metni/ })).toHaveAttribute('href', '/kvkk')
 
     await page.getByLabel(/I accept the/).check()
     await page.getByLabel(/I have read the Privacy Notice/).check()
