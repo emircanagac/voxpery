@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
 import { shouldUseLightweightMobileVoicePipeline } from '../webrtc/hooks/useAudioEngine'
+import { useVoiceMediaSession } from '../webrtc/hooks/useVoiceMediaSession'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -1209,6 +1210,21 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     state.joinedChannelId,
     state.localStream,
   ])
+
+  const leaveFromMediaSession = useCallback(() => {
+    const channelId = state.joinedChannelId
+    micTestAutoDeafenedRef.current = false
+    leaveVoice()
+    if (channelId) setBlockedAutoJoinChannelId(channelId)
+  }, [leaveVoice, state.joinedChannelId])
+
+  useVoiceMediaSession({
+    active: lightweightMobileVoice && !desktopRuntime && Boolean(state.joinedChannelId) && !state.isJoining,
+    title: voiceLocation.full,
+    muted,
+    onToggleMute: toggleMute,
+    onLeave: leaveFromMediaSession,
+  })
 
   useEffect(() => {
     const onGlobalMuteShortcut = () => {

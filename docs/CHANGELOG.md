@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins, and Linux on Chromium (CEF) 154.
+- Mobile browsers: a voice call shows a media notification with leave and mute controls, which helps keep the call running while another app is open.
 - Arch Linux: the desktop app is available from the AUR as `voxpery-bin` and updates with the system package manager.
 - The landing and compare pages can be read by search engines and link previews without running JavaScript, and shared links show a large product preview.
 
