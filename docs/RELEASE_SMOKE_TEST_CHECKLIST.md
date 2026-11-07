@@ -30,7 +30,7 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 Version metadata is prepared for `0.5.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
-Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
+Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
 For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.0` and `voxpery/voxpery-web:v0.5.0`, the embedded web badge/build tag, desktop version `0.5.0`, the `Voxpery_0.5.0_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
 

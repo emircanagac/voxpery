@@ -74,7 +74,7 @@ The web packages move with the crates: `@tauri-apps/plugin-*` use the same versi
   Section 5 exercises each of these. A plugin whose command changes would otherwise fail only at runtime.
 - Upstream issues tracked:
   - tauri-apps/tauri#16251: the Linux CEF webview loses X11 keyboard focus; worked around by `src/linux_focus.rs`, see 2.1.1.
-  - The `glib` 0.18 advisory (#242): `glib` 0.18 comes in through `gtk` 0.18, which Tauri's menu crate `muda` 0.20 uses. It needs an upstream move to newer gtk-rs crates and stays documented until then.
+  - The `glib` 0.18 advisory (#242) does not reach any shipped build. `glib` 0.18.5 is only in `Cargo.lock`, which Cargo resolves for every platform at once: on Windows and macOS `tauri-runtime-wry` turns on Tauri's `gtk3` feature, but `gtk` 0.18 compiles only on Linux, and Linux uses `tauri-runtime-cef` (GTK 4, `glib` 0.22) instead of wry. Check with `cargo tree --locked --target <triple> -i glib` after each upgrade: Linux must show only `glib` 0.22 or newer, Windows and macOS none.
 
 ## 2.1.1) Linux Tauri Runtime And Packaging
 
