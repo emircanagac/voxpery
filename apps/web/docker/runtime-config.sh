@@ -27,8 +27,9 @@ printf '%s' "$api" | grep -Eq "$origin_pattern" || fail 'WEB_API_URL must be an 
 if [ -n "$livekit" ]; then
   printf '%s' "$livekit" | grep -Eq "$origin_pattern" || fail 'WEB_LIVEKIT_URL must be a ws(s) or http(s) origin'
 fi
-printf '%s' "$turnstile" | grep -Eq "$key_pattern" || fail 'WEB_TURNSTILE_SITE_KEY has invalid characters'
-printf '%s' "$giphy" | grep -Eq "$key_pattern" || fail 'WEB_GIPHY_API_KEY has invalid characters'
+# Both keys are optional; grep finds no line in empty input, so check only values that are set.
+[ -z "$turnstile" ] || printf '%s' "$turnstile" | grep -Eq "$key_pattern" || fail 'WEB_TURNSTILE_SITE_KEY has invalid characters'
+[ -z "$giphy" ] || printf '%s' "$giphy" | grep -Eq "$key_pattern" || fail 'WEB_GIPHY_API_KEY has invalid characters'
 
 to_http() { printf '%s' "$1" | sed -e 's#^wss://#https://#' -e 's#^ws://#http://#'; }
 to_ws() { printf '%s' "$1" | sed -e 's#^https://#wss://#' -e 's#^http://#ws://#'; }
