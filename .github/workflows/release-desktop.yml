@@ -173,7 +173,7 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           # The desktop crate is on Tauri 3; build with the matching CLI.
-          tauriScript: npx --yes @tauri-apps/cli@3.0.0-alpha.4
+          tauriScript: npx --yes @tauri-apps/cli@3.0.0-alpha.5
           # latest.json is written once by the updater-manifest job; jobs updating it in parallel raced.
           includeUpdaterJson: false
 

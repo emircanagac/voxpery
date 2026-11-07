@@ -184,7 +184,10 @@ enum Fetched {
 
 /// GET with redirects off, a timeout and a size cap; nothing else is followed or trusted.
 async fn fetch(url: &str) -> Result<Fetched, String> {
-    use tauri_plugin_http::reqwest;
+    // reqwest is built without a TLS provider; install the same one the HTTP plugin uses.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(PROBE_TIMEOUT)

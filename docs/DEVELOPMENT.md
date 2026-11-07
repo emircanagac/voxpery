@@ -157,7 +157,7 @@ cargo run
 
 ### Desktop (`apps/desktop/src-tauri`)
 
-The desktop app is on Tauri 3 alpha: use the matching CLI (`cargo install tauri-cli --version 3.0.0-alpha.4 --locked`, or `npx @tauri-apps/cli@3.0.0-alpha.4`). Linux builds need GTK 4.14+, CMake and Ninja, and download the CEF distribution (~1 GB) on the first build.
+The desktop app is on Tauri 3 alpha: use the matching CLI (`cargo install tauri-cli --version 3.0.0-alpha.5 --locked`, or `npx @tauri-apps/cli@3.0.0-alpha.5`). Linux builds need GTK 4.14+, CMake and Ninja, and download the CEF distribution (~1 GB) on the first build.
 
 Requires a built `apps/web/dist` (Tauri embeds it at compile time):
 

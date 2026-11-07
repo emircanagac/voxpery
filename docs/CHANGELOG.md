@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.1] - Unreleased
 
 ### Changed
+- The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins, and Linux on Chromium (CEF) 154.
 - The landing and compare pages can be read by search engines and link previews without running JavaScript, and shared links show a large product preview.
 
 ## [0.5.0] - 2026-11-01

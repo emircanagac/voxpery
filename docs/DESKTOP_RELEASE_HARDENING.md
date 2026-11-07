@@ -56,7 +56,7 @@ This document defines Voxpery desktop release hardening policy for metadata, dee
 
 Decision (October 2026): keep one desktop app on Tauri 3 alpha for Windows, macOS and Linux, with every Tauri crate and web package pinned to an exact version.
 
-The web packages move with the crates: `@tauri-apps/plugin-*` use the same version as their `tauri-plugin-*` crate, and `@tauri-apps/api` uses the release published for the `tauri` crate (`3.0.0-alpha.2` for `tauri 3.0.0-alpha.4`, because no newer API package came out for it).
+The web packages move with the crates: `@tauri-apps/plugin-*` use the same version as their `tauri-plugin-*` crate, and `@tauri-apps/api` uses the release published for the `tauri` crate (`3.0.0-alpha.3` for `tauri 3.0.0-alpha.5`). `tauri 3.0.0-alpha.5` accepts `tauri-runtime 3.0.0-alpha.5`, which it cannot compile with, so `Cargo.lock` keeps `tauri-runtime` at `3.0.0-alpha.4`; `cargo check --locked` holds it there. `tauri-plugin-http` no longer re-exports `reqwest` or installs a TLS provider for other callers, so the custom server probe depends on the same `reqwest`/`rustls` itself and installs the `ring` provider before its request.
 
 - Why Tauri 3 alpha: Linux needs WebRTC for voice, and system WebKitGTK builds ship without it. Chromium through `tauri-runtime-cef` exists only in Tauri 3. Windows and macOS stay on their system webviews through `tauri-runtime-wry`.
 - Considered: Tauri 2 stable for Windows and macOS with Tauri 3 only on Linux. Rejected for now: one crate cannot depend on two Tauri major versions without duplicating the app shell, plugins, capability schemas and release pipeline per platform, which doubles maintenance and the manual QA gate. Windows and macOS have run on Tauri 3 alpha since the Linux CEF move (#409) without platform-specific regressions.
@@ -65,13 +65,13 @@ The web packages move with the crates: `@tauri-apps/plugin-*` use the same versi
   - An alpha regression on Windows or macOS has no workaround: re-evaluate a split.
   - WebKitGTK ships WebRTC in the supported distributions: re-evaluate CEF on Linux.
 - Upgrade policy: upgrade `tauri`, `tauri-build`, the runtimes and all plugins in one change. Run the full manual QA gate (section 5) on all three platforms before release, and the Linux checks in 2.1.1.
-- JavaScript packages: the web app uses `@tauri-apps/api` and plugin packages 2.x, while the Rust crates are 3.0.0 alphas, and 3.0.0 alpha JS packages exist on npm. The JS packages only wrap IPC calls, and every call the app makes has worked unchanged on all three platforms since v0.4.0:
+- JavaScript packages: the web app uses the 3.0.0 alpha `@tauri-apps/api` and plugin packages that match the crates. The JS packages only wrap IPC calls; after each upgrade check every call the app makes on all three platforms:
   - `core` invoke, `window`, `event`, `app` version
   - the HTTP plugin fetch, updater check and install, process relaunch
   - deep-link URLs, global shortcuts, autostart, opener
   - the app's own `desktop_*` and `secure-storage` commands
 
-  Section 5 exercises each of these. Move the JS packages to 3.x together with the next Tauri crate upgrade and verify the same list. A plugin whose command changes would otherwise fail only at runtime.
+  Section 5 exercises each of these. A plugin whose command changes would otherwise fail only at runtime.
 - Upstream issues tracked:
   - tauri-apps/tauri#16251: the Linux CEF webview loses X11 keyboard focus; worked around by `src/linux_focus.rs`, see 2.1.1.
   - The `glib` 0.18 advisory (#242): `glib` 0.18 comes in through `gtk` 0.18, which Tauri's menu crate `muda` 0.20 uses. It needs an upstream move to newer gtk-rs crates and stays documented until then.
