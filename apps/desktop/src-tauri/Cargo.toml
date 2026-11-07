@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-desktop"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 description = "Voxpery Desktop - Tauri-based desktop app"
 license = "AGPL-3.0-only"
@@ -33,9 +33,12 @@ tauri-runtime-wry = "=3.0.0-alpha.5"
 
 # Linux uses Chromium (CEF): system WebKitGTK builds ship without WebRTC.
 [target.'cfg(target_os = "linux")'.dependencies]
-tauri-runtime-cef = "=3.0.0-alpha.6"
+# CEF 154 (tauri-runtime-cef alpha.6 and later) no longer ships libEGL.so and libGLESv2.so, which
+# the Tauri bundler still copies into the .deb and .rpm, so Linux packaging fails. Stay on CEF 152
+# (alpha.5; tauri-runtime alpha.4 has the same API as alpha.3) until the bundler is fixed.
+tauri-runtime-cef = "=3.0.0-alpha.5"
 # Same versions as tauri-runtime-cef; used to restore keyboard focus (src/linux_focus.rs).
-cef = { version = "=154.5.0", default-features = false }
+cef = { version = "=152.3.0", default-features = false }
 x11-dl = "=2.21.0"
 
 [dev-dependencies]

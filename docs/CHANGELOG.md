@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.1] - 2026-11-07
+## [0.5.2] - 2026-11-07
 
 ### Added
 - Arch Linux: the desktop app is available from the AUR as `voxpery-bin` and updates with the system package manager.
@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The landing and compare pages can be read by search engines and link previews without running JavaScript, and shared links show a large product preview.
-- The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins, and Linux on Chromium (CEF) 154.
+- The desktop app runs on Tauri 3.0.0-alpha.5 with the matching plugins. Linux stays on Chromium (CEF) 152.
 
 ## [0.5.0] - 2026-11-01
 

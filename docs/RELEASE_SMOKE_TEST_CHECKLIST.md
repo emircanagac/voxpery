@@ -26,18 +26,20 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.5.1 preparation (not release sign-off)
+### v0.5.2 preparation (not release sign-off)
 
-Version metadata is prepared for `0.5.1`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.5.2`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.1` and `voxpery/voxpery-web:v0.5.1`, the embedded web badge/build tag, desktop version `0.5.1`, the `Voxpery_0.5.1_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.2` and `voxpery/voxpery-web:v0.5.2`, the embedded web badge/build tag, desktop version `0.5.2`, the `Voxpery_0.5.2_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
 
-### v0.5.1 checks
+### v0.5.2 checks
 
+- [ ] The release run builds every platform: the GitHub release has `Voxpery_0.5.2_amd64.deb`, the `.rpm`, `Voxpery_0.5.2_x86_64.flatpak`, the Windows and macOS installers, and `latest.json` lists all platforms at 0.5.2; the `aur-voxpery-bin` artifact exists.
+- [ ] A desktop app on 0.5.0 is offered 0.5.2 and updates with the in-app updater.
 - [ ] Desktop on Tauri 3.0.0-alpha.5 (Windows, macOS, Linux .deb, .rpm and Flatpak): sign in with Google through `voxpery://`, restart and stay signed in (keyring), log out, check the custom server dialog against a self-hosted server (it uses the TLS provider installed in `custom_server.rs`), and update an installed 0.5.0 to 0.5.1 with the in-app updater (new signature verifier `minisign-verify` 0.3).
-- [ ] Linux on CEF 154: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
+- [ ] Linux on CEF 152: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
 - [ ] `cargo tree --locked --target x86_64-unknown-linux-gnu -i glib` in `apps/desktop/src-tauri` shows only `glib` 0.22; then dismiss the Dependabot glib alert as "vulnerable code is not actually used" and close #242 with that output.
 - [ ] Arch Linux (clean system, Wayland/Hyprland and X11): build the `aur-voxpery-bin` artifact with `makepkg -si`; the launcher starts the app, Google sign-in returns through `voxpery://`, microphone and screen sharing work, and Settings > Desktop says updates come from the package manager. Then push `PKGBUILD` and `.SRCINFO` to the AUR `voxpery-bin` repository.
 - [ ] Mobile voice media notification: run the media notification check in `docs/VOICE_RELEASE_SMOKE_TEST.md` on a real Android phone (Chrome tab and installed PWA). If it does not keep calls alive or the anchor is audible, revert the media session commit before tagging.

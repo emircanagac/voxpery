@@ -313,7 +313,8 @@ jobs:
       && (needs.changes.result != 'success' || needs.changes.outputs.desktop == 'true')
     # Linux desktop runs on Chromium (CEF), which needs GTK 4.14+ (Ubuntu 24.04).
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Packaging downloads CEF (~1 GB) on a cache miss.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -391,6 +392,38 @@ jobs:
       - name: Test
         working-directory: apps/desktop/src-tauri
         run: cargo test --locked
+
+      # Package the Linux .deb and .rpm the way the release does, so a CEF or bundler change that
+      # breaks packaging fails here instead of in the release run (v0.5.1 shipped without Linux
+      # packages because CEF 154 dropped files the bundler copies). Same CEF cache key as
+      # release-desktop.yml, so a cache main saves also serves the tag build.
+      - name: Cache CEF distribution
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/tauri-cef
+          key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Package Linux .deb and .rpm
+        working-directory: apps/desktop
+        env:
+          TAURI_LINUX_AYATANA_APPINDICATOR: '1'
+        # Debug profile reuses the test build; updater signatures need the release key, so skip them.
+        run: >-
+          npx --yes @tauri-apps/cli@3.0.0-alpha.5 build --ci --debug --no-sign --bundles deb,rpm
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Check the packaged CEF files
+        working-directory: apps/desktop/src-tauri/target/debug/bundle
+        run: |
+          deb="$(ls deb/*.deb)"
+          files="$(dpkg-deb -c "$deb")"
+          for f in voxpery-desktop libcef.so icudtl.dat v8_context_snapshot.bin resources.pak chrome-sandbox locales/en-US.pak; do
+            if ! grep -q "usr/share/Voxpery/$f$" <<< "$files"; then
+              echo "::error::$deb is missing usr/share/Voxpery/$f"
+              exit 1
+            fi
+          done
+          ls rpm/*.rpm
 
   docker_publish:
     # GitHub appends the matrix value, e.g. "Publish / Docker (backend)"; a static name stays readable when skipped.
