@@ -88,6 +88,7 @@ export default defineConfig(({ mode }) => {
         // Worklet as separate entry -> one self-contained file. Main app uses fixed URL (no ?url = no extra chunk).
         input: {
           main: 'index.html',
+          landing: 'landing.html',
           compare: 'compare.html',
           worklet: 'src/webrtc/rnnoise-worklet-processor.ts',
         },

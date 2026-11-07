@@ -14,23 +14,82 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Voxpery" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Compare Voxpery with Community Chat Platforms</title>
-    <meta name="description" content="Compare Voxpery, Discord, Element, and Zulip on open source, self-hosting, calls, desktop apps, and integrations." />
+    <title>Compare Voxpery | Open-Source &amp; Self-Hosted Discord Alternative</title>
+    <meta name="description" content="Compare Voxpery, Discord, Element, and Zulip on price, open source, self-hosting, calls, app size, memory use, platforms, and encryption." />
     <meta name="robots" content="index,follow" />
     <link rel="canonical" href="https://voxpery.com/compare" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Voxpery" />
-    <meta property="og:title" content="Compare Voxpery with Community Chat Platforms" />
-    <meta property="og:description" content="Compare Voxpery, Discord, Element, and Zulip on open source, self-hosting, calls, desktop apps, and integrations." />
+    <meta property="og:title" content="Compare Voxpery | Open-Source &amp; Self-Hosted Discord Alternative" />
+    <meta property="og:description" content="Compare Voxpery, Discord, Element, and Zulip on price, open source, self-hosting, calls, app size, memory use, platforms, and encryption." />
     <meta property="og:url" content="https://voxpery.com/compare" />
-    <meta property="og:image" content="https://voxpery.com/1024.png" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Compare Voxpery with Community Chat Platforms" />
-    <meta name="twitter:description" content="Compare Voxpery, Discord, Element, and Zulip on open source, self-hosting, calls, desktop apps, and integrations." />
-    <meta name="twitter:image" content="https://voxpery.com/1024.png" />
+    <meta property="og:image" content="https://voxpery.com/social-preview.png" />
+    <meta property="og:image:width" content="1920" />
+    <meta property="og:image:height" content="1080" />
+    <meta property="og:image:alt" content="Voxpery voice channel interface" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Compare Voxpery | Open-Source &amp; Self-Hosted Discord Alternative" />
+    <meta name="twitter:description" content="Compare Voxpery, Discord, Element, and Zulip on price, open source, self-hosting, calls, app size, memory use, platforms, and encryption." />
+    <meta name="twitter:image" content="https://voxpery.com/social-preview.png" />
+    <style>.static-page{max-width:960px;margin:0 auto;padding:48px 16px;font-family:system-ui,sans-serif;line-height:1.5}.static-page table{border-collapse:collapse}.static-page th,.static-page td{padding:6px 10px;text-align:left;vertical-align:top}</style>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Voxpery",
+        "description": "Free, open-source and self-hostable Discord alternative with text channels, direct messages, voice channels, screen sharing, and moderation.",
+        "url": "https://voxpery.com/",
+        "image": "https://voxpery.com/social-preview.png",
+        "applicationCategory": "CommunicationApplication",
+        "operatingSystem": "Web, Windows, macOS, Linux",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "downloadUrl": "https://github.com/emircanagac/voxpery/releases/latest",
+        "sameAs": ["https://github.com/emircanagac/voxpery"],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Readable before the app loads (search engines, link previews); React replaces it on start.
+         Keep it in step with src/pages/compareContent.ts (checked by compareStaticHtml.test.ts). -->
+    <div id="root">
+      <main class="static-page">
+        <p>Compare</p>
+        <h1>Voxpery</h1>
+        <p>Open-source community chat. Your conversations, your infrastructure.</p>
+        <p><a href="/register">Use Voxpery in browser</a> · <a href="/">About Voxpery</a></p>
+        <h2>Light on your computer</h2>
+        <p>An 8.2 MB Windows installer and about 420 MB of memory while idle, against 146 MB and about 1.2 GB for Discord on the same PC.</p>
+        <h2>One account everywhere</h2>
+        <p>Use it in the browser or in apps for Windows, macOS and Linux (.deb, .rpm, Flatpak), and install it as a web app on your phone.</p>
+        <h2>Free, without ads or tracking</h2>
+        <p>No paid tier, no ads and no analytics cookies. Images from other websites load through Voxpery, so those sites do not see your IP address.</p>
+        <h2>Chat and calls together</h2>
+        <p>Text channels, direct messages, voice, camera and screen sharing in one app.</p>
+        <h2>Open to inspection</h2>
+        <p>All of the code is public under AGPL-3.0, so anyone can check what the app does with your data.</p>
+        <h2>Your data, your choice</h2>
+        <p>Use voxpery.com or run the same stack on your own server with Docker. Export your data or delete your account at any time.</p>
+        <table>
+          <thead>
+            <tr><th scope="col">Feature</th><th scope="col">Voxpery</th><th scope="col">Discord</th><th scope="col">Element</th><th scope="col">Zulip</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Price</th><td>Free, no paid tier</td><td>Free; Nitro subscription raises limits</td><td>Free app; paid hosting plans</td><td>Free cloud plan; paid plans</td></tr>
+            <tr><th scope="row">Open source</th><td>AGPL-3.0 source</td><td>Proprietary service</td><td>Open source</td><td>Open source</td></tr>
+            <tr><th scope="row">Self-hosting</th><td>Docker deployment</td><td>No official server option</td><td>Matrix homeserver</td><td>Supported</td></tr>
+            <tr><th scope="row">Voice and screen sharing</th><td>Built-in voice and screen sharing</td><td>Built in</td><td>Element Call</td><td>Via a call provider</td></tr>
+            <tr><th scope="row">Windows installer</th><td>8.2 MB</td><td>146 MB</td><td>220 MB</td><td>128 MB</td></tr>
+            <tr><th scope="row">Desktop engine</th><td>System webview (Tauri)</td><td>Bundled Chromium (Electron)</td><td>Bundled Chromium (Electron)</td><td>Bundled Chromium (Electron)</td></tr>
+            <tr><th scope="row">Desktop platforms</th><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux</td></tr>
+            <tr><th scope="row">Mobile</th><td>Installable web app; no store app yet</td><td>iOS and Android apps</td><td>iOS and Android apps</td><td>iOS and Android apps</td></tr>
+            <tr><th scope="row">End-to-end encrypted messages</th><td>Not yet</td><td>No (calls only)</td><td>Yes, by default</td><td>No</td></tr>
+            <tr><th scope="row">Integrations</th><td>No app directory yet</td><td>App Directory</td><td>Widgets and bridges</td><td>Bots and integrations</td></tr>
+          </tbody>
+        </table>
+        <p>Measured on October 23, 2026. Features and availability may change.</p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

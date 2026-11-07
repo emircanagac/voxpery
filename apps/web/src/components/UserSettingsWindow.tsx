@@ -818,7 +818,9 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                         ? updateInfo?.available
                           ? `Voxpery ${updateInfo.version} is available to install.`
                           : updatesManagedExternally
-                            ? 'This Flatpak updates when you install the newer .flatpak file from the Voxpery releases page; your account and settings are kept.'
+                            ? updateInfo?.available === false && updateInfo.managedBy === 'pacman'
+                              ? 'This package updates with your system, for example with yay -Syu; your account and settings are kept.'
+                              : 'This Flatpak updates when you install the newer .flatpak file from the Voxpery releases page; your account and settings are kept.'
                           : updateInfo?.error
                             ? 'Could not check for new desktop releases right now.'
                           : 'Your desktop app is on the latest version.'

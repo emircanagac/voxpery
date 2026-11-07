@@ -230,10 +230,24 @@ fn is_flatpak_install() -> bool {
             || std::path::Path::new("/.flatpak-info").exists())
 }
 
+/// Written next to the executable by the AUR package (`linux/aur/PKGBUILD`).
+const PACMAN_PACKAGE_MARKER: &str = "voxpery-aur-package";
+
+/// The AUR package repackages the .deb, so the in-app updater would install a .deb that pacman
+/// does not track; that install is updated by the system package manager instead.
+fn is_pacman_package_install() -> bool {
+    cfg!(target_os = "linux")
+        && std::env::current_exe()
+            .map(|exe| exe.with_file_name(PACMAN_PACKAGE_MARKER).exists())
+            .unwrap_or(false)
+}
+
 #[tauri::command]
 fn desktop_update_channel() -> &'static str {
     if is_flatpak_install() {
         "flatpak"
+    } else if is_pacman_package_install() {
+        "pacman"
     } else {
         "app"
     }

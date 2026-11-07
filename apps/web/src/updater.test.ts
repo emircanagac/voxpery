@@ -67,10 +67,10 @@ afterEach(() => {
 describe('desktop updater', () => {
   it('leaves Flatpak installs to their .flatpak file without checking or installing', async () => {
     const { runtime, check, download, install } = createRuntime({ update: { version: '0.5.0' } })
-    const flatpakRuntime = { ...runtime, isManagedExternally: () => Promise.resolve(true) }
+    const flatpakRuntime = { ...runtime, externalUpdateChannel: () => Promise.resolve('flatpak' as const) }
     const status = listenForUpdateStatus()
 
-    await expect(checkForUpdatesWithRuntime(flatpakRuntime)).resolves.toEqual({ available: false, managedExternally: true })
+    await expect(checkForUpdatesWithRuntime(flatpakRuntime)).resolves.toEqual({ available: false, managedExternally: true, managedBy: 'flatpak' })
     await expect(downloadAndInstallUpdateWithRuntime(flatpakRuntime)).resolves.toBe(false)
 
     expect(check).not.toHaveBeenCalled()
@@ -79,6 +79,17 @@ describe('desktop updater', () => {
     expect(flatpakRuntime.relaunch).not.toHaveBeenCalled()
     expect(status.events).toEqual([])
     status.stop()
+  })
+
+  it('leaves the AUR package to the system package manager', async () => {
+    const { runtime, check, download } = createRuntime({ update: { version: '0.5.0' } })
+    const pacmanRuntime = { ...runtime, externalUpdateChannel: () => Promise.resolve('pacman' as const) }
+
+    await expect(checkForUpdatesWithRuntime(pacmanRuntime)).resolves.toEqual({ available: false, managedExternally: true, managedBy: 'pacman' })
+    await expect(downloadAndInstallUpdateWithRuntime(pacmanRuntime)).resolves.toBe(false)
+
+    expect(check).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
   })
 
   it('does not check for updates outside desktop runtime', async () => {

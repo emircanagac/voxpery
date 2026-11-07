@@ -6,9 +6,12 @@ import type { DownloadEvent } from '@tauri-apps/plugin-updater'
 import { isTauri } from './secureStorage'
 import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
+export type ExternalUpdateChannel = 'flatpak' | 'pacman'
+
 export type UpdateResult =
-  // `managedExternally`: this install is updated outside the app (a newer .flatpak file).
-  | { available: false; error?: boolean; managedExternally?: boolean }
+  // `managedExternally`: this install is updated outside the app; `managedBy` says how
+  // (a newer .flatpak file, or the system package manager for the AUR package).
+  | { available: false; error?: boolean; managedExternally?: boolean; managedBy?: ExternalUpdateChannel }
   | { available: true; version: string; body?: string; date?: string }
 
 export type UpdateProgress =
@@ -32,7 +35,7 @@ type DesktopUpdate = {
 
 type DesktopUpdaterRuntime = {
   isDesktop: () => boolean
-  isManagedExternally?: () => Promise<boolean>
+  externalUpdateChannel?: () => Promise<ExternalUpdateChannel | null>
   check: () => Promise<DesktopUpdate | null>
   prepareForInstall: () => Promise<void>
   relaunch: () => Promise<void>
@@ -53,12 +56,15 @@ function emitDesktopUpdateStatus(result: UpdateResult) {
 
 let updateChannel: Promise<string> | null = null
 
-/** Flatpak installs report the `flatpak` channel; they update by installing a newer .flatpak file. */
-function isManagedExternally(): Promise<boolean> {
+/**
+ * Flatpak installs report the `flatpak` channel and update by installing a newer .flatpak file;
+ * the AUR package reports `pacman` and updates through the system package manager.
+ */
+function externalUpdateChannel(): Promise<ExternalUpdateChannel | null> {
   updateChannel ??= import('@tauri-apps/api/core')
     .then(({ invoke }) => invoke<string>('desktop_update_channel'))
     .catch(() => 'app')
-  return updateChannel.then((channel) => channel === 'flatpak')
+  return updateChannel.then((channel) => (channel === 'flatpak' || channel === 'pacman' ? channel : null))
 }
 
 async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {
@@ -66,7 +72,7 @@ async function defaultRuntime(): Promise<DesktopUpdaterRuntime> {
   const { relaunch } = await import('@tauri-apps/plugin-process')
   return {
     isDesktop: isTauri,
-    isManagedExternally,
+    externalUpdateChannel,
     check,
     prepareForInstall: prepareDesktopForUpdateInstall,
     relaunch,
@@ -77,8 +83,9 @@ export async function checkForUpdatesWithRuntime(runtime: DesktopUpdaterRuntime)
   if (!runtime.isDesktop()) {
     return { available: false }
   }
-  if (await runtime.isManagedExternally?.()) {
-    return { available: false, managedExternally: true }
+  const managedBy = await runtime.externalUpdateChannel?.()
+  if (managedBy) {
+    return { available: false, managedExternally: true, managedBy }
   }
   try {
     const update = await runtime.check()
@@ -132,7 +139,7 @@ export async function downloadAndInstallUpdateWithRuntime(
   runtime: DesktopUpdaterRuntime,
   onProgress?: (progress: UpdateProgress) => void,
 ): Promise<boolean> {
-  if (!runtime.isDesktop() || await runtime.isManagedExternally?.()) {
+  if (!runtime.isDesktop() || await runtime.externalUpdateChannel?.()) {
     return false
   }
   try {
