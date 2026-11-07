@@ -1,0 +1,20 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Voxpery",
+  "description": "Free, open-source and self-hostable Discord alternative with text channels, direct messages, voice channels, screen sharing, and moderation.",
+  "url": "https://voxpery.com/",
+  "image": "https://voxpery.com/social-preview.png",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Web, Windows, macOS, Linux",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "downloadUrl": "https://github.com/emircanagac/voxpery/releases/latest",
+  "sameAs": [
+    "https://github.com/emircanagac/voxpery"
+  ],
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { applySharedHtml } from './src/seo/sharedHtml'
 
 const packageVersion: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
@@ -41,6 +42,18 @@ function serverDiscoveryPlugin(apiUrl: string | undefined): Plugin | null {
   }
 }
 
+// The HTML entry points share their <head> basics and the schema.org block (src/seo).
+function sharedHtmlPlugin(): Plugin {
+  const read = (name: string) => readFileSync(new URL(`./src/seo/${name}`, import.meta.url), 'utf8')
+  return {
+    name: 'shared-html',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => applySharedHtml(html, { commonHead: read('common-head.html'), appSchema: read('app-schema.json') }),
+    },
+  }
+}
+
 // In production, remove worklet path so main bundle has no dependency on it (no extra 5 kB chunk).
 function rnnoiseProdStripPlugin() {
   return {
@@ -70,6 +83,7 @@ export default defineConfig(({ mode }) => {
     envDir: '../../',
     plugins: [
       react(),
+      sharedHtmlPlugin(),
       releaseMetadataPlugin(appVersion),
       serverDiscoveryPlugin(env.VITE_API_URL),
       mode === 'production' ? rnnoiseProdStripPlugin() : null,
