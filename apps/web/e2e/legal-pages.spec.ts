@@ -85,7 +85,7 @@ test.describe('public landing and comparison', () => {
     await expect(page.getByRole('table')).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Element' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Zulip' })).toBeVisible()
-    await expect(page).toHaveTitle('Compare Voxpery with Community Chat Platforms')
+    await expect(page).toHaveTitle('Compare Voxpery | Open-Source & Self-Hosted Discord Alternative')
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://voxpery.com/compare')
 
     await page.reload()

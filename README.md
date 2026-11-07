@@ -5,7 +5,7 @@
 
 <div align="center">
 
-**Open-source chat, voice, and screen sharing for communities that want control.**
+**Open-source & self-hosted Discord alternative: chat, voice, and screen sharing for communities that want control.**
 
 Use Voxpery in your browser, download the desktop app, or host the same stack yourself.
 
