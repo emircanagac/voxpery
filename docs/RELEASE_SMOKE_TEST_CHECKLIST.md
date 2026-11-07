@@ -42,7 +42,6 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.2` an
 - [ ] Linux on CEF 152: typing after startup, tray restore and window switches (`linux_focus.rs`), microphone, camera and screen sharing in the installed app.
 - [ ] `cargo tree --locked --target x86_64-unknown-linux-gnu -i glib` in `apps/desktop/src-tauri` shows only `glib` 0.22; then dismiss the Dependabot glib alert as "vulnerable code is not actually used" and close #242 with that output.
 - [ ] Arch Linux (clean system, Wayland/Hyprland and X11): build the `aur-voxpery-bin` artifact with `makepkg -si`; the launcher starts the app, Google sign-in returns through `voxpery://`, microphone and screen sharing work, and Settings > Desktop says updates come from the package manager. Then push `PKGBUILD` and `.SRCINFO` to the AUR `voxpery-bin` repository.
-- [ ] Mobile voice media notification: run the media notification check in `docs/VOICE_RELEASE_SMOKE_TEST.md` on a real Android phone (Chrome tab and installed PWA). If it does not keep calls alive or the anchor is audible, revert the media session commit before tagging.
 - [ ] `curl -s https://voxpery.com/`, `/about` and `/compare` return the static title, summary and JSON-LD before any JavaScript runs, `/about/` redirects to `/about`, and a shared link shows the large `social-preview.png` card. Sign-in and app routes still load the normal shell without a flash of landing text.
 
 ### v0.5.0 checks

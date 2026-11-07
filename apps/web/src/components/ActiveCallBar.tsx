@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router'
 import { useLiveKitVoice } from '../webrtc/useLiveKitVoice'
 import { SCREEN_SHARE_CAPTURE_READY_EVENT } from '../webrtc/hooks/useLocalMedia'
 import { shouldUseLightweightMobileVoicePipeline } from '../webrtc/hooks/useAudioEngine'
-import { supportsVoiceMediaSessionAnchor, useVoiceMediaSession } from '../webrtc/hooks/useVoiceMediaSession'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
@@ -154,7 +153,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const navigate = useNavigate()
   const lightweightMobileVoice = useMemo(() => shouldUseLightweightMobileVoicePipeline(), [])
   const desktopRuntime = useMemo(() => isTauri(), [])
-  const voiceMediaSessionAnchor = useMemo(() => supportsVoiceMediaSessionAnchor(), [])
   const {
     state,
     joinVoice,
@@ -1211,21 +1209,6 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     state.joinedChannelId,
     state.localStream,
   ])
-
-  const leaveFromMediaSession = useCallback(() => {
-    const channelId = state.joinedChannelId
-    micTestAutoDeafenedRef.current = false
-    leaveVoice()
-    if (channelId) setBlockedAutoJoinChannelId(channelId)
-  }, [leaveVoice, state.joinedChannelId])
-
-  useVoiceMediaSession({
-    active: voiceMediaSessionAnchor && !desktopRuntime && Boolean(state.joinedChannelId) && !state.isJoining,
-    title: voiceLocation.full,
-    muted,
-    onToggleMute: toggleMute,
-    onLeave: leaveFromMediaSession,
-  })
 
   useEffect(() => {
     const onGlobalMuteShortcut = () => {
