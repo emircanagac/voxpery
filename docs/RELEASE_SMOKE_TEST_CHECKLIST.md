@@ -26,13 +26,23 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.5.2 preparation (not release sign-off)
+### v0.5.3 preparation (not release sign-off)
 
-Version metadata is prepared for `0.5.2`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.5.3`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.2` and `voxpery/voxpery-web:v0.5.2`, the embedded web badge/build tag, desktop version `0.5.2`, the `Voxpery_0.5.2_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.3` and `voxpery/voxpery-web:v0.5.3`, the embedded web badge/build tag, desktop version `0.5.3`, the `Voxpery_0.5.3_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.5.3 checks
+
+- [ ] Prebuilt web image (`docker run` or compose with `WEB_API_URL` set and `WEB_TURNSTILE_SITE_KEY`/`WEB_GIPHY_API_KEY` empty): the container starts and serves the app; with a plain `http://` API on a LAN, avatars load and HTTPS deployments keep `img-src 'self' data: blob: https:`.
+- [ ] `curl -sI https://voxpery.com/about/` and `/compare/` answer 308 with `Location: /about` and `/compare` (no `:8080`).
+- [ ] Signed-in browser tab: opening `https://voxpery.com/` shows the loading card and then the app, never the landing text; signed out, `/` and `/compare` turn straight from the readable HTML into the page without the loading card.
+- [ ] A missing page (`/does-not-exist`) shows the 404 page with `meta name="robots" content="noindex"` after it renders and an un-underlined home button.
+- [ ] Sign-in, sign-up and invite screens: the Sign Up/Sign In link is underlined, an error message is readable, password fields are empty without dots, and sign-up says "KVKK Aydınlatma Metni".
+- [ ] Screen reader (or the accessibility tree): the Social link reads "Social" plus the unread count when DMs or friend requests are waiting.
+- [ ] Android browser in a voice call: no media notification and no audio element from Voxpery besides the call itself.
 
 ### v0.5.2 checks
 
