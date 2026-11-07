@@ -222,6 +222,8 @@ test('keeps public pages on the default theme and applies the chosen theme only 
   await expect(html).toHaveAttribute('data-custom-theme-mode', 'light')
   await page.goto('/nonexistent-page')
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  // nginx answers unknown paths with status 200, so the page keeps itself out of search results.
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex')
   await expect(html).toHaveAttribute('data-theme', 'voxpery')
   await expect(html).not.toHaveAttribute('data-custom-theme', 'true')
 })
