@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web pages no longer log a Content Security Policy error for a script the hosting CDN inserted; HTML is now compressed by the web container.
 - A direct message or DM reaction sent from one window or device now shows up right away in your other open Voxpery windows.
 - Deleting a category whose channels clash with a same-named channel in the target category now explains the problem instead of failing with a server error, and category names in addresses match regardless of letter case.
+- Changing your status while Voxpery is not open no longer shows you as online to friends.
 
 ### Changed
 - Android browsers no longer play an inaudible audio loop during voice calls; the experiment from v0.5.2 did not show a notification.

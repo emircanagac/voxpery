@@ -209,15 +209,19 @@ pub(super) async fn update_status(
     .fetch_one(&state.db)
     .await?;
 
-    let visible_presence = visible_presence_from_preference(status).to_string();
-    crate::ws::publish_event(
-        &state,
-        WsEvent::PresenceUpdate {
-            user_id: claims.sub,
-            status: visible_presence,
-        },
-    )
-    .await;
+    // Without an open connection the user stays offline to everyone else; the saved preference
+    // applies when they next connect.
+    if state.is_online(claims.sub) {
+        let visible_presence = visible_presence_from_preference(status).to_string();
+        crate::ws::publish_event(
+            &state,
+            WsEvent::PresenceUpdate {
+                user_id: claims.sub,
+                status: visible_presence,
+            },
+        )
+        .await;
+    }
 
     Ok(Json(UserPublic::from(user)))
 }

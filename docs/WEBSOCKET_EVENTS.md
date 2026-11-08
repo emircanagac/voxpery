@@ -176,6 +176,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 ### Presence/User
 
 - `PresenceUpdate` (`online`, `dnd`, `offline`)
+  - Sent when a user connects or disconnects, and when a connected user changes status. A status change made while the user has no open connection is only saved; it is announced when they connect.
 - `UserUpdated`
 
 ### Friends
