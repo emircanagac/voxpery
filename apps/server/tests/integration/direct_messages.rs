@@ -1113,3 +1113,66 @@ async fn deleting_a_group_owner_hands_the_group_to_the_longest_standing_member()
         "the new owner removes members: {body}"
     );
 }
+
+#[tokio::test]
+async fn data_export_labels_group_dm_messages_with_the_group() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, owner_password) = register_named_user(&mut app, "xowner").await;
+    let (_, amy_id, _) = register_named_user(&mut app, "xamy").await;
+    let (_, ben_id, _) = register_named_user(&mut app, "xben").await;
+    for friend in [amy_id, ben_id] {
+        befriend(&state, owner_id, friend).await;
+    }
+    let (status, group) = api_json(
+        &mut app,
+        "POST",
+        "/api/dm/groups",
+        &owner_auth,
+        Some(json!({ "member_ids": [amy_id, ben_id], "name": "Weekend" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{group}");
+    let group_id = group["id"].as_str().unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{group_id}"),
+        &owner_auth,
+        Some(json!({ "content": "group hello" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/data-export")
+        .header("Authorization", &owner_auth)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "password": owner_password })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, req).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let mut archive = zip::ZipArchive::new(Cursor::new(body.to_vec())).unwrap();
+    let mut manifest = String::new();
+    archive
+        .by_name("voxpery-data-export.json")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    let entry = payload["messages"]["direct"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["content"] == "group hello")
+        .expect("the group message is exported");
+    assert_eq!(entry["group_name"], "Weekend");
+    assert_eq!(entry["participants"].as_array().unwrap().len(), 2);
+    assert!(entry.get("conversation_with").is_none(), "{entry}");
+}
