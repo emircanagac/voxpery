@@ -957,8 +957,7 @@ async fn send_dm_message(
             channel_type: "dm".to_string(),
             message: message.clone(),
         };
-        if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await
-        {
+        if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
             tracing::warn!("Failed to push DM event to members: {}", e);
         }
     }
@@ -969,7 +968,6 @@ async fn send_dm_message(
 async fn push_dm_event_to_members(
     state: &Arc<AppState>,
     channel_id: Uuid,
-    skip_user: Option<Uuid>,
     event: &WsEvent,
 ) -> Result<(), sqlx::Error> {
     let member_ids = sqlx::query_scalar::<_, Uuid>(
@@ -979,10 +977,9 @@ async fn push_dm_event_to_members(
     .fetch_all(&state.db)
     .await?;
 
+    // Every member gets the event, the sender included, so the sender's other open sessions
+    // stay in step; the web client recognises its own messages and reactions by ID.
     for user_id in member_ids {
-        if Some(user_id) == skip_user {
-            continue;
-        }
         crate::ws::publish_user_event(state, user_id, event.clone()).await;
     }
 
@@ -1568,7 +1565,7 @@ async fn edit_dm_message(
         message: message.clone(),
     };
     // The author's other sessions need the edit too.
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, None, &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM edit event to members: {}", e);
     }
     Ok(Json(message))
@@ -1606,7 +1603,7 @@ async fn delete_dm_message(
         channel_id,
         message_id,
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, None, &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM delete event to members: {}", e);
     }
     crate::routes::messages::release_deleted_message_uploads(&state, attachments.as_ref()).await;
@@ -1709,7 +1706,7 @@ async fn add_dm_reaction(
         channel_id,
         message: message.clone(),
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction event to members: {}", e);
     }
     Ok(Json(message))
@@ -1750,7 +1747,7 @@ async fn remove_dm_reaction(
         channel_id,
         message: message.clone(),
     };
-    if let Err(e) = push_dm_event_to_members(&state, channel_id, Some(claims.sub), &event).await {
+    if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction removal event to members: {}", e);
     }
     Ok(Json(message))
