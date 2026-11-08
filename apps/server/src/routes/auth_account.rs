@@ -313,38 +313,65 @@ pub(super) async fn update_profile(
     }
 
     let username_changed = next_username != user.username;
-    let mut tx = state.db.begin().await?;
-    let previous_file_key: Option<String> =
-        sqlx::query_scalar("SELECT avatar_file_key FROM users WHERE id = $1 FOR UPDATE")
-            .bind(claims.sub)
-            .fetch_one(&mut *tx)
-            .await?;
-    let updated = sqlx::query_as::<_, User>(
-        r#"UPDATE users
-            SET avatar_url = $1, dm_privacy = $2, username = $3, about_me = $4,
-                username_changed_at = CASE WHEN $6 THEN NOW() ELSE username_changed_at END,
-                avatar_file_backend = CASE WHEN $7 THEN $8 ELSE avatar_file_backend END,
-                avatar_file_key = CASE WHEN $7 THEN $9 ELSE avatar_file_key END
-            WHERE id = $5
-           RETURNING *"#,
-    )
-    .bind(next_avatar)
-    .bind(next_dm_privacy)
-    .bind(&next_username)
-    .bind(next_about_me)
-    .bind(claims.sub)
-    .bind(username_changed)
-    .bind(avatar_changed)
-    .bind(new_avatar_file.as_ref().map(|stored| stored.backend))
-    .bind(new_avatar_file.as_ref().map(|stored| stored.key.as_str()))
-    .fetch_one(&mut *tx)
-    .await?;
-    let replaced_files: Vec<String> = previous_file_key
-        .filter(|_| avatar_changed)
-        .into_iter()
-        .collect();
-    queue_file_deletions(&mut tx, &replaced_files).await?;
-    tx.commit().await?;
+    let saved: Result<(User, Vec<String>), AppError> = async {
+        let mut tx = state.db.begin().await?;
+        let previous_file_key: Option<String> =
+            sqlx::query_scalar("SELECT avatar_file_key FROM users WHERE id = $1 FOR UPDATE")
+                .bind(claims.sub)
+                .fetch_one(&mut *tx)
+                .await?;
+        let updated = sqlx::query_as::<_, User>(
+            r#"UPDATE users
+                SET avatar_url = $1, dm_privacy = $2, username = $3, about_me = $4,
+                    username_changed_at = CASE WHEN $6 THEN NOW() ELSE username_changed_at END,
+                    avatar_file_backend = CASE WHEN $7 THEN $8 ELSE avatar_file_backend END,
+                    avatar_file_key = CASE WHEN $7 THEN $9 ELSE avatar_file_key END
+                WHERE id = $5
+               RETURNING *"#,
+        )
+        .bind(next_avatar)
+        .bind(next_dm_privacy)
+        .bind(&next_username)
+        .bind(next_about_me)
+        .bind(claims.sub)
+        .bind(username_changed)
+        .bind(avatar_changed)
+        .bind(new_avatar_file.as_ref().map(|stored| stored.backend))
+        .bind(new_avatar_file.as_ref().map(|stored| stored.key.as_str()))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| match error {
+            // Two requests can pass the check above for the same name; the unique index decides.
+            sqlx::Error::Database(database) if database.is_unique_violation() => {
+                AppError::Validation("That username is already taken".into())
+            }
+            other => other.into(),
+        })?;
+        let replaced_files: Vec<String> = previous_file_key
+            .filter(|_| avatar_changed)
+            .into_iter()
+            .collect();
+        queue_file_deletions(&mut tx, &replaced_files).await?;
+        tx.commit().await?;
+        Ok((updated, replaced_files))
+    }
+    .await;
+    let (updated, replaced_files) = match saved {
+        Ok(saved) => saved,
+        Err(error) => {
+            // The new avatar was written before the transaction; nothing refers to it now.
+            if let Some(stored) = &new_avatar_file {
+                if let Err(cleanup) = state
+                    .attachment_service
+                    .delete_file_by_storage_key(&stored.key)
+                    .await
+                {
+                    tracing::warn!(error = %cleanup, "Failed to remove an unused avatar file");
+                }
+            }
+            return Err(error);
+        }
+    };
     delete_queued_files(&state.db, &state.attachment_service, &replaced_files).await;
 
     let public_user = UserPublic::from(updated);
