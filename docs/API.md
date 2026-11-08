@@ -249,6 +249,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Optional `move_to` query parameter; channels default-move to `General`.
   - Deletion is blocked if channels cannot be moved safely.
   - Moving the channels to a category with different role overrides is owner only, as for `PATCH /api/channels/:channel_id`. The deleted category's overrides are removed with it, so deleting an empty category that has overrides is owner only too.
+  - The path name matches the stored category regardless of letter case, for both `PATCH` and `DELETE`. Moving a channel into a category that already has a channel of the same name and type is refused with `409`.
 - Category routes and creating a channel in a category apply that category's overrides on top of server-wide `MANAGE_CHANNELS`: the caller needs `VIEW_SERVER` and `MANAGE_CHANNELS` in it (`404` for a category they cannot see, `403` otherwise). The category list contains only categories the caller can see, and `reorder` takes those; hidden categories keep their places.
 - `GET /api/channels/server/:server_id/categories/:category/overrides`
 - `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only; channel-scoped bits)

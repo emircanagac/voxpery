@@ -1672,3 +1672,74 @@ async fn voice_moves_reveal_nothing_before_the_permission_checks() {
     assert_eq!(absent, "The member is no longer connected to voice.");
     assert_eq!(elsewhere, absent);
 }
+
+#[tokio::test]
+async fn category_delete_and_rename_match_names_case_insensitively_and_report_clashes() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "clashowner").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Clash Guild").await;
+    let alpha_lobby =
+        create_channel_in_category(&mut app, &owner_auth, server_id, "Alpha", "lobby").await;
+    create_channel_in_category(&mut app, &owner_auth, server_id, "Beta", "lobby").await;
+
+    // The target category already has a text channel with the same name.
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/server/{server_id}/categories/Alpha?move_to=Beta"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    // A path that differs from the stored name only in case renames the stored category.
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/channels/server/{server_id}/categories/alpha"),
+        &owner_auth,
+        Some(json!({ "name": "Gamma" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let category: Option<String> =
+        sqlx::query_scalar("SELECT category FROM channels WHERE id = $1")
+            .bind(alpha_lobby)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(category.as_deref(), Some("Gamma"));
+
+    // ...and deletes it, moving its channel instead of leaving it behind.
+    create_channel_in_category(&mut app, &owner_auth, server_id, "Delta", "hall").await;
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/server/{server_id}/categories/gamma?move_to=Delta"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = 'gamma'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(remaining, 0);
+    let category: Option<String> =
+        sqlx::query_scalar("SELECT category FROM channels WHERE id = $1")
+            .bind(alpha_lobby)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(category.as_deref(), Some("Delta"));
+}

@@ -2610,3 +2610,55 @@ async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
     .await;
     assert!(!state_a.is_online(target_id));
 }
+
+#[tokio::test]
+async fn status_changes_stay_private_until_the_user_connects() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (alice_auth, alice_id, _) = register_named_user(&mut app, "pstatusa").await;
+    let (bob_auth, bob_id, _) = register_named_user(&mut app, "pstatusb").await;
+    befriend(&state, alice_id, bob_id).await;
+    let addr = spawn_ws_app(&state).await;
+    let mut bob_ws = connect_ws(addr, &bob_auth).await;
+    ws_barrier(&mut bob_ws).await;
+
+    // Alice has no open connection, so choosing a status must not show her as present.
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/status",
+        &alice_auth,
+        Some(json!({ "status": "dnd" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_no_ws_event_mentioning(
+        &mut bob_ws,
+        "PresenceUpdate",
+        &alice_id.to_string(),
+        std::time::Duration::from_millis(500),
+    )
+    .await;
+
+    // Once she is connected, a status change reaches her friends.
+    let mut alice_ws = connect_ws(addr, &alice_auth).await;
+    ws_barrier(&mut alice_ws).await;
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/status",
+        &alice_auth,
+        Some(json!({ "status": "online" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    loop {
+        let event = receive_ws_event(&mut bob_ws, "PresenceUpdate").await;
+        if event["data"]["user_id"] == json!(alice_id) && event["data"]["status"] == "online" {
+            break;
+        }
+    }
+}

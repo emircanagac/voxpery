@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Addresses with a trailing slash, such as voxpery.com/about/, no longer send browsers to an internal address.
 - Accessibility: sign-in and sign-up links are underlined, error messages are easier to read, and screen readers announce the unread count on Social.
 - Sign-up spells "KVKK Aydınlatma Metni" correctly, empty password fields no longer show dots, and the page-not-found button matches the others and stays out of search results.
+- Web pages no longer log a Content Security Policy error for a script the hosting CDN inserted; HTML is now compressed by the web container.
+- A direct message or DM reaction sent from one window or device now shows up right away in your other open Voxpery windows.
+- Deleting a category whose channels clash with a same-named channel in the target category now explains the problem instead of failing with a server error, and category names in addresses match regardless of letter case.
+- Changing your status while Voxpery is not open no longer shows you as online to friends.
+- A profile update that fails, for example when two people take the same username at once, no longer leaves an unused avatar file in storage and reports the taken name instead of a server error.
+- The data export labels group DM messages with the group name and its members instead of a single member.
 
 ### Changed
 - Android browsers no longer play an inaudible audio loop during voice calls; the experiment from v0.5.2 did not show a notification.

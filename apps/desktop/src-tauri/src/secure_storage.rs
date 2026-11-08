@@ -45,12 +45,24 @@ fn entry<R: Runtime>(app: &AppHandle<R>, payload: &OptionsRequest) -> Result<Ent
     Entry::new(&service, &account).map_err(|_| "Secure storage is unavailable".to_string())
 }
 
+/// Runs a keyring call on the blocking pool: the OS keyring (Secret Service over D-Bus on Linux,
+/// Credential Manager, Keychain) can wait on IPC or an unlock prompt, which must not hold up an
+/// async runtime thread.
+async fn run_keyring<T: Send + 'static>(
+    call: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(call)
+        .await
+        .map_err(|_| "Secure storage is unavailable".to_string())?
+}
+
 #[command]
 async fn get_item<R: Runtime>(
     app: AppHandle<R>,
     payload: OptionsRequest,
 ) -> Result<GetItemResponse, String> {
-    let data = entry(&app, &payload)?.get_password().ok();
+    let entry = entry(&app, &payload)?;
+    let data = run_keyring(move || Ok(entry.get_password().ok())).await?;
     Ok(GetItemResponse { data })
 }
 
@@ -60,9 +72,14 @@ async fn set_item<R: Runtime>(
     payload: OptionsRequest,
 ) -> Result<Option<String>, String> {
     let data = payload.data.clone().ok_or("Data not found")?;
-    entry(&app, &payload)?
-        .set_password(&data)
-        .map_err(|_| "Secure storage could not save the value".to_string())?;
+    let entry = entry(&app, &payload)?;
+    let value = data.clone();
+    run_keyring(move || {
+        entry
+            .set_password(&value)
+            .map_err(|_| "Secure storage could not save the value".to_string())
+    })
+    .await?;
     Ok(Some(data))
 }
 
@@ -71,10 +88,12 @@ async fn remove_item<R: Runtime>(
     app: AppHandle<R>,
     payload: OptionsRequest,
 ) -> Result<bool, String> {
-    match entry(&app, &payload)?.delete_credential() {
+    let entry = entry(&app, &payload)?;
+    run_keyring(move || match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(true),
         Err(_) => Err("Secure storage could not remove the value".to_string()),
-    }
+    })
+    .await
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {

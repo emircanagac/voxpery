@@ -708,7 +708,8 @@ async fn delete_category(
     if category.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
-    ensure_category_manageable(&state.db, server_id, category, claims.sub).await?;
+    let canonical = ensure_category_manageable(&state.db, server_id, category, claims.sub).await?;
+    let category = canonical.as_str();
 
     let mut tx = state.db.begin().await?;
 
@@ -787,7 +788,16 @@ async fn delete_category(
                 .bind(max_target_pos + idx as i32 + 1)
                 .bind(channel_id)
                 .execute(&mut *tx)
-                .await?;
+                .await
+                .map_err(|error| match error {
+                    sqlx::Error::Database(database) if database.is_unique_violation() => {
+                        AppError::Conflict(
+                            "The target category already has a channel with the same name and type"
+                                .into(),
+                        )
+                    }
+                    other => other.into(),
+                })?;
         }
     }
 
@@ -838,7 +848,9 @@ async fn rename_category(
     if old_name.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
-    ensure_category_manageable(&state.db, server_id, old_name, claims.sub).await?;
+    let canonical_old =
+        ensure_category_manageable(&state.db, server_id, old_name, claims.sub).await?;
+    let old_name = canonical_old.as_str();
 
     let new_name = body.name.trim();
     validate_category_name(new_name)?;
@@ -1160,12 +1172,15 @@ async fn ensure_channel_manage_permission_for_channel(
 
 /// Server-wide channel management stops at a category's overrides: the caller must be able to
 /// see the category (a hidden one looks missing) and manage channels in it.
+///
+/// Checks that the caller may manage the category and returns its stored name, matched
+/// case-insensitively, so later queries use the exact spelling saved in the database.
 async fn ensure_category_manageable(
     db: &sqlx::PgPool,
     server_id: Uuid,
     category: &str,
     user_id: Uuid,
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
     let canonical: Option<String> = sqlx::query_scalar(
         "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2) ORDER BY name LIMIT 1",
     )
@@ -1186,7 +1201,7 @@ async fn ensure_category_manageable(
     if !perms.contains(Permissions::MANAGE_CHANNELS) {
         return Err(AppError::Forbidden("Missing required permission".into()));
     }
-    Ok(())
+    Ok(canonical.unwrap_or_else(|| category.trim().to_string()))
 }
 
 /// Role overrides of a category as sorted `(role_id, allow, deny)` rows; none for no category.

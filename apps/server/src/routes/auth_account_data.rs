@@ -69,7 +69,10 @@ pub(super) struct ExportServerMessageRow {
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub(super) struct ExportDmMessageRow {
-    pub(super) peer_username: Option<String>,
+    pub(super) is_group: bool,
+    pub(super) group_name: Option<String>,
+    /// The other members' usernames, sorted; one entry in a one-to-one conversation.
+    pub(super) peer_usernames: Option<Vec<String>>,
     pub(super) content: String,
     pub(super) attachments: Option<serde_json::Value>,
     pub(super) created_at: chrono::DateTime<chrono::Utc>,
@@ -373,19 +376,21 @@ pub(super) async fn export_my_data(
     .await?;
 
     let dm_messages = sqlx::query_as::<_, ExportDmMessageRow>(
-        r#"SELECT peer.username AS peer_username,
+        r#"SELECT c.is_group,
+                  c.name AS group_name,
+                  peers.usernames AS peer_usernames,
                   m.content,
                   m.attachments,
                   m.created_at,
                   m.edited_at
            FROM dm_messages m
+           INNER JOIN dm_channels c ON c.id = m.channel_id
            LEFT JOIN LATERAL (
-               SELECT u.id, u.username
+               SELECT ARRAY_AGG(u.username ORDER BY LOWER(u.username)) AS usernames
                FROM dm_channel_members dcm
                INNER JOIN users u ON u.id = dcm.user_id
                WHERE dcm.channel_id = m.channel_id AND dcm.user_id <> $1
-               LIMIT 1
-           ) AS peer ON TRUE
+           ) AS peers ON TRUE
            WHERE m.user_id = $1
            ORDER BY m.created_at DESC
            LIMIT $2"#,
@@ -412,13 +417,21 @@ pub(super) async fn export_my_data(
     let dm_messages: Vec<_> = dm_messages
         .iter()
         .map(|message| {
-            serde_json::json!({
-                "conversation_with": message.peer_username.as_deref().unwrap_or("Unknown user"),
+            let peers = message.peer_usernames.clone().unwrap_or_default();
+            let mut entry = serde_json::json!({
                 "content": message.content,
                 "attachments": summarize_export_attachments(&message.attachments),
                 "sent_at": message.created_at,
                 "edited_at": message.edited_at,
-            })
+            });
+            if message.is_group {
+                entry["group_name"] = serde_json::json!(message.group_name);
+                entry["participants"] = serde_json::json!(peers);
+            } else {
+                entry["conversation_with"] =
+                    serde_json::json!(peers.first().map(String::as_str).unwrap_or("Unknown user"));
+            }
+            entry
         })
         .collect();
 
