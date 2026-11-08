@@ -1172,6 +1172,7 @@ async fn ensure_channel_manage_permission_for_channel(
 
 /// Server-wide channel management stops at a category's overrides: the caller must be able to
 /// see the category (a hidden one looks missing) and manage channels in it.
+///
 /// Checks that the caller may manage the category and returns its stored name, matched
 /// case-insensitively, so later queries use the exact spelling saved in the database.
 async fn ensure_category_manageable(
