@@ -334,13 +334,7 @@ async fn desktop_refocus_webview_keyboard(app: tauri::AppHandle) {
         let Some(window) = app.get_webview_window("main") else {
             return;
         };
-        linux_focus::refocus_webview_keyboard(&window);
-        // GTK or the window manager can take focus back just after the click; check once more.
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            linux_focus::refocus_webview_keyboard(&window);
-        })
-        .await;
+        linux_focus::refocus_webview_keyboard(window).await;
     }
     #[cfg(not(target_os = "linux"))]
     let _ = app;
