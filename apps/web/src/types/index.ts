@@ -98,6 +98,7 @@ export interface WsEventDataMap {
     MemberTimeoutUpdated: { server_id: string; user_id: string; timed_out_until: string | null };
     ServerRolesUpdated: { server_id: string };
     ServerChannelsUpdated: { server_id: string };
+    ServerUpdated: { server_id: string; name: string; icon_url: string | null; description: string | null };
     VoiceStateUpdate: {
         channel_id: string | null;
         user_id: string;

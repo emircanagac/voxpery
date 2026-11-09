@@ -80,6 +80,14 @@ pub enum WsEvent {
     ServerRolesUpdated { server_id: Uuid },
     /// Server channels/categories/overrides changed; clients should refresh visible channel tree.
     ServerChannelsUpdated { server_id: Uuid },
+    /// A server's name, icon or description changed; members update their server list.
+    /// Carries only what every member can see (no invite code).
+    ServerUpdated {
+        server_id: Uuid,
+        name: String,
+        icon_url: Option<String>,
+        description: Option<String>,
+    },
     /// Voice channel state update.
     VoiceStateUpdate {
         channel_id: Option<Uuid>, // None if left voice

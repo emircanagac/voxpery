@@ -2720,3 +2720,37 @@ async fn only_the_tab_in_the_call_changes_or_ends_it() {
     assert!(state.voice_sessions.get(&user_id).is_none());
 }
 
+#[tokio::test]
+async fn server_name_changes_reach_members_without_the_invite_code() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "renameowner").await;
+    let (member_auth, _, _) = register_named_user(&mut app, "renamemember").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Old Name").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let addr = spawn_ws_app(&state).await;
+    let mut member_ws = connect_ws(addr, &member_auth).await;
+    ws_barrier(&mut member_ws).await;
+
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        Some(json!({ "name": "New Name" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let event = receive_ws_event(&mut member_ws, "ServerUpdated").await;
+    assert_eq!(event["data"]["server_id"], json!(server_id));
+    assert_eq!(event["data"]["name"], "New Name");
+    assert!(
+        !event.to_string().contains(&invite_code),
+        "the invite code must not be broadcast: {event}"
+    );
+}

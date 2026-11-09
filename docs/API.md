@@ -149,6 +149,7 @@ Notes:
   - Optional `client_request_id` (1-128 URL-safe characters) makes retries return the originally created server. Reusing the ID with different server data returns `409`.
 - `GET /api/servers/:server_id`
 - `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
+  - Members are told through the `ServerUpdated` WebSocket event.
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
 - `GET /api/servers/invite/:invite_code` (public invite preview)

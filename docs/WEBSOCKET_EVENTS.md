@@ -204,6 +204,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
   - `{ server_id, user_id, timed_out_until }`, broadcast to server members when a timeout is set or cleared (`timed_out_until: null`). Clients mark the member and close the composer for their own account until it ends. The reason is never broadcast.
 - `ServerRolesUpdated`
 - `ServerChannelsUpdated`
+- `ServerUpdated` (`server_id`, `name`, `icon_url`, `description`)
+  - Sent to every member, the owner's other sessions included, when `PATCH /api/servers/:server_id` changes the server. It carries only what members can see; the invite code is not included.
 
 ### Voice
 

@@ -323,6 +323,21 @@ export function handleAppLayoutEvent(event: WsEvent, {
                 refreshServerSnapshot(sid, t, true)
                 break
             }
+            case 'ServerUpdated': {
+                const d = event.data
+                if (!d.server_id) break
+                const store = useAppStore.getState()
+                if (!store.servers.some((server) => server.id === d.server_id)) break
+                store.setServers(store.servers.map((server) => (server.id === d.server_id
+                    ? {
+                        ...server,
+                        name: d.name,
+                        icon_url: d.icon_url ?? undefined,
+                        description: d.description ?? undefined,
+                    }
+                    : server)))
+                break
+            }
             case 'ServerChannelsUpdated': {
                 const d = event.data
                 const sid = d.server_id
