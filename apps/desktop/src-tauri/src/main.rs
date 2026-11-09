@@ -97,7 +97,32 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = w.maximize();
         let _ = w.show();
         let _ = w.set_focus();
+        #[cfg(target_os = "linux")]
+        redraw_linux_webview_after_show(&w);
     }
+}
+
+/// Linux: when the window comes back from the tray or for a `voxpery://` sign-in return, CEF
+/// can keep showing only the page background and fixed-position layers, without the page
+/// itself, until the app restarts. Hiding and showing the webview once the window manager has
+/// mapped the window gives Chromium an explicit hidden-to-visible transition (CEF `WasHidden`,
+/// X11 unmap and map of the browser window), after which it draws the whole page again.
+#[cfg(target_os = "linux")]
+fn redraw_linux_webview_after_show(window: &tauri::WebviewWindow) {
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let window = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        PENDING.store(false, Ordering::Release);
+        let webview = window.as_ref();
+        let _ = webview.hide();
+        let _ = webview.show();
+        // Unmapping the browser window drops its X11 keyboard focus.
+        linux_focus::focus_webview_keyboard(&window);
+    });
 }
 
 fn apply_icon_variant(
