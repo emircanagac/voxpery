@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changing your status while Voxpery is not open no longer shows you as online to friends.
 - A profile update that fails, for example when two people take the same username at once, no longer leaves an unused avatar file in storage and reports the taken name instead of a server error.
 - The data export labels group DM messages with the group name and its members instead of a single member.
+- Linux desktop: the window shows the app again after Google sign-in or when it is reopened from the tray, instead of an empty page, and Minimize no longer brings the window straight back.
+- Someone else's reaction or message edit no longer changes whether your own reaction on that message shows as added.
+- When an account is deleted, your one-to-one conversation with it stays in your list as "Deleted User" with your own messages, and your servers, friends and DM list update right away.
+- Changing channels or receiving a DM no longer re-subscribes the app to every channel, which could drop live updates for a moment.
+- Voice: another tab or device of the same account can no longer change or end a call it is not part of, and screen-share viewer counts stay correct on multi-instance setups.
+- Server name, icon and description changes show up for every member right away.
 
 ### Changed
 - Android browsers no longer play an inaudible audio loop during voice calls; the experiment from v0.5.2 did not show a notification.
