@@ -319,7 +319,7 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     .unwrap();
     assert_eq!(flags, (true, true));
     for _ in 0..40 {
-        if permission_updates.lock().await.len() >= 1 {
+        if !permission_updates.lock().await.is_empty() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
