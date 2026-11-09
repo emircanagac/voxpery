@@ -63,6 +63,10 @@ struct VoiceEntry {
 struct InstanceSnapshot {
     online: Vec<Uuid>,
     voice: Vec<VoiceEntry>,
+    /// `(viewer, publisher)` pairs for the viewers whose voice session this instance holds.
+    /// `None` in snapshots from instances that predate it; their viewers are left as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    screen_share_viewers: Option<Vec<(Uuid, Uuid)>>,
 }
 
 struct Peer {
@@ -71,6 +75,9 @@ struct Peer {
     /// Voice sessions missing from the last snapshot. A session is dropped only when two
     /// snapshots in a row miss it, because one may have been written just before its join.
     absent_voice: HashSet<Uuid>,
+    /// Screen-share viewers missing from the last snapshot, dropped on the second miss for the
+    /// same reason.
+    absent_viewers: HashSet<(Uuid, Uuid)>,
     /// An instance's events can arrive before its first snapshot; only an instance that has
     /// reported, or never did for too long, counts as gone when no snapshot is there.
     reported: bool,
@@ -83,6 +90,7 @@ impl Default for Peer {
             online: HashSet::new(),
             voice: HashSet::new(),
             absent_voice: HashSet::new(),
+            absent_viewers: HashSet::new(),
             reported: false,
             first_seen: Instant::now(),
         }
@@ -287,9 +295,16 @@ fn local_snapshot(state: &AppState) -> InstanceSnapshot {
             })
         })
         .collect();
+    let screen_share_viewers: Vec<(Uuid, Uuid)> = state
+        .screen_share_viewers
+        .iter()
+        .map(|entry| *entry.key())
+        .filter(|(viewer_id, _)| state.voice_session_connections.contains_key(viewer_id))
+        .collect();
     InstanceSnapshot {
         online: state.sessions.iter().map(|entry| *entry.key()).collect(),
         voice,
+        screen_share_viewers: Some(screen_share_viewers),
     }
 }
 
@@ -382,6 +397,66 @@ async fn reconcile_peer(state: &AppState, peer_id: Uuid, snapshot: InstanceSnaps
     if let Some(mut peer) = state.peers.0.get_mut(&peer_id) {
         peer.voice.extend(held);
     }
+
+    // Who watches whose screen share follows the instance holding the viewer's session, so an
+    // instance that started or reconnected after a viewer began watching still counts them.
+    let Some(snapshot_viewers) = snapshot.screen_share_viewers else {
+        return;
+    };
+    let remote_viewers: HashSet<Uuid> = reported
+        .into_iter()
+        .filter(|user_id| !state.voice_session_connections.contains_key(user_id))
+        .collect();
+    let wanted: HashSet<(Uuid, Uuid)> = snapshot_viewers
+        .into_iter()
+        .filter(|(viewer_id, _)| remote_viewers.contains(viewer_id))
+        .collect();
+    let missing: HashSet<(Uuid, Uuid)> = state
+        .screen_share_viewers
+        .iter()
+        .map(|entry| *entry.key())
+        .filter(|pair| remote_viewers.contains(&pair.0) && !wanted.contains(pair))
+        .collect();
+    let stale: Vec<(Uuid, Uuid)> = {
+        let mut peer = state.peers.0.entry(peer_id).or_default();
+        let stale = missing
+            .intersection(&peer.absent_viewers)
+            .copied()
+            .collect();
+        peer.absent_viewers = missing;
+        stale
+    };
+    for pair in stale {
+        if state.screen_share_viewers.remove(&pair).is_some() {
+            announce_viewer(state, pair, false).await;
+        }
+    }
+    for pair in wanted {
+        if state.screen_share_viewers.insert(pair, ()).is_none() {
+            announce_viewer(state, pair, true).await;
+        }
+    }
+}
+
+async fn announce_viewer(
+    state: &AppState,
+    (viewer_id, publisher_id): (Uuid, Uuid),
+    watching: bool,
+) {
+    let Some(channel_id) = state.voice_sessions.get(&viewer_id).map(|entry| *entry) else {
+        return;
+    };
+    let server_id = server_of_channel(state, channel_id).await;
+    notify_local_clients(
+        state,
+        super::voice_commands::screen_share_viewer_event(
+            viewer_id,
+            publisher_id,
+            channel_id,
+            server_id,
+            watching,
+        ),
+    );
 }
 
 async fn forget_peer(state: &AppState, peer_id: Uuid) {
@@ -498,12 +573,20 @@ mod tests {
                 controls: Some((true, false, false, false, true, false)),
                 participant_sid: Some("PA_1".into()),
             }],
+            screen_share_viewers: Some(vec![(Uuid::new_v4(), Uuid::new_v4())]),
         };
         let text = serde_json::to_string(&snapshot).unwrap();
         assert_eq!(
             serde_json::from_str::<InstanceSnapshot>(&text).unwrap(),
             snapshot
         );
+    }
+
+    #[test]
+    fn snapshots_from_instances_without_viewers_still_parse() {
+        let text = r#"{"online":[],"voice":[]}"#;
+        let snapshot = serde_json::from_str::<InstanceSnapshot>(text).unwrap();
+        assert_eq!(snapshot.screen_share_viewers, None);
     }
 
     #[test]
