@@ -7,5 +7,9 @@
 # RUSTSEC-2026-0387 (crypto-bigint 0.5) comes from jsonwebtoken's rust_crypto backend via
 # p256/p384 -> elliptic-curve 0.13. Tokens are HS256 (HMAC) only, so the ECDSA code is never
 # reached, and jsonwebtoken 11 still uses elliptic-curve 0.13. Remove once it moves to 0.14.
+# RUSTSEC-2026-0459 (libsqlite3-sys 0.30) is only listed in Cargo.lock: sqlx's weak optional
+# features (`sqlx-sqlite?/...`) put it there although the sqlite backend is off, and
+# `cargo tree --target all -e all -i libsqlite3-sys` prints nothing, so it is never built.
+# sqlx 0.9 still caps it below the fixed 0.39; remove once sqlx allows it or drops it.
 [advisories]
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0097", "RUSTSEC-2026-0387"]
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0097", "RUSTSEC-2026-0387", "RUSTSEC-2026-0459"]
