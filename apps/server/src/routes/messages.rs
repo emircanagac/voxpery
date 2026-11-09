@@ -1161,6 +1161,7 @@ async fn edit_message(
         WsEvent::MessageUpdated {
             channel_id,
             message: msg_with_author.clone(),
+            viewer_id: claims.sub,
         },
     )
     .await;
@@ -1293,6 +1294,7 @@ async fn add_message_reaction(
         WsEvent::MessageUpdated {
             channel_id,
             message: msg_with_author.clone(),
+            viewer_id: claims.sub,
         },
     )
     .await;
@@ -1354,6 +1356,7 @@ async fn remove_message_reaction(
         WsEvent::MessageUpdated {
             channel_id,
             message: msg_with_author.clone(),
+            viewer_id: claims.sub,
         },
     )
     .await;

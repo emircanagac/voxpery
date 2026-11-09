@@ -31,10 +31,13 @@ pub enum WsEvent {
     },
     /// A message was deleted in a server channel.
     MessageDeleted { channel_id: Uuid, message_id: Uuid },
-    /// A message was updated (edited) in a server channel.
+    /// A message was edited or its reactions changed, in a server channel or a DM.
     MessageUpdated {
         channel_id: Uuid,
         message: MessageWithAuthor,
+        /// The user who made the change; `message.reactions[].reacted` is computed for them, so
+        /// other recipients keep their own `reacted` flags.
+        viewer_id: Uuid,
     },
     /// A user started/stopped typing.
     Typing {

@@ -830,6 +830,25 @@ async fn dm_edits_and_deletions_reach_every_member_session() {
         let event = receive_ws_event(ws, "MessageUpdated").await;
         assert_eq!(event["data"]["channel_id"], channel_id.as_str());
         assert_eq!(event["data"]["message"]["content"], "after edit");
+        assert_eq!(event["data"]["viewer_id"], json!(author_id));
+    }
+
+    // A reaction carries flags computed for whoever reacted, and says so, so the other member
+    // can keep their own reaction state instead of copying the reactor's.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/item/{message_id}/reactions"),
+        &peer_auth,
+        Some(json!({ "emoji": "👍" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for ws in [&mut peer_ws, &mut author_other_ws] {
+        let event = receive_ws_event(ws, "MessageUpdated").await;
+        assert_eq!(event["data"]["viewer_id"], json!(peer_id));
+        assert_eq!(event["data"]["message"]["reactions"][0]["count"], 1);
+        assert_eq!(event["data"]["message"]["reactions"][0]["reacted"], true);
     }
 
     let (status, _) = api_json(

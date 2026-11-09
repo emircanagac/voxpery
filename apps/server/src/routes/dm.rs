@@ -1563,6 +1563,7 @@ async fn edit_dm_message(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     // The author's other sessions need the edit too.
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
@@ -1705,6 +1706,7 @@ async fn add_dm_reaction(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction event to members: {}", e);
@@ -1746,6 +1748,7 @@ async fn remove_dm_reaction(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction removal event to members: {}", e);

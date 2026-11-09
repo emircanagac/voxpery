@@ -170,7 +170,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `MessageUpdated`
 - `MessageDeleted`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.
-  - Payloads: `MessageUpdated` carries `channel_id` and the full `message`; `MessageDeleted` carries `channel_id` and `message_id`.
+  - Payloads: `MessageUpdated` carries `channel_id`, the full `message` and `viewer_id`; `MessageDeleted` carries `channel_id` and `message_id`.
+  - `MessageUpdated` is sent for edits and reaction changes. Each reaction's `reacted` flag is computed for `viewer_id`, the user who made the change, and every recipient gets the same payload: that user's sessions take the flags as sent, while other clients keep their own `reacted` flags and use only the counts.
 - `Typing`
 
 ### Presence/User
