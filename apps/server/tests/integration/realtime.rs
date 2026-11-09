@@ -2662,3 +2662,61 @@ async fn status_changes_stay_private_until_the_user_connects() {
         }
     }
 }
+
+#[tokio::test]
+async fn only_the_tab_in_the_call_changes_or_ends_it() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "twotabs").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "Tabs Guild").await;
+    let voice_channel_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let addr = spawn_ws_app(&state).await;
+    let mut call_tab = connect_ws(addr, &auth).await;
+    let mut other_tab = connect_ws(addr, &auth).await;
+    ws_send(
+        &mut call_tab,
+        json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } }),
+    )
+    .await;
+    receive_ws_event(&mut call_tab, "VoiceControlUpdate").await;
+
+    let mute = json!({ "type": "SetVoiceControl", "data": {
+        "muted": true, "deafened": false, "screen_sharing": false, "camera_on": false
+    } });
+    // Another tab of the same account cannot change the call's media or end it.
+    ws_send(&mut other_tab, mute.clone()).await;
+    ws_send(
+        &mut other_tab,
+        json!({ "type": "LeaveVoice", "data": null }),
+    )
+    .await;
+    ws_barrier(&mut other_tab).await;
+    assert!(!state.voice_controls.get(&user_id).is_some_and(|c| c.0));
+    assert_eq!(
+        state.voice_sessions.get(&user_id).map(|entry| *entry),
+        Some(voice_channel_id)
+    );
+
+    // The tab in the call can.
+    ws_send(&mut call_tab, mute).await;
+    loop {
+        let event = receive_ws_event(&mut call_tab, "VoiceControlUpdate").await;
+        if event["data"]["user_id"] == json!(user_id) && event["data"]["muted"] == true {
+            break;
+        }
+    }
+    ws_send(&mut call_tab, json!({ "type": "LeaveVoice", "data": null })).await;
+    ws_barrier(&mut call_tab).await;
+    assert!(state.voice_sessions.get(&user_id).is_none());
+}
+
