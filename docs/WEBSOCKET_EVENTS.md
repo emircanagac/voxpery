@@ -189,7 +189,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 ### Direct Messages
 
 - `DmChannelsUpdated` (`channel_id`)
-  - Targeted to every current member, and to removed members, when a group DM is created, renamed or its membership changes. Never broadcast.
+  - Targeted to every current member, and to removed members, when a group DM is created, renamed or its membership changes, and to the other member of a one-to-one DM when that account is deleted. Never broadcast.
   - Clients reload their DM list; a group that is no longer listed is closed.
 
 ### Server Membership / Roles / Channels

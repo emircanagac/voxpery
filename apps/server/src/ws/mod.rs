@@ -50,8 +50,8 @@ pub enum WsEvent {
     PresenceUpdate { user_id: Uuid, status: String },
     /// Friend list/request state changed for a user.
     FriendUpdate { user_id: Uuid },
-    /// A group DM this user is (or was) in was created, renamed or changed members; reload the
-    /// DM list.
+    /// A group DM this user is (or was) in was created, renamed or changed members, or the other
+    /// member of a one-to-one DM deleted their account; reload the DM list.
     DmChannelsUpdated { channel_id: Uuid },
     /// User joined a server.
     MemberJoined {

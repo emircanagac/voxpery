@@ -110,6 +110,8 @@ Important behavior:
   - The response carries `files_pending_removal`: files that could not be removed from storage right away. They stay queued in `pending_file_deletions` and are retried every 10 minutes until they are gone.
   - Password accounts confirm with `password`; Google-only accounts need a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise).
   - Owned servers that still have members pass to the highest-ranked remaining member (earliest to join on a tie); servers without other members go to the deleted-account placeholder (the account flagged `is_system`). Addresses in the `system.local` domain are reserved and refused at registration and email change.
+  - One-to-one DMs stay with the other member, listed as "Deleted User" (`peer_id` is the nil UUID) with their own messages until they delete them; nobody can write to a deleted account. DM conversations left without members are removed, and the uploads of members who had left them are released from storage and quotas.
+  - After the commit the account's servers get `MemberLeft`, friends and request counterparts get `FriendUpdate`, and DM partners get `DmChannelsUpdated`.
 
 Notes:
 

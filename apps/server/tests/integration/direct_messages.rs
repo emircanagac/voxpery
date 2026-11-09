@@ -1195,3 +1195,106 @@ async fn data_export_labels_group_dm_messages_with_the_group() {
     assert_eq!(entry["participants"].as_array().unwrap().len(), 2);
     assert!(entry.get("conversation_with").is_none(), "{entry}");
 }
+
+#[tokio::test]
+async fn deleting_an_account_keeps_the_dm_as_deleted_user_and_notifies_contacts() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (alice_auth, alice_id, alice_password) = register_named_user(&mut app, "goneuser").await;
+    let (bob_auth, bob_id, _) = register_named_user(&mut app, "staysuser").await;
+    befriend(&state, alice_id, bob_id).await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &bob_auth, "Stay Guild").await;
+    join_with_invite(&mut app, &alice_auth, &invite_code).await;
+
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{bob_id}"),
+        &alice_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{channel}");
+    let channel_id = channel["id"].as_str().unwrap().to_string();
+    for (auth, content) in [(&alice_auth, "from alice"), (&bob_auth, "from bob")] {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            &format!("/api/dm/messages/{channel_id}"),
+            auth,
+            Some(json!({ "content": content })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    let addr = spawn_ws_app(&state).await;
+    let mut bob_ws = connect_ws(addr, &bob_auth).await;
+    ws_barrier(&mut bob_ws).await;
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &alice_auth,
+        Some(json!({ "confirm": "DELETE", "password": alice_password })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Bob's lists update without a reload.
+    let event = receive_ws_event(&mut bob_ws, "DmChannelsUpdated").await;
+    assert_eq!(event["data"]["channel_id"], channel_id.as_str());
+    // Every new account is also in the official server, so wait for this server's event.
+    loop {
+        let event = receive_ws_event(&mut bob_ws, "MemberLeft").await;
+        assert_eq!(event["data"]["user_id"], json!(alice_id));
+        if event["data"]["server_id"] == json!(server_id) {
+            break;
+        }
+    }
+    let event = receive_ws_event(&mut bob_ws, "FriendUpdate").await;
+    assert_eq!(event["data"]["user_id"], json!(bob_id));
+
+    // The conversation stays listed for Bob as "Deleted User", with only his own message.
+    let (status, channels) = api_json(&mut app, "GET", "/api/dm/channels", &bob_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{channels}");
+    let listed = channels
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == channel_id.as_str())
+        .expect("the conversation stays in Bob's list");
+    assert_eq!(listed["peer_username"], "Deleted User");
+    assert_eq!(listed["peer_status"], "offline");
+    let (status, messages) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/dm/messages/{channel_id}"),
+        &bob_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{messages}");
+    let contents: Vec<_> = messages
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(contents, ["from bob"]);
+
+    // Nobody can write to the deleted account.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{channel_id}"),
+        &bob_auth,
+        Some(json!({ "content": "still there?" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+}

@@ -655,6 +655,19 @@ pub(super) async fn delete_my_account(
             .bind(claims.sub)
             .fetch_all(&state.db)
             .await?;
+    // Friends and both sides of pending requests reload their lists once the account is gone.
+    let friend_user_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
+           FROM friendships
+           WHERE user_a = $1 OR user_b = $1
+           UNION
+           SELECT CASE WHEN requester_id = $1 THEN receiver_id ELSE requester_id END
+           FROM friend_requests
+           WHERE requester_id = $1 OR receiver_id = $1"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
 
     let mut tx = state.db.begin().await?;
     let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
@@ -779,6 +792,25 @@ pub(super) async fn delete_my_account(
     .bind(claims.sub)
     .fetch_all(&mut *tx)
     .await?;
+    let own_dm_channel_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT channel_id FROM dm_channel_members WHERE user_id = $1",
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
+    // One-to-one conversations stay with the other member, shown as "Deleted User": only the
+    // deleted account's messages go, theirs remain until they delete them.
+    let direct_dm_peers = sqlx::query_as::<_, (Uuid, Uuid)>(
+        r#"SELECT peer.channel_id, peer.user_id
+           FROM dm_channel_members own
+           JOIN dm_channels c ON c.id = own.channel_id AND NOT c.is_group
+           JOIN dm_channel_members peer
+             ON peer.channel_id = own.channel_id AND peer.user_id <> own.user_id
+           WHERE own.user_id = $1"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM dm_channel_members WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)
@@ -798,6 +830,18 @@ pub(super) async fn delete_my_account(
     .bind(&group_dm_ids)
     .bind(claims.sub)
     .execute(&mut *tx)
+    .await?;
+    // Conversations left without members go, with every message in them. Uploads of members who
+    // left earlier are checked after the commit, so their storage quota is given back.
+    let removed_dm_attachments = sqlx::query_scalar::<_, serde_json::Value>(
+        r#"SELECT m.attachments
+           FROM dm_messages m
+           WHERE m.channel_id = ANY($1)
+             AND m.attachments IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM dm_channel_members cm WHERE cm.channel_id = m.channel_id)"#,
+    )
+    .bind(&own_dm_channel_ids)
+    .fetch_all(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM dm_channels c WHERE NOT EXISTS (SELECT 1 FROM dm_channel_members m WHERE m.channel_id = c.id)")
         .execute(&mut *tx)
@@ -847,9 +891,40 @@ pub(super) async fn delete_my_account(
     for server_id in transferred_server_ids {
         crate::ws::publish_event(&state, WsEvent::ServerRolesUpdated { server_id }).await;
     }
-    for (channel_id, user_id) in group_dm_members {
+    let released_upload_ids: Vec<Uuid> = removed_dm_attachments
+        .iter()
+        .flat_map(|attachments| {
+            crate::services::attachment_release::attachment_ids(Some(attachments))
+        })
+        .collect();
+    if !released_upload_ids.is_empty() {
+        if let Err(error) = crate::services::attachment_release::release_unused_uploads(
+            &state.db,
+            &state.attachment_service,
+            Some(&released_upload_ids),
+        )
+        .await
+        {
+            tracing::warn!("Releasing uploads of removed DM conversations failed: {error}");
+        }
+    }
+    for (channel_id, user_id) in group_dm_members.into_iter().chain(direct_dm_peers) {
         crate::ws::publish_user_event(&state, user_id, WsEvent::DmChannelsUpdated { channel_id })
             .await;
+    }
+    for server_id in &member_server_ids {
+        crate::ws::publish_event(
+            &state,
+            WsEvent::MemberLeft {
+                server_id: *server_id,
+                user_id: claims.sub,
+                reason: None,
+            },
+        )
+        .await;
+    }
+    for user_id in friend_user_ids {
+        crate::ws::publish_user_event(&state, user_id, WsEvent::FriendUpdate { user_id }).await;
     }
 
     if let Some(token) = token_from_request(&headers, &state.cookie_name) {
