@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.3] - Unreleased
+## [0.5.3] - 2026-11-09
 
 ### Fixed
 - Self-hosting: the prebuilt web image starts when `WEB_API_URL` is set without the Turnstile or GIPHY keys, and avatars load when the API runs on plain HTTP.
