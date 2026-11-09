@@ -31,10 +31,13 @@ pub enum WsEvent {
     },
     /// A message was deleted in a server channel.
     MessageDeleted { channel_id: Uuid, message_id: Uuid },
-    /// A message was updated (edited) in a server channel.
+    /// A message was edited or its reactions changed, in a server channel or a DM.
     MessageUpdated {
         channel_id: Uuid,
         message: MessageWithAuthor,
+        /// The user who made the change; `message.reactions[].reacted` is computed for them, so
+        /// other recipients keep their own `reacted` flags.
+        viewer_id: Uuid,
     },
     /// A user started/stopped typing.
     Typing {
@@ -47,8 +50,8 @@ pub enum WsEvent {
     PresenceUpdate { user_id: Uuid, status: String },
     /// Friend list/request state changed for a user.
     FriendUpdate { user_id: Uuid },
-    /// A group DM this user is (or was) in was created, renamed or changed members; reload the
-    /// DM list.
+    /// A group DM this user is (or was) in was created, renamed or changed members, or the other
+    /// member of a one-to-one DM deleted their account; reload the DM list.
     DmChannelsUpdated { channel_id: Uuid },
     /// User joined a server.
     MemberJoined {
@@ -77,6 +80,14 @@ pub enum WsEvent {
     ServerRolesUpdated { server_id: Uuid },
     /// Server channels/categories/overrides changed; clients should refresh visible channel tree.
     ServerChannelsUpdated { server_id: Uuid },
+    /// A server's name, icon or description changed; members update their server list.
+    /// Carries only what every member can see (no invite code).
+    ServerUpdated {
+        server_id: Uuid,
+        name: String,
+        icon_url: Option<String>,
+        description: Option<String>,
+    },
     /// Voice channel state update.
     VoiceStateUpdate {
         channel_id: Option<Uuid>, // None if left voice

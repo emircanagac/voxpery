@@ -110,7 +110,8 @@ impl BroadcastEvent {
             | WsEvent::MemberRoleUpdated { server_id, .. }
             | WsEvent::MemberTimeoutUpdated { server_id, .. }
             | WsEvent::ServerRolesUpdated { server_id }
-            | WsEvent::ServerChannelsUpdated { server_id } => {
+            | WsEvent::ServerChannelsUpdated { server_id }
+            | WsEvent::ServerUpdated { server_id, .. } => {
                 Audience::Users(server_users(db, *server_id).await?)
             }
             WsEvent::VoiceStateUpdate {

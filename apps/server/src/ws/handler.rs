@@ -561,7 +561,8 @@ async fn handle_socket(
                         | WsEvent::MemberRoleUpdated { .. }
                         | WsEvent::MemberTimeoutUpdated { .. }
                         | WsEvent::ServerRolesUpdated { .. }
-                        | WsEvent::ServerChannelsUpdated { .. } => {
+                        | WsEvent::ServerChannelsUpdated { .. }
+                        | WsEvent::ServerUpdated { .. } => {
                             shared.reaches(&send_state.db, user_id).await
                         }
                         WsEvent::VoiceStateUpdate { server_id, .. }

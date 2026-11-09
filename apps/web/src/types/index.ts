@@ -86,7 +86,8 @@ export interface WsEventDataMap {
     NewMessage: { channel_id: string; channel_type: string; message: Message };
     DmRead: { channel_id: string; user_id: string; last_read_message_id: string | null };
     MessageDeleted: { channel_id: string; message_id: string };
-    MessageUpdated: { channel_id: string; message: Message };
+    /** `message.reactions[].reacted` is computed for `viewer_id`, the user who made the change. */
+    MessageUpdated: { channel_id: string; message: Message; viewer_id: string };
     Typing: { channel_id: string; user_id: string; username: string; is_typing: boolean };
     PresenceUpdate: { user_id: string; status: string };
     FriendUpdate: { user_id: string };
@@ -97,6 +98,7 @@ export interface WsEventDataMap {
     MemberTimeoutUpdated: { server_id: string; user_id: string; timed_out_until: string | null };
     ServerRolesUpdated: { server_id: string };
     ServerChannelsUpdated: { server_id: string };
+    ServerUpdated: { server_id: string; name: string; icon_url: string | null; description: string | null };
     VoiceStateUpdate: {
         channel_id: string | null;
         user_id: string;

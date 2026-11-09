@@ -542,7 +542,7 @@ async fn lists_reference_uploaded_avatars_by_url_and_serve_them_with_a_grant() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, _state) = setup_app().await;
 
     let uid = Uuid::new_v4();
     let (token, user_id) = register_user(

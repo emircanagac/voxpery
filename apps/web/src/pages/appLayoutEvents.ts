@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/app'
 import { serverApi, channelApi, type Channel, type MessageWithAuthor, type WsEvent } from '../api'
 import { useToastStore } from '../stores/toast'
 import { withUpdatedAuthor } from '../messageAuthors'
+import { applyMessageUpdate } from '../messageUpdates'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { getServerNotificationPreference, shouldNotifyForServerMessage, shouldTrackServerUnread } from '../notificationPreferences'
 import { isAppBackgrounded, shouldShowPushNotification, showPushNotification } from '../pushNotifications'
@@ -205,12 +206,15 @@ export function handleAppLayoutEvent(event: WsEvent, {
                 const channelId = d.channel_id
                 const message = d.message
                 if (!channelId || !message?.id) break
+                const update = (m: UiMessage) => (m.id === message.id
+                    ? applyMessageUpdate(m, message, d.viewer_id, user?.id)
+                    : m)
                 if (channelId === activeChannelIdRef.current) {
-                    setMessages((prev) => prev.map((m) => (m.id === message.id ? message : m)))
+                    setMessages((prev) => prev.map(update))
                 }
                 const cached = messagesByChannelRef.current[channelId]
                 if (cached) {
-                    messagesByChannelRef.current[channelId] = cached.map((m) => (m.id === message.id ? message : m))
+                    messagesByChannelRef.current[channelId] = cached.map(update)
                 }
                 break
             }
@@ -317,6 +321,21 @@ export function handleAppLayoutEvent(event: WsEvent, {
                 if (!sid) break
                 const t = tokenRef.current ?? null
                 refreshServerSnapshot(sid, t, true)
+                break
+            }
+            case 'ServerUpdated': {
+                const d = event.data
+                if (!d.server_id) break
+                const store = useAppStore.getState()
+                if (!store.servers.some((server) => server.id === d.server_id)) break
+                store.setServers(store.servers.map((server) => (server.id === d.server_id
+                    ? {
+                        ...server,
+                        name: d.name,
+                        icon_url: d.icon_url ?? undefined,
+                        description: d.description ?? undefined,
+                    }
+                    : server)))
                 break
             }
             case 'ServerChannelsUpdated': {

@@ -13,6 +13,7 @@ import { ProjectSupportLink } from '../components/SocialInfoPanel'
 import WindowControls from '../components/WindowControls'
 import { useToastStore } from '../stores/toast'
 import { useDesktopUpdateInstall } from '../hooks/useDesktopUpdateInstall'
+import { useChannelSubscriptions } from '../hooks/useChannelSubscriptions'
 import { authApi, dmApi, friendApi, serverApi, type DmChannel, type Friend, type User } from '../api'
 import { touchDmChannelActivity, upsertDmChannel } from '../friendsList'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
@@ -333,13 +334,7 @@ export default function AppShell() {
     }
   }, [onReconnect, syncSocial, userId])
 
-  useEffect(() => {
-    if (!isConnected || dmChannelIds.length === 0) return
-    send('Subscribe', { channel_ids: dmChannelIds })
-    return () => {
-      send('Unsubscribe', { channel_ids: dmChannelIds })
-    }
-  }, [dmChannelIds, isConnected, send])
+  useChannelSubscriptions(dmChannelIds, isConnected, send)
 
   useEffect(() => {
     if (!userId) return

@@ -170,7 +170,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `MessageUpdated`
 - `MessageDeleted`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.
-  - Payloads: `MessageUpdated` carries `channel_id` and the full `message`; `MessageDeleted` carries `channel_id` and `message_id`.
+  - Payloads: `MessageUpdated` carries `channel_id`, the full `message` and `viewer_id`; `MessageDeleted` carries `channel_id` and `message_id`.
+  - `MessageUpdated` is sent for edits and reaction changes. Each reaction's `reacted` flag is computed for `viewer_id`, the user who made the change, and every recipient gets the same payload: that user's sessions take the flags as sent, while other clients keep their own `reacted` flags and use only the counts.
 - `Typing`
 
 ### Presence/User
@@ -188,7 +189,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 ### Direct Messages
 
 - `DmChannelsUpdated` (`channel_id`)
-  - Targeted to every current member, and to removed members, when a group DM is created, renamed or its membership changes. Never broadcast.
+  - Targeted to every current member, and to removed members, when a group DM is created, renamed or its membership changes, and to the other member of a one-to-one DM when that account is deleted. Never broadcast.
   - Clients reload their DM list; a group that is no longer listed is closed.
 
 ### Server Membership / Roles / Channels
@@ -203,6 +204,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
   - `{ server_id, user_id, timed_out_until }`, broadcast to server members when a timeout is set or cleared (`timed_out_until: null`). Clients mark the member and close the composer for their own account until it ends. The reason is never broadcast.
 - `ServerRolesUpdated`
 - `ServerChannelsUpdated`
+- `ServerUpdated` (`server_id`, `name`, `icon_url`, `description`)
+  - Sent to every member, the owner's other sessions included, when `PATCH /api/servers/:server_id` changes the server. It carries only what members can see; the invite code is not included.
 
 ### Voice
 

@@ -71,6 +71,7 @@ import GroupDmSettingsDialog from '../components/GroupDmSettingsDialog'
 import ModalSurface from '../components/ModalSurface'
 import HomeContextMenu from './HomeContextMenu'
 import HomeSocialContent from './HomeSocialContent'
+import { applyMessageUpdate } from '../messageUpdates'
 
 function isDmAccessForbidden(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -804,11 +805,12 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     const unsub = subscribe((event) => {
       if (event?.type !== 'MessageUpdated' && event?.type !== 'MessageDeleted') return
       const updated = event.type === 'MessageUpdated' ? event.data?.message : undefined
+      const viewerId = event.type === 'MessageUpdated' ? event.data?.viewer_id : undefined
       const removedId = event.type === 'MessageDeleted' ? event.data?.message_id : undefined
       const channelId = event.data?.channel_id
       if (!channelId || !(updated?.id || removedId)) return
       const apply = <T extends MessageWithAuthor>(messages: T[]): T[] => (updated
-        ? messages.map((m) => (m.id === updated.id ? { ...m, ...updated } : m))
+        ? messages.map((m) => (m.id === updated.id ? applyMessageUpdate(m, updated, viewerId, user?.id) : m))
         : messages.filter((m) => m.id !== removedId))
       if (channelId !== activeDmChannelIdRef.current) {
         const cached = cachedDmMessages(channelId)
@@ -824,7 +826,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       setDmSearchResults((prev) => (prev ? apply(prev) : prev))
     })
     return () => unsub()
-  }, [cachedDmMessages, rememberDmMessages, subscribe])
+  }, [cachedDmMessages, rememberDmMessages, subscribe, user?.id])
 
   // A participant's new name or avatar applies to their messages in every conversation.
   useEffect(() => {

@@ -43,6 +43,26 @@ describe('installLinuxDesktopKeyboardFocus', () => {
     field.remove()
   })
 
+  it('leaves clicks on the window buttons and resize borders alone', async () => {
+    stubPlatform('Mozilla/5.0 (X11; Linux x86_64)')
+    const dispose = installLinuxDesktopKeyboardFocus()
+    const controls = document.createElement('div')
+    controls.className = 'window-controls'
+    const minimize = document.createElement('button')
+    controls.append(minimize)
+    const edge = document.createElement('div')
+    edge.className = 'window-resize-edge'
+    document.body.append(controls, edge)
+
+    await click(minimize)
+    await click(edge)
+    expect(mocks.invoke).not.toHaveBeenCalled()
+
+    dispose()
+    controls.remove()
+    edge.remove()
+  })
+
   it('does nothing on other platforms or in the browser', async () => {
     stubPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
     const disposeWindows = installLinuxDesktopKeyboardFocus()

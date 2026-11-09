@@ -8,5 +8,9 @@ ignore = [
   # Only HS256 is used, so the ECDSA path is unreachable. Remove once jsonwebtoken
   # depends on elliptic-curve 0.14.
   "RUSTSEC-2026-0387",
+  # RUSTSEC-2026-0459 (libsqlite3-sys 0.30) is only in Cargo.lock through sqlx's weak optional
+  # sqlite features; it is never built (`cargo tree --target all -e all -i libsqlite3-sys` is
+  # empty). sqlx 0.9 still caps it below the fixed 0.39. Remove once that changes.
+  "RUSTSEC-2026-0459",
 ]
 

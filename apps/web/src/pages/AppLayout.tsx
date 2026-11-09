@@ -10,6 +10,7 @@ import { attachmentApi, resolveServerIconUrl, serverApi, messageApi, channelApi,
 import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import { useDialogFocus } from '../hooks/useDialogFocus'
+import { useChannelSubscriptions } from '../hooks/useChannelSubscriptions'
 import ChatArea from '../components/ChatArea'
 import MemberSidebar from '../components/MemberSidebar'
 import { type SafetySettingsTab } from '../components/ServerSettingsSafety'
@@ -945,13 +946,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     }, [isLoggedIn, token, connect, subscribe, handleWsEvent])
 
     // Subscribe to all known server channels so unread state works across servers.
-    useEffect(() => {
-        if (!isConnected || allKnownChannelIds.length === 0) return
-        send('Subscribe', { channel_ids: allKnownChannelIds })
-        return () => {
-            send('Unsubscribe', { channel_ids: allKnownChannelIds })
-        }
-    }, [allKnownChannelIds, isConnected, send])
+    useChannelSubscriptions(allKnownChannelIds, isConnected, send)
 
     // ─── Handlers ──────────────────────────────
 

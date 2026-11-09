@@ -826,6 +826,18 @@ async fn update_server(
     )
     .await?;
 
+    // Members see the new name and icon without reloading, the owner's other sessions included.
+    crate::ws::publish_event(
+        &state,
+        WsEvent::ServerUpdated {
+            server_id,
+            name: updated.name.clone(),
+            icon_url: updated.icon_url.clone(),
+            description: updated.description.clone(),
+        },
+    )
+    .await;
+
     Ok(Json(updated))
 }
 

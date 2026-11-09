@@ -625,14 +625,25 @@ pub(super) async fn join_voice(
     }
 }
 
+/// Whether `connection` is the one holding its user's voice session on this instance. Another
+/// tab or device of the same user must not change that call's media or watching state.
+fn connection_holds_voice(connection: &VoiceConnection) -> bool {
+    connection
+        .state
+        .voice_session_connections
+        .get(&connection.user_id)
+        .is_some_and(|holder| holder.0 == connection.connection_id)
+}
+
 pub(super) async fn leave_voice(connection: &VoiceConnection) {
     let (state, user_id) = (&connection.state, connection.user_id);
     let connection_id = connection.connection_id;
-    // Only the connection holding the session may end it.
-    let holds_session = state
-        .voice_session_connections
-        .get(&user_id)
-        .is_none_or(|holder| holder.0 == connection_id);
+    // Only the connection holding the session may end it. Without a local holder the session
+    // belongs to a connection on another instance, unless no instance holds it any more.
+    let holds_session = match state.voice_session_connections.get(&user_id) {
+        Some(holder) => holder.0 == connection_id,
+        None => !state.peers.holds_voice(user_id),
+    };
     if !holds_session {
         return;
     }
@@ -1043,6 +1054,9 @@ pub(super) async fn set_voice_control(
         return;
     }
 
+    if !connection_holds_voice(connection) {
+        return;
+    }
     let actor_channel = state.voice_sessions.get(&user_id).map(|r| *r);
     let Some(actor_channel_id) = actor_channel else {
         return;
@@ -1093,7 +1107,7 @@ pub(super) async fn set_screen_share_watching(
     watching: bool,
 ) {
     let (state, user_id) = (&connection.state, connection.user_id);
-    if publisher_user_id == user_id {
+    if publisher_user_id == user_id || !connection_holds_voice(connection) {
         return;
     }
     let viewer_channel = state.voice_sessions.get(&user_id).map(|entry| *entry);

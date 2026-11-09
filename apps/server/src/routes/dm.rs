@@ -339,10 +339,12 @@ async fn list_dm_channels(
     let rows = sqlx::query_as::<_, DmChannelInfo>(
         r#"WITH channel_rows AS (
              SELECT c.id,
-                    u.id as peer_id,
-                    u.username as peer_username,
-                    public_avatar_url(u.id, u.avatar_version, u.avatar_url) as peer_avatar_url,
-                    u.status as peer_status,
+                    COALESCE(u.id, '00000000-0000-0000-0000-000000000000'::UUID) as peer_id,
+                    COALESCE(u.username, 'Deleted User') as peer_username,
+                    CASE WHEN u.id IS NULL THEN NULL
+                         ELSE public_avatar_url(u.id, u.avatar_version, u.avatar_url)
+                    END as peer_avatar_url,
+                    COALESCE(u.status, 'offline') as peer_status,
                     self_m.hidden_at,
                     self_m.pinned_at,
                     c.created_at,
@@ -365,9 +367,11 @@ async fn list_dm_channels(
              FROM dm_channels c
              INNER JOIN dm_channel_members self_m
                ON self_m.channel_id = c.id AND self_m.user_id = $1
-             INNER JOIN dm_channel_members peer_m
+             -- The other member is missing once they deleted their account; the conversation
+             -- stays listed as "Deleted User" with this user's own messages.
+             LEFT JOIN dm_channel_members peer_m
                ON peer_m.channel_id = c.id AND peer_m.user_id <> $1
-             INNER JOIN users u ON u.id = peer_m.user_id
+             LEFT JOIN users u ON u.id = peer_m.user_id
              WHERE NOT c.is_group
            )
            SELECT id,
@@ -525,17 +529,24 @@ async fn load_group_dm_infos(
 /// A peer who only accepts DMs from friends can still be answered in a one-to-one DM they
 /// wrote in themselves: writing to someone is consent to their reply. Before the peer has
 /// written, a non-friend can neither start the DM nor send to it.
+const DELETED_ACCOUNT_DM_MESSAGE: &str = "This account has been deleted";
+
 async fn check_can_dm_peer(
     state: &AppState,
     sender_id: Uuid,
     peer_id: Uuid,
 ) -> Result<(), AppError> {
-    let peer_dm_privacy =
-        sqlx::query_scalar::<_, String>("SELECT dm_privacy FROM users WHERE id = $1")
-            .bind(peer_id)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or(AppError::NotFound("User not found".into()))?;
+    let (peer_dm_privacy, peer_is_system) = sqlx::query_as::<_, (String, bool)>(
+        "SELECT dm_privacy, is_system FROM users WHERE id = $1",
+    )
+    .bind(peer_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("User not found".into()))?;
+    // The placeholder that keeps deleted accounts' servers is not a person to write to.
+    if peer_is_system {
+        return Err(AppError::Forbidden(DELETED_ACCOUNT_DM_MESSAGE.into()));
+    }
 
     // "everyone" is open; anything else (including the retired "server_members") is friends-only.
     if peer_dm_privacy == "everyone" {
@@ -607,7 +618,7 @@ pub(crate) async fn ensure_can_reach_dm_peer(
     .bind(user_id)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("DM channel peer not found".into()))?;
+    .ok_or(AppError::Forbidden(DELETED_ACCOUNT_DM_MESSAGE.into()))?;
     check_can_dm_peer(state, user_id, peer_id).await
 }
 
@@ -1563,6 +1574,7 @@ async fn edit_dm_message(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     // The author's other sessions need the edit too.
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
@@ -1705,6 +1717,7 @@ async fn add_dm_reaction(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction event to members: {}", e);
@@ -1746,6 +1759,7 @@ async fn remove_dm_reaction(
     let event = WsEvent::MessageUpdated {
         channel_id,
         message: message.clone(),
+        viewer_id: claims.sub,
     };
     if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
         tracing::warn!("Failed to push DM reaction removal event to members: {}", e);
