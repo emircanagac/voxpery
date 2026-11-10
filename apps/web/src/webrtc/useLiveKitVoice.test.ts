@@ -9,6 +9,7 @@ import {
   getPreferredScreenShareCodec,
   getScreenShareAudioPublishOptions,
   getScreenSharePublishOptions,
+  isRetryableVoiceJoinError,
   LIVEKIT_AUTO_SUBSCRIBE,
   reconcileLiveKitVoicePresence,
   reconcileFinalMediaDisconnect,
@@ -23,7 +24,7 @@ import {
   shouldRecoverMicrophoneTrack,
   voiceJoinModeration,
 } from './useLiveKitVoice'
-import { AudioPresets, Track, type Participant, type RemoteParticipant, type TrackPublication } from 'livekit-client'
+import { AudioPresets, ConnectionError, Track, type Participant, type RemoteParticipant, type TrackPublication } from 'livekit-client'
 import { isScreenShareAudioTrack } from './remoteMediaControls'
 import { useAppStore } from '../stores/app'
 
@@ -526,5 +527,18 @@ describe('remote media start cues', () => {
     expect(seen.has('user-1:camera')).toBe(false)
     expect(seen.has('user-1:screen')).toBe(false)
     expect(seen.has('user-2:camera')).toBe(true)
+  })
+})
+
+describe('voice join retry', () => {
+  it('retries a connection that timed out or dropped, but not a refusal', () => {
+    expect(isRetryableVoiceJoinError(new Error('LiveKit connection timeout after 15 seconds'))).toBe(true)
+    expect(isRetryableVoiceJoinError(new Error('LiveKit disconnected before voice presence was registered'))).toBe(true)
+    expect(isRetryableVoiceJoinError(ConnectionError.timeout('signal timed out'))).toBe(true)
+    expect(isRetryableVoiceJoinError(ConnectionError.notAllowed('token rejected', 401))).toBe(false)
+    expect(isRetryableVoiceJoinError(ConnectionError.cancelled('cancelled'))).toBe(false)
+    expect(isRetryableVoiceJoinError(new Error('CONNECTION_ERROR:The server did not respond in time.'))).toBe(true)
+    expect(isRetryableVoiceJoinError(new Error('Permission denied'))).toBe(false)
+    expect(isRetryableVoiceJoinError('LiveKit connection timeout')).toBe(false)
   })
 })

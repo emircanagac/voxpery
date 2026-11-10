@@ -90,6 +90,11 @@ describe('voice audio context resume', () => {
     ctx.resume.mockRejectedValue(new Error('Permission denied'))
     await expect(resumeVoiceAudioContext(ctx as unknown as AudioContext)).rejects.toThrow('Permission denied')
   })
+
+  it('stops waiting for a resume that never settles so a voice join cannot hang', async () => {
+    const ctx = { state: 'suspended', resume: vi.fn(() => new Promise<void>(() => {})) }
+    await expect(resumeVoiceAudioContext(ctx as unknown as AudioContext, 10)).rejects.toThrow('Voice audio is interrupted')
+  })
 })
 
 describe('mobile voice pipeline selection', () => {

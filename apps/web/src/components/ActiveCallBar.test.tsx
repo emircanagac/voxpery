@@ -192,6 +192,7 @@ function voiceState(overrides?: Record<string, unknown>): UseLiveKitVoiceState {
     remoteScreenTrackIds: new Set<string>(),
     watchedRemoteScreenPeerIds: new Set<string>(),
     pingMs: 7,
+    lastJoinMs: null,
     lastError: null,
     livekit: {
       roomState: 'connected',
@@ -280,11 +281,26 @@ describe('ActiveCallBar regressions', () => {
         expect(voice.joinVoice).toHaveBeenCalledTimes(3)
         expect(useToastStore.getState().toasts).toHaveLength(1)
         expect(useToastStore.getState().toasts[0].id).toBe(retryToast.id)
+        // The channel view offers to try again until the next attempt starts.
+        expect(useAppStore.getState().voiceJoinFailedChannelId).toBe(voiceChannel.id)
       } finally {
         capture.mockRestore()
+        useAppStore.setState({ voiceJoinFailedChannelId: null })
       }
     },
   )
+
+  it('shows how long the join took next to the ping during the call', () => {
+    renderActiveCallBar({ lastJoinMs: 1340 })
+    expect(screen.getByRole('status', { name: /Voice ping/ })).toHaveAttribute('title', 'Voice ping: 7ms. Joined in 1.3 s.')
+  })
+
+  it('cancels a connecting join from the voice channel view', () => {
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, isJoining: true, localStream: null })
+    const cancel = (window as Window & { __voxperyCancelVoiceJoin?: () => void }).__voxperyCancelVoiceJoin!
+    act(() => cancel())
+    expect(voice.leaveVoice).toHaveBeenCalledOnce()
+  })
 
   it('keeps microphone denial visible and retries the original channel only on user action', async () => {
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })

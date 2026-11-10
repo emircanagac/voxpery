@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AudioPresets,
+  ConnectionError,
+  ConnectionErrorReason,
   DisconnectReason,
   isBrowserSupported,
   LocalAudioTrack,
@@ -42,7 +44,8 @@ import {
   shouldRebuildSuppressionPipeline,
 } from './voiceInputProfile'
 import { updateVoiceDiagnostics } from './voiceDiagnostics'
-import { createVoiceJoinTiming } from './voiceJoinTiming'
+import { createVoiceJoinTiming, type VoiceJoinStage } from './voiceJoinTiming'
+import { rememberLivekitUrl } from './voiceConnectionPrewarm'
 import {
   getRemoteMicrophoneAudioTracks,
   isScreenShareAudioTrack,
@@ -68,6 +71,24 @@ export const REMOTE_PARTICIPANT_LEAVE_GRACE_MS = 3_000
 
 /** A join superseded by leave, unmount or a newer join; it releases its own media silently. */
 class VoiceJoinCancelledError extends Error {}
+class VoiceJoinStalledError extends Error {}
+
+/** A join step (other than the microphone prompt) that makes no progress for this long is stuck. */
+const VOICE_JOIN_STALL_MS = 20_000
+const VOICE_JOIN_STALLED_MESSAGE = 'Joining voice stopped responding. Try again.'
+
+/** A connection that timed out or dropped while joining; a refusal or a removal is final. */
+export function isRetryableVoiceJoinError(error: unknown): boolean {
+  if (error instanceof ConnectionError) {
+    return error.reason === ConnectionErrorReason.ServerUnreachable
+      || error.reason === ConnectionErrorReason.Timeout
+      || error.reason === ConnectionErrorReason.WebSocket
+      || error.reason === ConnectionErrorReason.InternalError
+  }
+  // `CONNECTION_ERROR:` is how the API client reports an unreachable or silent server.
+  return error instanceof Error
+    && /^(LiveKit (connection timeout|disconnected before voice presence)|CONNECTION_ERROR:)/.test(error.message)
+}
 
 type VoiceControlState = {
   muted?: boolean
@@ -390,6 +411,8 @@ export interface UseLiveKitVoiceState {
   remoteScreenTrackIds: Set<string>
   watchedRemoteScreenPeerIds: Set<PeerId>
   pingMs: number | null
+  /** How long the last successful join took, in milliseconds, while that call lasts. */
+  lastJoinMs: number | null
   lastError: string | null
   livekit: {
     roomState: string
@@ -454,6 +477,7 @@ export function useLiveKitVoice() {
   const [isJoining, setIsJoining] = useState(false)
   // Bumped by every join, leave and unmount so suspended joins can detect they are stale.
   const joinAttemptRef = useRef(0)
+  const pendingJoinAbortsRef = useRef(new Set<() => void>())
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null)
@@ -477,6 +501,7 @@ export function useLiveKitVoice() {
   const [roomState, setRoomState] = useState('disconnected')
   const [participantCount, setParticipantCount] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [lastJoinMs, setLastJoinMs] = useState<number | null>(null)
 
   const remoteMediaSubscriptionKey = useCallback((peerId: string, kind: RemoteMediaKind) => (
     `${peerId}:${kind}`
@@ -1085,7 +1110,14 @@ export function useLiveKitVoice() {
     remoteScreenStopCueTimersRef.current.set(participant.identity, timer)
   }, [cancelRemoteScreenStopCue, playVoiceCue])
 
-  const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
+  const joinVoiceAttempt = useCallback(async (
+    channelId: string,
+    options?: {
+      preflightStream?: MediaStream
+      willRetryConnectionFailure?: boolean
+      onStage?: (stage: VoiceJoinStage | null) => void
+    },
+  ) => {
     // A native permission prompt can outlive the render that started the join.
     const currentSocket = useSocketStore.getState()
     if (!currentSocket.isConnected) {
@@ -1113,7 +1145,12 @@ export function useLiveKitVoice() {
     let attemptCancelGate: (() => void) | null = null
     reportObservabilityEvent('voice_join_started')
     let preflightStream: MediaStream | null = options?.preflightStream ?? null
-    const joinTiming = createVoiceJoinTiming(preflightStream)
+    const joinTiming = createVoiceJoinTiming(preflightStream, (stage) => {
+      // A cancelled attempt that finishes late must not overwrite a newer join's progress.
+      if (joinAttemptRef.current !== attempt) return
+      useAppStore.getState().setVoiceJoinStage(stage)
+      options?.onStage?.(stage)
+    })
     let micPublished = false
 
     try {
@@ -1127,6 +1164,17 @@ export function useLiveKitVoice() {
 
       const rawMicTrack = preflightStream.getAudioTracks()[0]
       if (!rawMicTrack) throw new Error('No microphone track available')
+
+      // The token and TURN requests do not depend on the microphone pipeline, so they run while
+      // it is built instead of one after the other. They start only once the microphone is
+      // granted, so a slow permission prompt cannot outlive the token.
+      const tokenRequest = webrtcApi.getLivekitToken(channelId, token ?? null)
+      tokenRequest.catch(() => {
+        // Awaited below; this only keeps an attempt that stops earlier from leaving it unhandled.
+      })
+      const turnRequest = useFeatureStore.getState().features?.turn_enabled
+        ? webrtcApi.getTurnCredentials(token ?? null).catch(() => null)
+        : Promise.resolve(null)
 
       const audioContext = getAudioContext()
       await resumeVoiceAudioContext(audioContext)
@@ -1154,6 +1202,8 @@ export function useLiveKitVoice() {
         rawMicTrackRef,
         inputGainNodeRef,
         noiseSuppressionEnabled,
+        // A pipeline that finishes after this attempt ended releases itself instead of taking over.
+        () => joinAttemptRef.current === attempt,
       )
       attemptCancelGate = cancelGate
       ensureCurrentJoin()
@@ -1167,7 +1217,8 @@ export function useLiveKitVoice() {
       vadStreamRef.current = vadStream
 
       joinTiming.mark('processingMs')
-      const { ws_url, token: lkToken, server_muted, server_deafened } = await webrtcApi.getLivekitToken(channelId, token ?? null)
+      const { ws_url, token: lkToken, server_muted, server_deafened } = await tokenRequest
+      rememberLivekitUrl(ws_url)
       ensureCurrentJoin()
       joinTiming.mark('tokenMs')
       const joinControl = voiceJoinModeration(selfMutedRef.current, selfDeafenedRef.current, !!server_muted, !!server_deafened)
@@ -1298,19 +1349,14 @@ export function useLiveKitVoice() {
       // ICE servers come from LiveKit's join response. Setting them here replaces that list, so
       // it is done only when this server runs its own TURN, and never with third-party STUN.
       let iceServers: RTCIceServer[] | undefined
-      if (useFeatureStore.getState().features?.turn_enabled) {
-        try {
-          const turnCreds = await webrtcApi.getTurnCredentials(token ?? null)
-          if (turnCreds.urls && turnCreds.urls.length > 0) {
-            iceServers = [{
-              urls: turnCreds.urls,
-              username: turnCreds.username,
-              credential: turnCreds.credential,
-            }]
-          }
-        } catch {
-          // Without TURN credentials, LiveKit's own ICE servers are used.
-        }
+      // Without TURN credentials, LiveKit's own ICE servers are used.
+      const turnCreds = await turnRequest
+      if (turnCreds?.urls && turnCreds.urls.length > 0) {
+        iceServers = [{
+          urls: turnCreds.urls,
+          username: turnCreds.username,
+          credential: turnCreds.credential,
+        }]
       }
       joinTiming.mark('turnMs')
       ensureCurrentJoin()
@@ -1583,9 +1629,11 @@ export function useLiveKitVoice() {
       playVoiceCue('join')
       reportObservabilityEvent('voice_join_succeeded')
       joinTiming.mark('publicationMs')
-      joinTiming.finish('connected')
+      setLastJoinMs(joinTiming.finish('connected'))
     } catch (e: unknown) {
-      const cancelled = e instanceof VoiceJoinCancelledError
+      // Any failure of an attempt that a leave, a newer join or the join watchdog already ended
+      // is a cancellation: the attempt no longer owns the shared voice state.
+      const cancelled = e instanceof VoiceJoinCancelledError || joinAttemptRef.current !== attempt
       if (cancelled) {
         // Release what this attempt captured; a leave may have run before these existed.
         attemptCancelGate?.()
@@ -1594,13 +1642,16 @@ export function useLiveKitVoice() {
           attemptRoom.removeAllListeners()
           try { await attemptRoom.disconnect() } catch { /* The room is already closing. */ }
         }
-        // A newer join owns the shared refs; leave/unmount falls through to release them.
-        if (isJoiningRef.current) return
+        // A newer join or call owns the shared refs; leave/unmount falls through to release them.
+        if (isJoiningRef.current || joinedChannelIdRef.current) return
       } else {
         joinTiming.finish('failed')
-        reportObservabilityEvent('voice_join_failed')
-        const msg = (e as Error)?.message ?? 'Failed to join voice'
-        setLastError(msg)
+        // An attempt that will be retried stays quiet; only the final failure is reported.
+        if (!(options?.willRetryConnectionFailure && isRetryableVoiceJoinError(e))) {
+          reportObservabilityEvent('voice_join_failed')
+          const msg = (e as Error)?.message ?? 'Failed to join voice'
+          setLastError(msg)
+        }
       }
       remoteMediaStartCueReadyRef.current = false
       remoteMediaStartCueKeysRef.current.clear()
@@ -1641,6 +1692,7 @@ export function useLiveKitVoice() {
       if (joinAttemptRef.current === attempt) {
         isJoiningRef.current = false
         setIsJoining(false)
+        useAppStore.getState().setVoiceJoinStage(null)
       }
     }
     }, [applyLocalMicSettings, buildMicSendTrack, cleanupLocalMedia, closePeer, destroyRnnoise, getAudioContext, getMicrophoneStream, getScreenShareEncoding, getInputVolumeFactor, mobileOptimizedVoice, playRemoteMediaStartCue, playVoiceCue, publishModeratedMicrophone, recoverForegroundVoice, refreshLocalStreams, rememberExistingRemoteMedia, remoteMediaSubscriptionKey, removeRemoteTrack, restartRemoteSpeakingMonitor, retryRemotePublicationSubscription, scheduleRemoteMediaStopCue, send, setLocalMicMuted, startLocalSpeakingMonitor, stopLocalSpeakingMonitor, syncParticipantMediaState, syncRemotePublicationSubscription, syncRemoteSubscriptions, token, updateRoomStats, userId, voiceMode])
@@ -1651,6 +1703,12 @@ export function useLiveKitVoice() {
     joinAttemptRef.current += 1
     isJoiningRef.current = false
     setIsJoining(false)
+    // A join stuck in a step that never settles still ends for its caller now.
+    const pendingJoinAborts = [...pendingJoinAbortsRef.current]
+    pendingJoinAbortsRef.current.clear()
+    pendingJoinAborts.forEach((abort) => abort())
+    useAppStore.getState().setVoiceJoinStage(null)
+    setLastJoinMs(null)
     participantCueCleanupRef.current?.()
     participantCueCleanupRef.current = null
     const departingChannelId = joinedChannelIdRef.current
@@ -1710,6 +1768,73 @@ export function useLiveKitVoice() {
     setCameraFacingMode('user')
     setCanSwitchCamera(false)
   }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
+
+  // Runs one join attempt under a watchdog. A step other than the microphone prompt that makes
+  // no progress for VOICE_JOIN_STALL_MS ends the attempt the way leaving does; a leave settles
+  // the wait at once, so a stuck attempt never keeps the next join from starting.
+  const runWatchedJoinAttempt = useCallback((
+    channelId: string,
+    options?: { preflightStream?: MediaStream; willRetryConnectionFailure?: boolean },
+  ): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let settleEarly: (error?: Error) => void = () => {}
+    const early = new Promise<void>((resolve, reject) => {
+      settleEarly = (error) => (error ? reject(error) : resolve())
+    })
+    // A stuck step may never reach the attempt's own cleanup, so the microphone it was given is
+    // released here; the attempt stops it too if it resumes later.
+    const releasePreflight = () => options?.preflightStream?.getTracks().forEach((track) => track.stop())
+    const abort = () => {
+      settleEarly()
+      releasePreflight()
+    }
+    pendingJoinAbortsRef.current.add(abort)
+    const attemptPromise = joinVoiceAttempt(channelId, {
+      ...options,
+      onStage: (stage) => {
+        clearTimeout(timer)
+        if (!stage || stage === 'microphoneMs') return
+        timer = setTimeout(() => {
+          pendingJoinAbortsRef.current.delete(abort)
+          settleEarly(new VoiceJoinStalledError(VOICE_JOIN_STALLED_MESSAGE))
+          leaveVoice({ skipLeaveSound: true, skipServerLeave: true })
+          releasePreflight()
+        }, VOICE_JOIN_STALL_MS)
+      },
+    })
+    attemptPromise.catch(() => {
+      // Settled through the race below; a stuck attempt that fails later is already handled.
+    })
+    return Promise.race([attemptPromise, early]).finally(() => {
+      clearTimeout(timer)
+      pendingJoinAbortsRef.current.delete(abort)
+    })
+  }, [joinVoiceAttempt, leaveVoice])
+
+  // A join whose connection timed out, dropped or stopped responding is retried once, quietly:
+  // the failed attempt released the microphone, so the retry captures it again. Leaving or
+  // starting another join in the meantime cancels the retry.
+  const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
+    const generation = joinAttemptRef.current
+    try {
+      await runWatchedJoinAttempt(channelId, { ...options, willRetryConnectionFailure: true })
+    } catch (error) {
+      const stalled = error instanceof VoiceJoinStalledError
+      // The attempt counts one generation, and a watchdog stop counts another.
+      const untouched = joinAttemptRef.current === generation + (stalled ? 2 : 1)
+      if (!(stalled || isRetryableVoiceJoinError(error)) || !untouched) throw error
+      try {
+        await runWatchedJoinAttempt(channelId)
+      } catch (retryError) {
+        // A stopped attempt reports nothing itself, so its final failure is reported here.
+        if (retryError instanceof VoiceJoinStalledError) {
+          reportObservabilityEvent('voice_join_failed')
+          setLastError(retryError.message)
+        }
+        throw retryError
+      }
+    }
+  }, [runWatchedJoinAttempt])
 
   const moveVoice = useCallback(async (channelId: string) => {
     const currentChannelId = joinedChannelIdRef.current
@@ -2170,6 +2295,7 @@ export function useLiveKitVoice() {
     remoteScreenTrackIds,
     watchedRemoteScreenPeerIds,
     pingMs,
+    lastJoinMs,
     lastError,
     livekit: {
       roomState,

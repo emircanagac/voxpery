@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Server, Channel, MemberInfo, Friend, DmChannel } from '../api'
+import type { VoiceJoinStage } from '../webrtc/voiceJoinTiming'
 
 export type ServerSettingsTab = 'overview' | 'roles' | 'audit' | 'reports' | 'automod' | 'bans' | 'safety' | 'danger'
 
@@ -91,6 +92,12 @@ interface AppState {
     // Voice channel a join started from the channel list or voice stage is connecting to
     joiningVoiceChannelId: string | null
     setJoiningVoiceChannelId: (id: string | null) => void
+    // Stage the voice join in progress is waiting for, shown while it connects
+    voiceJoinStage: VoiceJoinStage | null
+    setVoiceJoinStage: (stage: VoiceJoinStage | null) => void
+    // Voice channel whose last join failed, so its view offers to try again
+    voiceJoinFailedChannelId: string | null
+    setVoiceJoinFailedChannelId: (id: string | null) => void
     // Modals
     showCreateServer: boolean
     showJoinServer: boolean
@@ -405,6 +412,10 @@ export const useAppStore = create<AppState>()(
             setJoinedVoiceChannelId: (id) => set({ joinedVoiceChannelId: id }),
             joiningVoiceChannelId: null,
             setJoiningVoiceChannelId: (id) => set({ joiningVoiceChannelId: id }),
+            voiceJoinStage: null,
+            setVoiceJoinStage: (stage) => set({ voiceJoinStage: stage }),
+            voiceJoinFailedChannelId: null,
+            setVoiceJoinFailedChannelId: (id) => set({ voiceJoinFailedChannelId: id }),
 
             // Modals
             showCreateServer: false,
@@ -447,6 +458,8 @@ export const useAppStore = create<AppState>()(
                     voiceLocalSpeaking: false,
                     joinedVoiceChannelId: null,
                     joiningVoiceChannelId: null,
+                    voiceJoinStage: null,
+                    voiceJoinFailedChannelId: null,
                     showCreateServer: false,
                     showJoinServer: false,
                     openServerSettingsForServerId: null,

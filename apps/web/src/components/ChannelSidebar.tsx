@@ -10,6 +10,7 @@ import { useSocketStore } from '../stores/socket'
 import { friendApi, resolveAvatarUrl, serverApi, type Channel } from '../api'
 import { useToastStore } from '../stores/toast'
 import { preloadRnnoiseWorklet } from '../webrtc/rnnoise'
+import { prewarmVoiceConnection } from '../webrtc/voiceConnectionPrewarm'
 import { formatBadgeCount } from '../formatUnreadBadgeCount'
 import VoiceChannelDuration from './VoiceChannelDuration'
 import ServerHeaderMenu from './ServerHeaderMenu'
@@ -539,7 +540,11 @@ export default function ChannelSidebar({
                                         tabIndex={0}
                                         aria-label={`${ch.channel_type === 'voice' ? 'Voice' : 'Text'} channel ${ch.name}`}
                                         aria-disabled={isVoiceLocked}
-                                        onMouseEnter={() => { if (ch.channel_type === 'voice' && !isVoiceLocked) preloadRnnoiseWorklet() }}
+                                        onMouseEnter={() => {
+                                            if (ch.channel_type !== 'voice' || isVoiceLocked) return
+                                            preloadRnnoiseWorklet()
+                                            prewarmVoiceConnection()
+                                        }}
                                         title={isVoiceLocked ? "You don't have permission to connect to this voice channel." : undefined}
                                         onClick={() => {
                                             if (isVoiceLocked) return

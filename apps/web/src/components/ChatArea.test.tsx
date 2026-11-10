@@ -188,20 +188,36 @@ describe('ChatArea regressions', () => {
     expect(screen.getByRole('button', { name: 'Join voice' })).toBeInTheDocument()
   })
 
-  it('shows that a join is connecting instead of offering Join voice again', () => {
-    useAppStore.setState({ joiningVoiceChannelId: 'voice-1' })
+  it('shows what a connecting join waits for and lets it be cancelled instead of offering Join voice again', () => {
+    const cancel = vi.fn()
+    const voiceWindow = window as Window & { __voxperyCancelVoiceJoin?: () => void }
+    voiceWindow.__voxperyCancelVoiceJoin = cancel
+    useAppStore.setState({ joiningVoiceChannelId: 'voice-1', voiceJoinStage: 'connectionMs' })
     try {
       const { unmount } = renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
-      expect(screen.getByRole('status')).toHaveTextContent('Connecting to Lounge…')
-      expect(screen.getByRole('button', { name: 'Joining…' })).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent('Connecting to Lounge… Connecting to the voice server.')
       expect(screen.queryByRole('button', { name: 'Join voice' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel joining Lounge' }))
+      expect(cancel).toHaveBeenCalledOnce()
       unmount()
 
       // While another channel is connecting, this one cannot start a second join.
       renderChatArea({ activeChannel: { ...channel('voice-2', 'Studio'), channel_type: 'voice' } as Channel })
       expect(screen.getByRole('button', { name: 'Join voice' })).toBeDisabled()
     } finally {
-      useAppStore.setState({ joiningVoiceChannelId: null })
+      useAppStore.setState({ joiningVoiceChannelId: null, voiceJoinStage: null })
+      delete voiceWindow.__voxperyCancelVoiceJoin
+    }
+  })
+
+  it('offers to try again after a voice join failed', () => {
+    useAppStore.setState({ voiceJoinFailedChannelId: 'voice-1' })
+    try {
+      renderChatArea({ activeChannel: { ...channel('voice-1', 'Lounge'), channel_type: 'voice' } as Channel })
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not connect to Lounge.')
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+    } finally {
+      useAppStore.setState({ voiceJoinFailedChannelId: null })
     }
   })
 

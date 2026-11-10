@@ -23,3 +23,21 @@ it('does not expose diagnostics without opt-in', () => {
   createVoiceJoinTiming().finish('failed')
   expect(getVoiceDiagnosticsSnapshot()).toBeNull()
 })
+
+it('names the stage a running or failed join is waiting for', () => {
+  localStorage.setItem(VOICE_DIAGNOSTICS_STORAGE_KEY, '1')
+  const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+  const timing = createVoiceJoinTiming()
+  now.mockReturnValue(40)
+  timing.mark('microphoneMs')
+  now.mockReturnValue(90)
+  timing.mark('processingMs')
+  expect(getVoiceDiagnosticsSnapshot()?.joinTiming).toEqual({
+    microphoneMs: 40, processingMs: 50, totalMs: 90, outcome: 'joining', pendingStage: 'tokenMs',
+  })
+  now.mockReturnValue(120)
+  timing.mark('tokenMs')
+  now.mockReturnValue(5000)
+  timing.finish('failed')
+  expect(getVoiceDiagnosticsSnapshot()?.joinTiming).toMatchObject({ outcome: 'failed', failedStage: 'turnMs', totalMs: 5000 })
+})

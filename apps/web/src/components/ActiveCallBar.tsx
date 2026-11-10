@@ -1109,6 +1109,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       if (state.joinedChannelId === channelId) return
       joinPendingRef.current = true
       setPreflightPending(true)
+      useAppStore.getState().setVoiceJoinFailedChannelId(null)
       const generation = ++joinGenerationRef.current
       const accountId = useAuthStore.getState().user?.id
       const channelContext = useAppStore.getState().activeChannelId
@@ -1135,6 +1136,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         if (generation === joinGenerationRef.current) setJoinFailure(null)
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
+        if (isCurrentAttempt()) useAppStore.getState().setVoiceJoinFailedChannelId(channelId)
         const message = mapMicPreflightError(err)
         if (isCurrentAttempt() && message) {
           setJoinFailure({ channelId, message })
@@ -1153,6 +1155,26 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
         if (generation === joinGenerationRef.current) setPreflightPending(false)
       }
   }, [joinVoice, mapMicPreflightError, moveVoice, pushToast, state.isJoining, state.joinedChannelId])
+
+  // Cancels a join that is still connecting from the voice channel view, the same way leaving
+  // from the call bar does: the new generation keeps the attempt from reporting an error.
+  const cancelPendingJoin = useCallback(() => {
+    if (!state.isJoining && !joinPendingRef.current) return
+    const joiningChannelId = useAppStore.getState().joiningVoiceChannelId
+    joinGenerationRef.current++
+    setPreflightPending(false)
+    micTestAutoDeafenedRef.current = false
+    leaveVoice()
+    if (joiningChannelId) setBlockedAutoJoinChannelId(joiningChannelId)
+  }, [leaveVoice, state.isJoining])
+
+  useEffect(() => {
+    const voiceWindow = window as Window & { __voxperyCancelVoiceJoin?: () => void }
+    voiceWindow.__voxperyCancelVoiceJoin = cancelPendingJoin
+    return () => {
+      if (voiceWindow.__voxperyCancelVoiceJoin === cancelPendingJoin) delete voiceWindow.__voxperyCancelVoiceJoin
+    }
+  }, [cancelPendingJoin])
 
   // Both the sidebar and dock use the same permission/retry path.
   useEffect(() => {
@@ -1562,9 +1584,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           ? 'is-bad'
           : 'is-unknown'
   const pingDisplay = formatMetric(state.pingMs, 'ms', '...')
+  // How long the join took stays readable for the call, so slow joins can be reported.
+  const joinTimeText = state.joinedChannelId && state.lastJoinMs !== null
+    ? ` Joined in ${(state.lastJoinMs / 1000).toFixed(1)} s.`
+    : ''
   const pingAriaLabel = !hasActiveVoiceSession
     ? 'Voice ping: not in voice'
-    : `Voice ping: ${pingDisplay}.`
+    : `Voice ping: ${pingDisplay}.${joinTimeText}`
   const micControlLabel = muted
     ? 'Unmute microphone'
     : (serverMuted || serverDeafened)
