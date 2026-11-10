@@ -1,22 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import type { Window as DesktopWindow } from '@tauri-apps/api/window'
 
 type ResizeDirection = Parameters<DesktopWindow['startResizeDragging']>[0]
 
+const ICON_RESYNC_MS = 250
+const IS_LINUX_DESKTOP = typeof navigator !== 'undefined' && /linux/i.test(navigator.userAgent)
+
 const loadDesktopWindow = () =>
     import('@tauri-apps/api/window').then(({ getCurrentWindow }) => getCurrentWindow())
 
 function runWindowAction(action: (desktopWindow: DesktopWindow) => Promise<void>) {
-    void loadDesktopWindow()
+    return loadDesktopWindow()
         .then(action)
         .catch(() => {
             // The window keeps its current state if the runtime rejects the request.
         })
 }
 
-function useWindowMaximized() {
+function useWindowMaximized(): [boolean, () => void] {
     const [maximized, setMaximized] = useState(false)
+    const syncRef = useRef<() => void>(() => {})
 
     useEffect(() => {
         let cancelled = false
@@ -26,6 +30,9 @@ function useWindowMaximized() {
                 const sync = async () => {
                     const value = await desktopWindow.isMaximized()
                     if (!cancelled) setMaximized(value)
+                }
+                syncRef.current = () => {
+                    void sync().catch(() => {})
                 }
                 await sync()
                 const unlisten = await desktopWindow.onResized(() => {
@@ -39,16 +46,24 @@ function useWindowMaximized() {
             })
         return () => {
             cancelled = true
+            syncRef.current = () => {}
             stopListening?.()
         }
     }, [])
 
-    return maximized
+    // The state can change without a resize (for example a restore the window manager kept at
+    // full size), so the icon is also re-read shortly after the button is used.
+    const resync = useCallback(() => {
+        syncRef.current()
+        window.setTimeout(() => syncRef.current(), ICON_RESYNC_MS)
+    }, [])
+
+    return [maximized, resync]
 }
 
 /** Minimize, maximize and close for the frameless desktop window (same on every platform). */
 export default function WindowControls() {
-    const maximized = useWindowMaximized()
+    const [maximized, resyncMaximized] = useWindowMaximized()
 
     return (
         <div className="window-controls">
@@ -66,7 +81,13 @@ export default function WindowControls() {
                 className="window-control"
                 aria-label={maximized ? 'Restore' : 'Maximize'}
                 title={maximized ? 'Restore' : 'Maximize'}
-                onClick={() => runWindowAction((desktopWindow) => desktopWindow.toggleMaximize())}
+                onClick={() => {
+                    void runWindowAction((desktopWindow) => (IS_LINUX_DESKTOP
+                        // Only Linux needs the restore fix-up; elsewhere the native toggle runs at once.
+                        ? import('../desktopWindowMaximize').then(({ toggleDesktopWindowMaximize }) => toggleDesktopWindowMaximize(desktopWindow, true))
+                        : desktopWindow.toggleMaximize()))
+                        .finally(resyncMaximized)
+                }}
             >
                 {maximized ? <Copy size={14} /> : <Square size={14} />}
             </button>
@@ -101,7 +122,7 @@ const RESIZE_EDGES: Array<{ direction: ResizeDirection; className: string }> = [
  * borders without a title bar; the Linux runtime does not, so the page provides them.
  */
 function WindowResizeEdges() {
-    const maximized = useWindowMaximized()
+    const [maximized] = useWindowMaximized()
     if (maximized) return null
 
     return (
@@ -122,7 +143,7 @@ function WindowResizeEdges() {
     )
 }
 
-const NEEDS_RESIZE_EDGES = typeof navigator !== 'undefined' && /linux/i.test(navigator.userAgent)
+const NEEDS_RESIZE_EDGES = IS_LINUX_DESKTOP
 
 /**
  * Window frame for the desktop app on every screen: Linux resize borders, and a draggable strip
@@ -130,6 +151,13 @@ const NEEDS_RESIZE_EDGES = typeof navigator !== 'undefined' && /linux/i.test(nav
  * The strip hides itself while the app header, which is the title bar there, is shown.
  */
 export function DesktopWindowChrome() {
+    // A saved window size from a bigger or less scaled screen would hang off this one.
+    useEffect(() => {
+        if (!IS_LINUX_DESKTOP) return
+        void runWindowAction((desktopWindow) => import('../desktopWindowMaximize')
+            .then(({ fitLinuxDesktopWindowToWorkArea }) => fitLinuxDesktopWindowToWorkArea(desktopWindow)))
+    }, [])
+
     return (
         <>
             {NEEDS_RESIZE_EDGES && <WindowResizeEdges />}

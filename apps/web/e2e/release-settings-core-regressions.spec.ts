@@ -177,6 +177,25 @@ test.describe('mocked release and settings regressions', () => {
     await page.screenshot({ path: testInfo.outputPath('desktop-title-bar.png'), clip: { x: 0, y: 0, width: 1920, height: 60 } })
   })
 
+  test('keeps the window buttons on screen in a desktop window snapped to half of a small screen', { tag: '@core' }, async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState())
+    await installDesktopWindowMock(page, true)
+    // Half of a 1280px-wide screen (1920x1080 at 150%) and the desktop app's minimum width.
+    for (const width of [640, 520]) {
+      await page.setViewportSize({ width, height: 680 })
+      await page.goto('/social')
+      const controls = page.locator('.shell-topbar .window-controls')
+      for (const name of ['Minimize', 'Maximize', 'Close']) {
+        const button = controls.getByRole('button', { name })
+        await expect(button).toBeVisible()
+        const box = (await button.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    }
+  })
+
   test('keeps the desktop window draggable and closable on the sign-in screen', { tag: '@core' }, async ({ page }, testInfo) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
     await installDesktopWindowMock(page, false)
