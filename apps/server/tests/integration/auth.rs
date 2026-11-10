@@ -2990,3 +2990,38 @@ async fn desktop_captcha_frame_is_embeddable_only_by_the_desktop_app() {
         assert_eq!(response.headers()["x-frame-options"], "DENY");
     }
 }
+
+#[tokio::test]
+async fn concurrent_registrations_for_one_email_conflict_instead_of_failing() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (app, _state) = setup_app().await;
+    let suffix = Uuid::new_v4();
+    let email = format!("race-{suffix}@example.com");
+    let password = test_credential("race");
+    let request = |username: String| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/register")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&registration_body(&email, &username, password)).unwrap(),
+            ))
+            .unwrap()
+    };
+    let id = suffix.as_u128() % 1_000_000;
+    let (mut first_app, mut second_app) = (app.clone(), app.clone());
+    let ((first_status, _), (second_status, _)) = tokio::join!(
+        oneshot(&mut first_app, request(format!("race_a_{id}"))),
+        oneshot(&mut second_app, request(format!("race_b_{id}")))
+    );
+    let mut statuses = [first_status, second_status];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        [StatusCode::OK, StatusCode::CONFLICT],
+        "the losing registration must be told the account exists"
+    );
+}

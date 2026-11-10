@@ -22,6 +22,9 @@ pub enum WsEvent {
         channel_id: Uuid,
         channel_type: String,
         message: MessageWithAuthor,
+        /// The sender's own request id, so the sender's sessions can match their pending copy.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_request_id: Option<String>,
     },
     /// A DM channel was read by one session for the current user.
     DmRead {

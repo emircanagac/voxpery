@@ -967,6 +967,7 @@ async fn send_dm_message(
             channel_id,
             channel_type: "dm".to_string(),
             message: message.clone(),
+            client_request_id: client_request_id.clone(),
         };
         if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
             tracing::warn!("Failed to push DM event to members: {}", e);

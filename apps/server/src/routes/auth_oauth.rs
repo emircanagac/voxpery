@@ -314,12 +314,52 @@ pub(super) async fn consume_desktop_oauth_code(
     }))
 }
 
+/// Keeps the post-sign-in destination an in-app path. Browsers drop tabs and newlines while
+/// parsing URLs, so a path such as `/<tab>/host` could otherwise become the protocol-relative
+/// `//host`; whitespace, control characters and backslashes fall back to `/`.
+fn safe_oauth_redirect_path(redirect: &str) -> &str {
+    let redirect = redirect.trim();
+    if redirect.starts_with('/')
+        && !redirect.starts_with("//")
+        && !redirect
+            .chars()
+            .any(|c| c == '\\' || c.is_control() || c.is_whitespace())
+    {
+        redirect
+    } else {
+        "/"
+    }
+}
+
 #[cfg(test)]
 mod oauth_pkce_tests {
     use super::{
         constant_time_eq, desktop_oauth_handoff_html, is_valid_pkce_component,
         normalize_oauth_username_seed, oauth_callback_response, pkce_s256_challenge,
+        safe_oauth_redirect_path,
     };
+
+    #[test]
+    fn keeps_oauth_redirects_inside_the_app() {
+        assert_eq!(
+            safe_oauth_redirect_path(" /invite/abc?x=1#top "),
+            "/invite/abc?x=1#top"
+        );
+        for value in [
+            "",
+            "servers",
+            "https://example.com",
+            "//example.com",
+            "/\t/example.com",
+            "/\n/example.com",
+            "/\r/example.com",
+            "/\\example.com",
+            "/ /example.com",
+            "/\u{7f}/example.com",
+        ] {
+            assert_eq!(safe_oauth_redirect_path(value), "/", "{value:?}");
+        }
+    }
 
     #[test]
     fn compares_sensitive_strings_without_plain_equality() {
@@ -574,15 +614,7 @@ pub(super) async fn google_oauth_start(
         .unwrap_or("http://localhost:3001")
         .trim_end_matches('/');
     let redirect_uri = format!("{}/api/auth/google/callback", public_url);
-    let redirect_path = q.redirect.as_deref().unwrap_or("/servers").trim();
-    let redirect_path = if redirect_path.starts_with('/')
-        && !redirect_path.starts_with("//")
-        && !redirect_path.contains(['\\', '\n', '\r'])
-    {
-        redirect_path
-    } else {
-        "/"
-    };
+    let redirect_path = safe_oauth_redirect_path(q.redirect.as_deref().unwrap_or("/servers"));
     let origin = q
         .origin
         .as_deref()

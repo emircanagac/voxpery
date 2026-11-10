@@ -655,7 +655,14 @@ async fn register(
     .bind(current_privacy_notice_version())
     .bind(current_kvkk_notice_version())
     .fetch_one(&mut *tx)
-    .await?;
+    .await
+    .map_err(|error| match error {
+        // A concurrent registration took the email or username after the check above.
+        sqlx::Error::Database(database) if database.is_unique_violation() => {
+            AppError::UserAlreadyExists
+        }
+        error => AppError::Database(error),
+    })?;
 
     record_privacy_event(
         &mut tx,

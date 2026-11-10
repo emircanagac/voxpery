@@ -936,6 +936,7 @@ async fn send_message(
                 channel_id,
                 channel_type: "text".to_string(), // Text channel messages
                 message: msg_with_author.clone(),
+                client_request_id: client_request_id.clone(),
             },
         )
         .await;
