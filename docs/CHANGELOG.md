@@ -5,26 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.4] - Unreleased
+## [0.5.4] - 2026-11-10
 
-The server changes listed under 0.5.3 did not reach voxpery.com with that release and go live with 0.5.4. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.
+Includes the changes prepared for 0.5.3, which was not published. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.
 
 ### Fixed
 - Security updates.
-- Linux desktop: signing in with Google, or with a sign-in code, no longer leaves the window on an empty blue screen.
+- Linux desktop: signing in with Google or with a sign-in code, or reopening the window from the tray, no longer leaves an empty window, and Minimize no longer brings the window straight back.
 - Linux desktop: the maximize button restores the window on small or scaled screens, a window saved larger than the screen opens inside it, and a window snapped to the right half of the screen keeps its window buttons.
 - Sending a direct message while an earlier one is still sending no longer replaces the earlier one; a message that fails stays in the conversation with Retry.
 - Voice: leaving a channel and joining it again right away no longer leaves you stuck on "Connecting".
 - Two sign-ups with the same email or username at the same moment tell the second person that the account exists instead of showing a server error.
-- When an account is deleted at the moment someone accepts its friend request or joins its server, their lists update too.
-
-### Changed
-- Voice: joining a channel is faster, and a join that times out or stops responding is retried once on its own instead of staying on "Connecting". While it connects, the channel shows what it is waiting for and can be cancelled; the call bar shows how long the join took.
-- The desktop window can be made narrower; narrow windows use the compact layout.
-
-## [0.5.3] - 2026-11-09
-
-### Fixed
 - Self-hosting: the prebuilt web image starts when `WEB_API_URL` is set without the Turnstile or GIPHY keys, and avatars load when the API runs on plain HTTP.
 - The home and compare pages open without a loading flash, and signed-in visitors opening voxpery.com go straight to the app without seeing the landing text.
 - Addresses with a trailing slash, such as voxpery.com/about/, no longer send browsers to an internal address.
@@ -36,14 +27,15 @@ The server changes listed under 0.5.3 did not reach voxpery.com with that releas
 - Changing your status while Voxpery is not open no longer shows you as online to friends.
 - A profile update that fails, for example when two people take the same username at once, no longer leaves an unused avatar file in storage and reports the taken name instead of a server error.
 - The data export labels group DM messages with the group name and its members instead of a single member.
-- Linux desktop: the window shows the app again after Google sign-in or when it is reopened from the tray, instead of an empty page, and Minimize no longer brings the window straight back.
 - Someone else's reaction or message edit no longer changes whether your own reaction on that message shows as added.
-- When an account is deleted, your one-to-one conversation with it stays in your list as "Deleted User" with your own messages, and your servers, friends and DM list update right away.
+- When an account is deleted, your one-to-one conversation with it stays in your list as "Deleted User" with your own messages, and your servers, friends and DM list update right away, even if a friend request or server join was accepted at that moment.
 - Changing channels or receiving a DM no longer re-subscribes the app to every channel, which could drop live updates for a moment.
 - Voice: another tab or device of the same account can no longer change or end a call it is not part of, and screen-share viewer counts stay correct on multi-instance setups.
 - Server name, icon and description changes show up for every member right away.
 
 ### Changed
+- Voice: joining a channel is faster, and a join that times out or stops responding is retried once on its own instead of staying on "Connecting". While it connects, the channel shows what it is waiting for and can be cancelled; the call bar shows how long the join took.
+- The desktop window can be made narrower; narrow windows use the compact layout.
 - Android browsers no longer play an inaudible audio loop during voice calls; the experiment from v0.5.2 did not show a notification.
 
 ## [0.5.2] - 2026-11-07
