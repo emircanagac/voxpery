@@ -164,6 +164,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 
 - `NewMessage`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions; DM reaction changes arrive the same way as `MessageUpdated`.
+  - Payload: `channel_id`, `channel_type`, `message` and, when the author sent one, `client_request_id`. The author's sessions use that request id to replace their own pending copy, so a slow earlier send is never mistaken for a later one; other clients ignore it.
 - `DmRead`
   - Targeted to the user who read the DM so other open sessions can clear the same unread badge.
   - Payload includes `channel_id`, `user_id`, and `last_read_message_id`.
