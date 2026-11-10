@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createDesktopOAuthDeepLinkHandler,
   desktopSignInCodeUrl,
@@ -14,7 +14,25 @@ import type { UserPublic } from './api'
 const user = { id: 'user-1', username: 'desktop-user' } as UserPublic
 const code = '0123456789abcdef0123456789abcdef'
 
+function deepLinkSources(currentUrls: string[]): DesktopOAuthDeepLinkSources & { open: (urls: string[]) => void } {
+  let opened: ((urls: string[]) => void) | undefined
+  return {
+    getCurrent: vi.fn().mockResolvedValue(currentUrls),
+    getPending: vi.fn().mockResolvedValue([]),
+    onOpenUrl: vi.fn(async (handler) => {
+      opened = handler
+      return vi.fn()
+    }),
+    listenCustom: vi.fn().mockResolvedValue(vi.fn()),
+    open: (urls) => opened?.(urls),
+  }
+}
+
 describe('desktop OAuth deep links', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+  })
+
   it('accepts only the Voxpery auth scheme and strips OAuth parameters from the destination', () => {
     expect(parseDesktopOAuthDeepLink(`voxpery://auth/social/dm?room=1&code=${code}#latest`)).toEqual({
       code,
@@ -143,6 +161,55 @@ describe('desktop OAuth deep links', () => {
     expect(disposeCustom).toHaveBeenCalledTimes(1)
   })
 
+  it('processes the process-wide current link once even when listeners are registered again', async () => {
+    const url = `voxpery://auth/servers?code=${code}`
+    const handler = vi.fn().mockResolvedValue(true)
+
+    await registerDesktopOAuthDeepLinks(deepLinkSources([url]), handler)
+    await registerDesktopOAuthDeepLinks(deepLinkSources([url]), handler)
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('does not replay a runtime link that the plugin also kept as the current link', async () => {
+    const url = 'voxpery://auth/servers?error=oauth_failed'
+    const handler = vi.fn().mockResolvedValue(true)
+    const first = deepLinkSources([])
+    await registerDesktopOAuthDeepLinks(first, handler)
+    first.open([url])
+    first.open([url])
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+
+    await registerDesktopOAuthDeepLinks(deepLinkSources([url]), handler)
+
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a replayed return link while a session is already signed in', async () => {
+    const navigate = vi.fn()
+    const onError = vi.fn()
+    const onObservabilityEvent = vi.fn()
+    const exchangeCode = vi.fn()
+    const handler = createDesktopOAuthDeepLinkHandler({
+      getCodeVerifier: () => null,
+      clearCodeVerifier: vi.fn(),
+      exchangeCode,
+      setAuth: vi.fn(),
+      navigate,
+      isAuthenticated: () => true,
+      onError,
+      onObservabilityEvent,
+    })
+
+    expect(await handler(`voxpery://auth/servers?code=${code}`)).toBe(true)
+    expect(await handler('voxpery://auth/servers?error=oauth_failed')).toBe(true)
+
+    expect(exchangeCode).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(onObservabilityEvent).not.toHaveBeenCalled()
+  })
+
   it('drains deep links received before the webview listener was ready', async () => {
     const pendingUrl = `voxpery://auth/servers?code=${code}`
     const sources: DesktopOAuthDeepLinkSources = {
@@ -180,5 +247,15 @@ describe('desktop sign-in codes', () => {
     } finally {
       setDesktopSignInCodeHandler(null)
     }
+  })
+})
+
+describe('desktop deep-link memory', () => {
+  it('keeps no sign-in code in session storage', async () => {
+    window.sessionStorage.clear()
+    await registerDesktopOAuthDeepLinks(deepLinkSources([`voxpery://auth/servers?code=${code}`]), vi.fn().mockResolvedValue(true))
+    const stored = window.sessionStorage.getItem('voxpery-desktop-seen-deep-links')
+    expect(stored).toBeTruthy()
+    expect(stored).not.toContain(code)
   })
 })

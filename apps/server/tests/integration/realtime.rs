@@ -1591,6 +1591,28 @@ async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sess
         "a newer LiveKit session was removed"
     );
 
+    // Without a reported SID the server cannot tell the departed participant from a quick
+    // rejoin, so the participant it finds gets the claim window instead of an immediate removal.
+    let (unknown_auth, unknown_id, _) = register_named_user(&mut app, "unknownsid").await;
+    join_with_invite(&mut app, &unknown_auth, &invite_code).await;
+    let mut unknown_ws = connect_ws(addr, &unknown_auth).await;
+    state.voice_sessions.insert(unknown_id, voice_channel_id);
+    state.voice_participant_sids.remove(&unknown_id);
+    participants
+        .lock()
+        .await
+        .insert(unknown_id.to_string(), "PA_rejoined".to_string());
+    ws_send(
+        &mut unknown_ws,
+        json!({ "type": "LeaveVoice", "data": null }),
+    )
+    .await;
+    ws_barrier(&mut unknown_ws).await;
+    assert!(
+        !was_removed(unknown_id, 3_000).await,
+        "a participant was removed although its departed SID was unknown"
+    );
+
     // Losing the last WebSocket removes the participant after the reconnect window.
     let (dropper_auth, dropper_id, _) = register_named_user(&mut app, "dropper").await;
     join_with_invite(&mut app, &dropper_auth, &invite_code).await;

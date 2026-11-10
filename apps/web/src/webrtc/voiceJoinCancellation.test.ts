@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../stores/auth'
 import { useSocketStore } from '../stores/socket'
 import { useLiveKitVoice } from './useLiveKitVoice'
+import { webrtcApi } from '../api/webrtc'
+import * as voiceDevices from '../voiceDevices'
 
 const mocks = vi.hoisted(() => ({
   getAudioContext: vi.fn(),
@@ -98,5 +100,65 @@ describe('voice join cancellation', () => {
     expect(mocks.buildMicSendTrack).not.toHaveBeenCalled()
     expect(result.current.state.lastError ?? null).toBeNull()
     expect(result.current.state.isJoining).toBe(false)
+  })
+})
+
+describe('voice join watchdog', () => {
+  const runningAudio = () => ({ state: 'running' as AudioContextState, resume: vi.fn(async () => {}) })
+  const micStream = () => {
+    const track = { kind: 'audio', readyState: 'live', stop: vi.fn(), applyConstraints: vi.fn(async () => {}) }
+    return { track, stream: new MediaStream([track as unknown as MediaStreamTrack]) }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('ends a join stuck in a step as soon as the user leaves, so the next join can start', async () => {
+    mocks.getAudioContext.mockReturnValue(runningAudio())
+    mocks.buildMicSendTrack.mockReturnValue(new Promise(() => {}))
+    vi.spyOn(webrtcApi, 'getLivekitToken').mockReturnValue(new Promise(() => {}))
+    const { result } = renderHook(() => useLiveKitVoice())
+    const first = micStream()
+    const join = result.current.joinVoice('qa-channel', { preflightStream: first.stream })
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.state.isJoining).toBe(true)
+
+    act(() => result.current.leaveVoice({ skipLeaveSound: true }))
+
+    await act(async () => { await expect(join).resolves.toBeUndefined() })
+    expect(result.current.state.isJoining).toBe(false)
+    expect(result.current.state.lastError ?? null).toBeNull()
+    const next = result.current.joinVoice('qa-channel', { preflightStream: micStream().stream })
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.buildMicSendTrack).toHaveBeenCalledTimes(2)
+    act(() => result.current.leaveVoice({ skipLeaveSound: true }))
+    await act(async () => { await next })
+  })
+
+  it('stops a join that makes no progress, retries once and then reports it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    mocks.getAudioContext.mockReturnValue(runningAudio())
+    mocks.buildMicSendTrack.mockReturnValue(new Promise(() => {}))
+    vi.spyOn(webrtcApi, 'getLivekitToken').mockReturnValue(new Promise(() => {}))
+    const retryCapture = micStream()
+    const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream').mockResolvedValue(retryCapture.stream)
+    const { result } = renderHook(() => useLiveKitVoice())
+    const first = micStream()
+    const join = result.current.joinVoice('qa-channel', { preflightStream: first.stream })
+    const outcome = join.then(() => 'joined', (error: Error) => error.message)
+    await act(async () => { await Promise.resolve() })
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    expect(first.track.stop).toHaveBeenCalled()
+    expect(capture).toHaveBeenCalledOnce()
+    expect(mocks.buildMicSendTrack).toHaveBeenCalledTimes(2)
+    expect(result.current.state.lastError ?? null).toBeNull()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    await expect(outcome).resolves.toBe('Joining voice stopped responding. Try again.')
+    expect(retryCapture.track.stop).toHaveBeenCalled()
+    expect(result.current.state.isJoining).toBe(false)
+    expect(result.current.state.lastError).toBe('Joining voice stopped responding. Try again.')
   })
 })

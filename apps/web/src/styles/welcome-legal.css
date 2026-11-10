@@ -353,6 +353,12 @@
   margin-top: 4px;
 }
 
-.voice-channel-idle-elsewhere {
+.voice-channel-idle-elsewhere,
+.voice-channel-idle-stage {
   color: var(--text-secondary);
+}
+
+.voice-channel-idle-stage {
+  display: block;
+  margin-top: 4px;
 }

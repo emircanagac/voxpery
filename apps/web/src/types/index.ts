@@ -83,7 +83,8 @@ export interface MessageReaction {
  * `.github/scripts/check-ws-event-sync.mjs` fails CI when names or fields drift apart.
  */
 export interface WsEventDataMap {
-    NewMessage: { channel_id: string; channel_type: string; message: Message };
+    /** `client_request_id` is the sender's own request id, echoed so its sessions can match their optimistic copy. */
+    NewMessage: { channel_id: string; channel_type: string; message: Message; client_request_id?: string | null };
     DmRead: { channel_id: string; user_id: string; last_read_message_id: string | null };
     MessageDeleted: { channel_id: string; message_id: string };
     /** `message.reactions[].reacted` is computed for `viewer_id`, the user who made the change. */

@@ -33,7 +33,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
+import { applyIncomingMessage, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom, withUpdatedAuthor, type AuthorProfileUpdate } from '../messageAuthors'
 import {
   clearMessageDraftIfUnchanged,
@@ -768,7 +768,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
 
   useEffect(() => {
     const unsub = subscribe((evt: unknown) => {
-      const e = evt as { type?: string; data?: { channel_id?: string; message?: unknown } }
+      const e = evt as { type?: string; data?: { channel_id?: string; message?: unknown; client_request_id?: string | null } }
       if (e?.type !== 'NewMessage') return
       const payload = e.data
       if (!payload) return
@@ -776,22 +776,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       if (channelId !== activeDmChannelIdRef.current) return
       const incoming = payload.message as MessageWithAuthor
       setDmMessages((prev) => {
-        const existingIdx = prev.findIndex((m) => m.id === incoming.id)
-        if (existingIdx >= 0) {
-          const next = [...prev]
-          next[existingIdx] = incoming
-          rememberDmMessages(channelId, next)
-          return next
-        }
-        const isFromMe = incoming.author?.user_id === user?.id
-        const sendingIdx = prev.findIndex((m) => m.clientStatus === 'sending' && m.author?.user_id === user?.id)
-        if (isFromMe && sendingIdx >= 0) {
-          const next = [...prev]
-          next[sendingIdx] = incoming
-          rememberDmMessages(channelId, next)
-          return next
-        }
-        const next = [...prev, incoming]
+        const next = applyIncomingMessage(prev, incoming, payload.client_request_id, user?.id)
         rememberDmMessages(channelId, next)
         return next
       })

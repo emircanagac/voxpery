@@ -649,26 +649,6 @@ pub(super) async fn delete_my_account(
         }
     }
 
-    // Collected first: the transaction below removes the memberships.
-    let member_server_ids =
-        sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM server_members WHERE user_id = $1")
-            .bind(claims.sub)
-            .fetch_all(&state.db)
-            .await?;
-    // Friends and both sides of pending requests reload their lists once the account is gone.
-    let friend_user_ids = sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
-           FROM friendships
-           WHERE user_a = $1 OR user_b = $1
-           UNION
-           SELECT CASE WHEN requester_id = $1 THEN receiver_id ELSE requester_id END
-           FROM friend_requests
-           WHERE requester_id = $1 OR receiver_id = $1"#,
-    )
-    .bind(claims.sub)
-    .fetch_all(&state.db)
-    .await?;
-
     let mut tx = state.db.begin().await?;
     let deleted_placeholder_id = ensure_deleted_placeholder_user(&mut tx).await?;
 
@@ -772,14 +752,29 @@ pub(super) async fn delete_my_account(
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM friend_requests WHERE requester_id = $1 OR receiver_id = $1")
+    // Friends and both sides of pending requests reload their lists once the account is gone.
+    // The lists come from the deletions themselves, so a friendship accepted meanwhile is
+    // notified too.
+    let mut friend_user_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"DELETE FROM friend_requests
+           WHERE requester_id = $1 OR receiver_id = $1
+           RETURNING CASE WHEN requester_id = $1 THEN receiver_id ELSE requester_id END"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
+    friend_user_ids.extend(
+        sqlx::query_scalar::<_, Uuid>(
+            r#"DELETE FROM friendships
+               WHERE user_a = $1 OR user_b = $1
+               RETURNING CASE WHEN user_a = $1 THEN user_b ELSE user_a END"#,
+        )
         .bind(claims.sub)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM friendships WHERE user_a = $1 OR user_b = $1")
-        .bind(claims.sub)
-        .execute(&mut *tx)
-        .await?;
+        .fetch_all(&mut *tx)
+        .await?,
+    );
+    friend_user_ids.sort_unstable();
+    friend_user_ids.dedup();
     // Locked in id order before the membership goes, the same lock a membership change takes.
     let group_dm_ids = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT c.id
@@ -856,10 +851,13 @@ pub(super) async fn delete_my_account(
         .bind(claims.sub)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM server_members WHERE user_id = $1")
-        .bind(claims.sub)
-        .execute(&mut *tx)
-        .await?;
+    // Like the friend lists, the servers to notify are the memberships this deletion removes.
+    let member_server_ids = sqlx::query_scalar::<_, Uuid>(
+        "DELETE FROM server_members WHERE user_id = $1 RETURNING server_id",
+    )
+    .bind(claims.sub)
+    .fetch_all(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM server_bans WHERE user_id = $1")
         .bind(claims.sub)
         .execute(&mut *tx)

@@ -944,12 +944,14 @@ async fn group_dms_are_built_from_friends_and_follow_membership() {
         "POST",
         &format!("/api/dm/messages/{group_id}"),
         &amy_auth,
-        Some(json!({ "content": "hi group" })),
+        Some(json!({ "content": "hi group", "client_request_id": "hi-group-1" })),
     )
     .await;
     assert!(status.is_success(), "member could not write: {body}");
     let delivered = receive_ws_event(&mut ben_ws, "NewMessage").await;
     assert_eq!(delivered["data"]["channel_id"], json!(group_id));
+    // The request id travels with the event so the sender's sessions can match their copy.
+    assert_eq!(delivered["data"]["client_request_id"], "hi-group-1");
     let (status, _) = api_json(
         &mut app,
         "POST",
@@ -1245,19 +1247,39 @@ async fn deleting_an_account_keeps_the_dm_as_deleted_user_and_notifies_contacts(
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 
-    // Bob's lists update without a reload.
-    let event = receive_ws_event(&mut bob_ws, "DmChannelsUpdated").await;
-    assert_eq!(event["data"]["channel_id"], channel_id.as_str());
-    // Every new account is also in the official server, so wait for this server's event.
-    loop {
-        let event = receive_ws_event(&mut bob_ws, "MemberLeft").await;
-        assert_eq!(event["data"]["user_id"], json!(alice_id));
-        if event["data"]["server_id"] == json!(server_id) {
+    // Bob's lists update without a reload. Targeted events can overtake server broadcasts, so
+    // the three are collected in any order (every new account is also in the official server,
+    // so only this server's MemberLeft counts).
+    let (mut dm_updated, mut left_server, mut friends_updated) = (false, false, false);
+    for _ in 0..40 {
+        if dm_updated && left_server && friends_updated {
             break;
         }
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), bob_ws.next())
+            .await
+            .expect("timed out waiting for the account deletion events")
+            .expect("websocket closed")
+            .expect("websocket read failed");
+        let WsMessage::Text(text) = message else {
+            continue;
+        };
+        let event: serde_json::Value = serde_json::from_str(&text).unwrap();
+        match event["type"].as_str() {
+            Some("DmChannelsUpdated") if event["data"]["channel_id"] == channel_id.as_str() => {
+                dm_updated = true;
+            }
+            Some("MemberLeft") if event["data"]["server_id"] == json!(server_id) => {
+                assert_eq!(event["data"]["user_id"], json!(alice_id));
+                left_server = true;
+            }
+            Some("FriendUpdate") => {
+                assert_eq!(event["data"]["user_id"], json!(bob_id));
+                friends_updated = true;
+            }
+            _ => {}
+        }
     }
-    let event = receive_ws_event(&mut bob_ws, "FriendUpdate").await;
-    assert_eq!(event["data"]["user_id"], json!(bob_id));
+    assert!(dm_updated && left_server && friends_updated);
 
     // The conversation stays listed for Bob as "Deleted User", with only his own message.
     let (status, channels) = api_json(&mut app, "GET", "/api/dm/channels", &bob_auth, None).await;

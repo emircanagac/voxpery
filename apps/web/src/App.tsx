@@ -15,7 +15,8 @@ import { useFeatureStore } from './stores/features'
 import { createDesktopOAuthDeepLinkHandler, registerDesktopOAuthDeepLinks, setDesktopSignInCodeHandler } from './desktopOAuth'
 import { configureObservability, reportObservabilityEvent } from './observability'
 import { THEME_CHANGED_EVENT, applyThemeForPath } from './theme'
-import { rememberExpiredSession } from './authRedirect'
+import { rememberExpiredSession, safeRedirectPath } from './authRedirect'
+import { setPersistedSocialView } from './socialView'
 import { AboutPage, ComparePage } from './pages/publicPageModules'
 
 const AppShell = lazy(() => import('./pages/AppShell'))
@@ -33,13 +34,6 @@ const LegalConsentBoundary = lazy(() => import('./components/LegalConsentBoundar
 function RedirectDmToSocial() {
   const { userId } = useParams<{ userId?: string }>()
   return <Navigate to={ROUTES.dm} state={userId ? { openDmUserId: userId } : undefined} replace />
-}
-
-function safeRedirectPath(redirect: string | null): string | undefined {
-  if (!redirect || typeof redirect !== 'string') return undefined
-  const path = redirect.trim()
-  if (path.startsWith('/') && !path.startsWith('//')) return path
-  return undefined
 }
 
 function RedirectAuthenticatedAuthPage() {
@@ -86,6 +80,12 @@ function App() {
   const authFailureHandledRef = useRef(false)
   const isDesktopApp = isTauri()
   const navigate = useNavigate()
+  // React Router returns a new navigate function after each route change; the desktop deep-link
+  // listeners read it through a ref so they are installed once for the app's lifetime.
+  const navigateRef = useRef(navigate)
+  useLayoutEffect(() => {
+    navigateRef.current = navigate
+  }, [navigate])
   const location = useLocation()
   const publicRoute = [
     ROUTES.landing, ROUTES.about, ROUTES.compare, ROUTES.login, ROUTES.register,
@@ -170,8 +170,13 @@ function App() {
         getCodeVerifier: getStoredDesktopOAuthVerifier,
         clearCodeVerifier: clearStoredDesktopOAuthVerifier,
         exchangeCode: authApi.exchangeDesktopOAuthCode,
-        setAuth: (authToken, authUser) => useAuthStore.getState().setAuth(authToken, authUser),
-        navigate: (path) => navigate(path, { replace: true }),
+        setAuth: async (authToken, authUser) => {
+          await useAuthStore.getState().setAuth(authToken, authUser)
+          useAppStore.getState().setActiveDmChannelId(null)
+          setPersistedSocialView('friends')
+        },
+        navigate: (path) => navigateRef.current(path, { replace: true }),
+        isAuthenticated: () => Boolean(useAuthStore.getState().user),
         onError: (error) => console.error('Desktop OAuth return failed:', error),
         onObservabilityEvent: reportObservabilityEvent,
       })
@@ -218,7 +223,7 @@ function App() {
         setDesktopSignInCodeHandler(null)
       }
     }
-  }, [isDesktopApp, navigate, restoreSession])
+  }, [isDesktopApp, restoreSession])
 
   // A remembered profile on / means the visitor is about to be sent into the app; show the
   // loading card rather than the landing page while the session is checked.

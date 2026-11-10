@@ -386,9 +386,24 @@ function applySuppressionConfig(
     transientCompressor.release.setTargetAtTime(filterConfig.compressorReleaseSec, now, 0.03)
 }
 
-export async function resumeVoiceAudioContext(ctx: AudioContext | null): Promise<void> {
+const AUDIO_CONTEXT_RESUME_TIMEOUT_MS = 3000
+
+export async function resumeVoiceAudioContext(
+    ctx: AudioContext | null,
+    timeoutMs: number = AUDIO_CONTEXT_RESUME_TIMEOUT_MS,
+): Promise<void> {
     if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return
-    await ctx.resume()
+    // Without a recent user gesture (for example an automatic rejoin) some engines leave
+    // resume() pending instead of rejecting it, which would hold a voice join forever.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        await Promise.race([
+            ctx.resume(),
+            new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs) }),
+        ])
+    } finally {
+        clearTimeout(timer)
+    }
     if ((ctx.state as AudioContextState) !== 'running') {
         throw new Error('Voice audio is interrupted. Return to Voxpery and tap a voice control to retry.')
     }

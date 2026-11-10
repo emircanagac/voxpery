@@ -82,7 +82,7 @@ Important behavior:
 - `GET /api/auth/google`
   - Web and desktop Google sign-in default to `/servers`; explicit redirect paths are preserved.
 - `GET /api/auth/google/callback`
-  - Callback errors (including consent denial without a code) validate the OAuth state cookie before returning to the originating client and clear the state cookie. Web failures return to `/login?error=...&redirect=...`; desktop failures use the `voxpery://auth` handoff. Login shows cancellation, expired/invalid state, unverified-email, and generic failure messages.
+  - Callback errors (including consent denial without a code) validate the OAuth state cookie before returning to the originating client and clear the state cookie. Web failures return to `/login?error=...&redirect=...`; desktop failures use the `voxpery://auth` handoff. The `redirect` destination must be an in-app path: values that are not same-origin paths, or that contain whitespace, control characters or backslashes, fall back to the default route on the server and in the web client. Login shows cancellation, expired/invalid state, unverified-email, and generic failure messages.
 - `GET /api/auth/google/registration`
   - A verified new Google identity without current signup acknowledgements is redirected here, including when OAuth was started from Login. The browser receives a short-lived, HttpOnly pending-registration cookie, not a full session.
 - `POST /api/auth/google/registration`

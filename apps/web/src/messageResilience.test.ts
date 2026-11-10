@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from './messageResilience'
+import { applyIncomingMessage, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from './messageResilience'
 
 type TestMessage = {
   id: string
@@ -81,5 +81,53 @@ describe('withoutFailedDuplicates', () => {
       { ...base, id: 'sending-same', content: 'hello', clientId: 'c', clientStatus: 'sending' as const },
     ]
     expect(withoutFailedDuplicates(messages, 'hello', []).map(m => m.id)).toEqual(['sent', 'failed-other', 'sending-same'])
+  })
+})
+
+describe('applyIncomingMessage', () => {
+  type DmMessage = TestMessage & { author: { user_id: string }; attachments?: unknown[] }
+  const me = 'user-me'
+  const pending = (clientId: string, content: string): DmMessage => ({
+    id: `local-${clientId}`, created_at, content, clientId, clientStatus: 'sending', author: { user_id: me },
+  })
+  const confirmed = (id: string, content: string, userId = me): DmMessage => ({
+    id, created_at, content, author: { user_id: userId },
+  })
+
+  it('replaces only the copy whose request id the event echoes while an earlier send is slow', () => {
+    const slow = pending('slow', 'first')
+    const quick = pending('quick', 'second')
+    let messages = applyIncomingMessage([slow, quick], confirmed('m2', 'second'), 'quick', me)
+    expect(messages.map((m) => m.id)).toEqual(['local-slow', 'm2'])
+
+    // The quick request's own response is then a no-op, and the slow one can still fail visibly.
+    messages = reconcileConfirmedMessage(messages, 'quick', confirmed('m2', 'second'))
+    messages = messages.map((m) => (m.clientId === 'slow' ? { ...m, clientStatus: 'failed' as const } : m))
+    expect(messages.map((m) => [m.id, m.clientStatus])).toEqual([['local-slow', 'failed'], ['m2', undefined]])
+  })
+
+  it('adds a message from another session of the same user', () => {
+    const messages = applyIncomingMessage([pending('local', 'mine')], confirmed('m9', 'from phone'), 'phone-request', me)
+    expect(messages.map((m) => m.id)).toEqual(['local-local', 'm9'])
+  })
+
+  it('falls back to text and attachment count when the server sends no request id', () => {
+    const messages = applyIncomingMessage(
+      [pending('a', 'first'), pending('b', 'second')],
+      confirmed('m2', 'second'),
+      undefined,
+      me,
+    )
+    expect(messages.map((m) => m.id)).toEqual(['local-a', 'm2'])
+  })
+
+  it("never lets another user's message replace a pending copy", () => {
+    const messages = applyIncomingMessage([pending('a', 'hi')], confirmed('m3', 'hi', 'user-other'), undefined, me)
+    expect(messages.map((m) => m.id)).toEqual(['local-a', 'm3'])
+  })
+
+  it('updates a message that is already listed', () => {
+    const messages = applyIncomingMessage([confirmed('m1', 'old')], confirmed('m1', 'new'), 'x', me)
+    expect(messages.map((m) => m.content)).toEqual(['new'])
   })
 })

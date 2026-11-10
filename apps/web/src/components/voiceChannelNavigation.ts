@@ -4,6 +4,12 @@ import { useToastStore } from '../stores/toast'
 type VoiceJoinWindow = Window & {
   __voxperyManualJoinActive?: boolean
   __voxperyJoinVoice?: (channelId: string) => Promise<void>
+  __voxperyCancelVoiceJoin?: () => void
+}
+
+/** Cancels the voice join that is still connecting; the call bar releases what it captured. */
+export function cancelVoiceJoinFromNavigation(): void {
+  (window as VoiceJoinWindow).__voxperyCancelVoiceJoin?.()
 }
 
 export async function joinVoiceChannelFromNavigation(channelId: string): Promise<void> {

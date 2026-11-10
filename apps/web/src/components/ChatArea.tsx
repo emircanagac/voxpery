@@ -26,7 +26,19 @@ import { useReadableTextColor } from '../hooks/useReadableTextColor'
 import { describeSendError } from '../messageSendError'
 import { parseMessageMarkdown, type MarkdownNode } from '../messageMarkdown'
 import { useAppStore } from '../stores/app'
-import { joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
+import { cancelVoiceJoinFromNavigation, joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
+import type { VoiceJoinStage } from '../webrtc/voiceJoinTiming'
+import { prewarmVoiceConnection } from '../webrtc/voiceConnectionPrewarm'
+
+/** What a connecting voice join is waiting for, in the user's words. */
+const VOICE_JOIN_STAGE_TEXT: Record<VoiceJoinStage, string> = {
+    microphoneMs: 'Waiting for your microphone.',
+    processingMs: 'Preparing your microphone.',
+    tokenMs: 'Getting voice access.',
+    turnMs: 'Preparing the connection.',
+    connectionMs: 'Connecting to the voice server.',
+    publicationMs: 'Starting your microphone.',
+}
 import ChatComposer, { type MentionUser, type MessagePickerMode } from './ChatComposer'
 import ChatHeader from './ChatHeader'
 
@@ -207,6 +219,13 @@ export default function ChatArea({
     const readableTextColor = useReadableTextColor()
     const joinedVoiceChannelId = useAppStore((state) => state.joinedVoiceChannelId)
     const joiningVoiceChannelId = useAppStore((state) => state.joiningVoiceChannelId)
+    const voiceJoinStage = useAppStore((state) => state.voiceJoinStage)
+    const voiceJoinFailedChannelId = useAppStore((state) => state.voiceJoinFailedChannelId)
+    const activeVoiceChannelId = activeChannel?.channel_type === 'voice' ? activeChannel.id : null
+    // Opening a voice channel usually comes right before joining it.
+    useEffect(() => {
+        if (activeVoiceChannelId && joinedVoiceChannelId !== activeVoiceChannelId) prewarmVoiceConnection()
+    }, [activeVoiceChannelId, joinedVoiceChannelId])
     const voiceParticipantCount = useAppStore((state) => Object.values(state.voiceStates).filter((channelId) => !!activeChannel && channelId === activeChannel.id).length)
     // The account is in voice, but on another tab or device rather than this one.
     const voiceElsewhereChannelId = useAppStore((state) => (
@@ -1913,7 +1932,12 @@ export default function ChatArea({
                             <Volume2 size={36} aria-hidden="true" />
                             <h2>{voiceParticipantCount === 0 ? 'No one is here yet' : `${voiceParticipantCount} in voice`}</h2>
                             {joiningVoiceChannelId === activeChannel.id ? (
-                                <p role="status">Connecting to {activeChannel.name}…</p>
+                                <p role="status">
+                                    Connecting to {activeChannel.name}…
+                                    {voiceJoinStage && <span className="voice-channel-idle-stage"> {VOICE_JOIN_STAGE_TEXT[voiceJoinStage]}</span>}
+                                </p>
+                            ) : voiceJoinFailedChannelId === activeChannel.id ? (
+                                <p role="alert">Could not connect to {activeChannel.name}. Check your connection and try again.</p>
                             ) : (
                                 <p>{voiceParticipantCount === 0 ? `Join ${activeChannel.name} to start a conversation.` : `Join ${activeChannel.name} to talk with them.`}</p>
                             )}
@@ -1924,17 +1948,28 @@ export default function ChatArea({
                                         : 'You are in voice on another device. Joining here moves your call to this device.'}
                                 </p>
                             )}
-                            <button
-                                type="button"
-                                className="btn btn-primary"
-                                disabled={!!joiningVoiceChannelId}
-                                aria-busy={joiningVoiceChannelId === activeChannel.id}
-                                onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}
-                            >
-                                {joiningVoiceChannelId === activeChannel.id
-                                    ? 'Joining…'
-                                    : voiceElsewhereChannelId ? 'Join here' : 'Join voice'}
-                            </button>
+                            {joiningVoiceChannelId === activeChannel.id ? (
+                                // A join that takes too long can be stopped here, not only from the call bar.
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    aria-label={`Cancel joining ${activeChannel.name}`}
+                                    onClick={cancelVoiceJoinFromNavigation}
+                                >
+                                    Cancel
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    disabled={!!joiningVoiceChannelId}
+                                    onClick={() => { void joinVoiceChannelFromNavigation(activeChannel.id) }}
+                                >
+                                    {voiceJoinFailedChannelId === activeChannel.id
+                                        ? 'Try again'
+                                        : voiceElsewhereChannelId ? 'Join here' : 'Join voice'}
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

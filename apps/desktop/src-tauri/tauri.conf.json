@@ -1,6 +1,6 @@
 {
   "productName": "Voxpery",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "identifier": "com.voxpery",
   "build": {
     "frontendDist": "../../web/dist",
@@ -18,7 +18,7 @@
         "width": 1280,
         "height": 800,
         "maximized": true,
-        "minWidth": 960,
+        "minWidth": 520,
         "minHeight": 600,
         "resizable": true,
         "decorations": false,

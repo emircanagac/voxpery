@@ -136,7 +136,8 @@ export interface ScreenAudioDiagnosticSample {
 }
 
 export interface VoiceRuntimeDiagnostics {
-  joinTiming?: { totalMs: number; outcome: 'connected' | 'failed'; [stage: string]: number | string }
+  /** Stage durations in ms; `pendingStage` is the stage a running join waits for, `failedStage` where it failed. */
+  joinTiming?: { totalMs: number; outcome: 'joining' | 'connected' | 'failed'; [stage: string]: number | string }
   benchmarkSchemaVersion?: number
   rnnoiseStatus?: RnnoiseRuntimeStatus
   rnnoiseError?: string

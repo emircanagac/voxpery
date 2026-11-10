@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, useNavigate } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import type { ReactElement } from 'react'
 import LoginPage from './LoginPage'
 import RegisterPage from './RegisterPage'
 import ForgotPasswordPage from './ForgotPasswordPage'
 import ResetPasswordPage from './ResetPasswordPage'
 import { useFeatureStore } from '../stores/features'
+import { useAuthStore } from '../stores/auth'
 import { authApi, getGoogleAuthUrl, getDesktopGoogleAuthUrl, type SystemFeatures } from '../api'
 import { openExternalUrl } from '../openExternalUrl'
 
@@ -77,6 +78,35 @@ describe('auth feature gating', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(message)
     const href = screen.getByRole('link', { name: /continue with google/i }).getAttribute('href')!
     expect(new URL(href).searchParams.get('redirect')).toBe('/social/dm?room=1#latest')
+  })
+
+  it('keeps the user on Voxpery when the sign-in redirect would leave the origin', async () => {
+    const originalSetAuth = useAuthStore.getState().setAuth
+    useAuthStore.setState({ setAuth: vi.fn().mockResolvedValue(undefined) })
+    vi.spyOn(authApi, 'login').mockResolvedValue({
+      token: 'test-token',
+      user: { id: 'user-1', username: 'tester' } as Awaited<ReturnType<typeof authApi.login>>['user'],
+    })
+    function CurrentPath() {
+      return <p data-testid="current-path">{useLocation().pathname}</p>
+    }
+    try {
+      useFeatureStore.setState({ features: disabledFeatures, loading: false, error: null })
+      render(
+        <MemoryRouter initialEntries={['/login?redirect=%2F%09%2Fexample.com']}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<CurrentPath />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      fireEvent.change(screen.getByLabelText('Email or Username'), { target: { value: 'tester' } })
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'test-password' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
+      await waitFor(() => expect(screen.getByTestId('current-path')).toHaveTextContent('/servers'))
+    } finally {
+      useAuthStore.setState({ setAuth: originalSetAuth })
+    }
   })
 
   it('shows repeated desktop callback errors when the login page is already mounted', async () => {

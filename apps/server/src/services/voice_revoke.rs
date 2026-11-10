@@ -410,9 +410,10 @@ pub async fn end_unclaimed_participant(
 
 /// Removes the LiveKit participant of a user who left voice, after `delay`, so the rest of the
 /// room sees the departure at once. Only the departed session is removed: nothing happens when
-/// the user has rejoined voice meanwhile. A different participant SID may be a new connection
-/// that has yet to report its join, so it gets the claim window instead. Best effort; a failure
-/// leaves LiveKit's own timeout in charge.
+/// the user has rejoined voice meanwhile. A different participant SID, or any participant when
+/// the departed session never reported its SID, may be a new connection that has yet to report
+/// its join, so it gets the claim window instead. Best effort; a failure leaves LiveKit's own
+/// timeout in charge.
 pub(crate) fn schedule_departed_participant_removal(
     state: Arc<AppState>,
     channel_id: Uuid,
@@ -443,10 +444,8 @@ pub(crate) fn schedule_departed_participant_removal(
                 return;
             }
         };
-        if departed_sid
-            .as_deref()
-            .is_some_and(|departed| departed != current_sid)
-        {
+        // Removal goes by identity, so it is safe only when the participant is the departed one.
+        if departed_sid.as_deref() != Some(current_sid.as_str()) {
             schedule_unclaimed_participant_check(
                 state.clone(),
                 channel_id,
