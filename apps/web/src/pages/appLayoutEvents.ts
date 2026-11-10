@@ -5,6 +5,7 @@ import { serverApi, channelApi, type Channel, type MessageWithAuthor, type WsEve
 import { useToastStore } from '../stores/toast'
 import { withUpdatedAuthor } from '../messageAuthors'
 import { applyMessageUpdate } from '../messageUpdates'
+import { applyIncomingMessage } from '../messageResilience'
 import { playMessageNotificationSound, shouldPlayNotificationSound } from '../notificationSound'
 import { getServerNotificationPreference, shouldNotifyForServerMessage, shouldTrackServerUnread } from '../notificationPreferences'
 import { isAppBackgrounded, shouldShowPushNotification, showPushNotification } from '../pushNotifications'
@@ -125,13 +126,7 @@ export function handleAppLayoutEvent(event: WsEvent, {
                     && isViewActive
                 if (isCurrentVisibleChannel) {
                     setMessages((prev) => {
-                        if (prev.some((m) => m.id === incoming.id)) return prev
-                        const withoutMatchingOptimistic = prev.filter((m) => !(
-                            m.clientStatus === 'sending' &&
-                            m.author?.user_id === incoming.author?.user_id &&
-                            m.content === incoming.content
-                        ))
-                        const next = [...withoutMatchingOptimistic, incoming]
+                        const next = applyIncomingMessage(prev, incoming, d.client_request_id, user?.id)
                         messagesByChannelRef.current[incomingChannelId] = next
                         return next
                     })

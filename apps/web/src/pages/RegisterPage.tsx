@@ -10,7 +10,7 @@ import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { useDocumentTitle } from './publicPageMetadata'
 import { setPersistedSocialView } from '../socialView'
-import { resolvePostAuthRoute } from '../authRedirect'
+import { resolvePostAuthRoute, safeRedirectPath } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import { currentLegalAcceptance } from '../legal'
 import LegalAcknowledgements from '../components/LegalAcknowledgements'
@@ -28,13 +28,6 @@ function GoogleLogoIcon() {
             <path fill="#EA4335" d="M8.98 4.18c1.2 0 2.27.41 3.1 1.2l2.3-2.3A7.5 7.5 0 0 0 1.83 6.03l2.48 1.87a4.5 4.5 0 0 1 4.67-3.72z" />
         </svg>
     )
-}
-
-function safeRedirectPath(redirect: string | null): string | undefined {
-    if (!redirect || typeof redirect !== 'string') return undefined
-    const path = redirect.trim()
-    if (path.startsWith('/') && !path.startsWith('//')) return path
-    return undefined
 }
 
 export default function RegisterPage() {

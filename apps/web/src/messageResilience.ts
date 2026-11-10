@@ -62,6 +62,54 @@ export function mergeLatestPageWithHistory<T extends RetryableMessage>(latest: T
   return [...olderHistory, ...merged]
 }
 
+type IncomingMessage = RetryableMessage & {
+  content: string
+  attachments?: unknown
+  author?: { user_id?: string } | null
+}
+
+function attachmentCount(attachments: unknown): number {
+  return Array.isArray(attachments) ? attachments.length : 0
+}
+
+/**
+ * Applies a `NewMessage` event to a conversation. A message from this user replaces only its own
+ * optimistic copy: the one whose `clientId` the event echoes back, or, when the server sends no
+ * request id, the oldest copy still sending with the same text and attachment count. Any other
+ * message, including one sent from this user's other sessions, is added, so a slow request is
+ * never mistaken for a later one and can still be marked as failed.
+ */
+export function applyIncomingMessage<T extends IncomingMessage>(
+  current: T[],
+  incoming: T,
+  clientRequestId: string | null | undefined,
+  currentUserId: string | null | undefined,
+): T[] {
+  const existingIdx = current.findIndex((message) => message.id === incoming.id)
+  if (existingIdx >= 0) {
+    const next = [...current]
+    next[existingIdx] = incoming
+    return next
+  }
+
+  const fromCurrentUser = !!currentUserId && incoming.author?.user_id === currentUserId
+  if (fromCurrentUser) {
+    const optimisticIdx = clientRequestId
+      ? current.findIndex((message) => message.clientId === clientRequestId)
+      : current.findIndex((message) => message.clientStatus === 'sending'
+        && message.author?.user_id === currentUserId
+        && message.content === incoming.content
+        && attachmentCount(message.attachments) === attachmentCount(incoming.attachments))
+    if (optimisticIdx >= 0) {
+      const next = [...current]
+      next[optimisticIdx] = incoming
+      return next
+    }
+  }
+
+  return [...current, incoming]
+}
+
 export function reconcileConfirmedMessage<T extends RetryableMessage>(
   current: T[],
   clientId: string,

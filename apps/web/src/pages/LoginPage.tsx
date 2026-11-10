@@ -9,7 +9,7 @@ import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
 import { useDocumentTitle } from './publicPageMetadata'
 import { setPersistedSocialView } from '../socialView'
-import { googleOAuthErrorMessage, resolvePostAuthRoute, takeExpiredSession } from '../authRedirect'
+import { googleOAuthErrorMessage, resolvePostAuthRoute, safeRedirectPath, takeExpiredSession } from '../authRedirect'
 import AuthIntegrationStatus from '../components/AuthIntegrationStatus'
 import DesktopSignInCode from '../components/DesktopSignInCode'
 import CustomServerPanel from '../components/CustomServerPanel'
@@ -37,13 +37,6 @@ function GoogleLogoIcon() {
             />
         </svg>
     )
-}
-
-function safeRedirectPath(redirect: string | null): string | undefined {
-    if (!redirect || typeof redirect !== 'string') return undefined
-    const path = redirect.trim()
-    if (path.startsWith('/') && !path.startsWith('//')) return path
-    return undefined
 }
 
 export default function LoginPage() {
