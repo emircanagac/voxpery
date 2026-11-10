@@ -42,7 +42,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.4` an
 - [ ] Two windows of one account in a DM: with the first message still sending (slow network in DevTools), a second message does not replace it, and a first message that fails stays in the list with Retry.
 - [ ] Voice: leave a channel and rejoin it at once several times; every join connects (no stuck "Connecting") and `joinTiming` (see `docs/VOICE_SYSTEM.md`) shows the stage times.
 
-### v0.5.3 checks
+### v0.5.4 checks: changes prepared for 0.5.3
 
 - [ ] Prebuilt web image (`docker run` or compose with `WEB_API_URL` set and `WEB_TURNSTILE_SITE_KEY`/`WEB_GIPHY_API_KEY` empty): the container starts and serves the app; with a plain `http://` API on a LAN, avatars load and HTTPS deployments keep `img-src 'self' data: blob: https:`.
 - [ ] `curl -sI https://voxpery.com/about/` and `/compare/` answer 308 with `Location: /about` and `/compare` (no `:8080`).
