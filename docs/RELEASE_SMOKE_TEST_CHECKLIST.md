@@ -26,13 +26,21 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.5.3 preparation (not release sign-off)
+### v0.5.4 preparation (not release sign-off)
 
-Version metadata is prepared for `0.5.3`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.5.4`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.3` and `voxpery/voxpery-web:v0.5.3`, the embedded web badge/build tag, desktop version `0.5.3`, the `Voxpery_0.5.3_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.4` and `voxpery/voxpery-web:v0.5.4`, the embedded web badge/build tag, desktop version `0.5.4`, the `Voxpery_0.5.4_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.5.4 checks
+
+- [ ] voxpery.com `/version.json` reports `v0.5.4` after the deploy, and the 0.5.3 server changes work there: deleting an account updates its contacts, server name/icon edits reach every member, a DM reaches the sender's other open windows, and reacting in one window updates the reaction in your other windows.
+- [ ] Linux desktop (deb, rpm, Flatpak; GNOME on Wayland): Google sign-in through `voxpery://`, a pasted sign-in code, and a second sign-in after signing out in the same process all open the app instead of a blank blue window.
+- [ ] Linux desktop on a small or scaled screen (for example 1920x1080 at 150%): the maximize button restores and maximizes the window and its icon follows; with the window snapped left, right and maximized the window buttons stay visible.
+- [ ] Two windows of one account in a DM: with the first message still sending (slow network in DevTools), a second message does not replace it, and a first message that fails stays in the list with Retry.
+- [ ] Voice: leave a channel and rejoin it at once several times; every join connects (no stuck "Connecting") and `joinTiming` (see `docs/VOICE_SYSTEM.md`) shows the stage times.
 
 ### v0.5.3 checks
 

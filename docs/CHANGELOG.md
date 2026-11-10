@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - Unreleased
+
+The server changes listed under 0.5.3 did not reach voxpery.com with that release and go live with 0.5.4. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.
+
+### Fixed
+- Security updates.
+- Linux desktop: signing in with Google, or with a sign-in code, no longer leaves the window on an empty blue screen.
+- Linux desktop: the maximize button restores the window on small or scaled screens, a window saved larger than the screen opens inside it, and a window snapped to the right half of the screen keeps its window buttons.
+- Sending a direct message while an earlier one is still sending no longer replaces the earlier one; a message that fails stays in the conversation with Retry.
+- Voice: leaving a channel and joining it again right away no longer leaves you stuck on "Connecting".
+- Two sign-ups with the same email or username at the same moment tell the second person that the account exists instead of showing a server error.
+- When an account is deleted at the moment someone accepts its friend request or joins its server, their lists update too.
+
+### Changed
+- Voice: joining a channel is faster, and a join that times out or stops responding is retried once on its own instead of staying on "Connecting". While it connects, the channel shows what it is waiting for and can be cancelled; the call bar shows how long the join took.
+- The desktop window can be made narrower; narrow windows use the compact layout.
+
 ## [0.5.3] - 2026-11-09
 
 ### Fixed
