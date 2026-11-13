@@ -11,6 +11,7 @@ mod direct_messages;
 mod messages;
 mod platform;
 mod realtime;
+mod registration;
 mod security;
 mod servers;
 mod user_notes;
@@ -43,6 +44,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 use tower::ServiceExt;
 use uuid::Uuid;
+use voxpery_server::services::registration::RegistrationMode;
 use voxpery_server::services::shared_redis::SharedRedis;
 use voxpery_server::{
     build_app, run_migrations,
@@ -229,6 +231,50 @@ async fn build_test_app_with_storage(
     livekit_api_url: Option<String>,
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
 ) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        email_verification_enabled,
+        email_verification_required,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+        object_store,
+        RegistrationMode::Open,
+    )
+    .await
+}
+
+async fn setup_app_with_registration_mode(
+    registration_mode: RegistrationMode,
+    google_oauth_enabled: bool,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        google_oauth_enabled,
+        "wss://livekit.test.local".to_string(),
+        None,
+        None,
+        registration_mode,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_test_app_with_registration_mode(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+    object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
+    registration_mode: RegistrationMode,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -309,6 +355,7 @@ async fn build_test_app_with_storage(
         email_verification_enabled,
         email_verification_required,
         password_reset_enabled,
+        registration_mode,
         attachment_service: Arc::new(attachment_service),
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),

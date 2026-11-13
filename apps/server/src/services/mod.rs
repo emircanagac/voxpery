@@ -19,6 +19,7 @@ pub mod permissions;
 pub mod privacy;
 pub mod rate_limit;
 pub mod redact;
+pub mod registration;
 pub mod server_membership;
 pub mod shared_redis;
 pub mod voice_moderation;

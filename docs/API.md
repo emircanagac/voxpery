@@ -48,6 +48,7 @@ Important behavior:
 ## Auth Endpoints
 
 - `POST /api/auth/register`
+  - Subject to the server's registration mode (`REGISTRATION_MODE`, reported by `GET /api/system/features`). `closed`: `403`. `invite`: the body must carry `invite_code`, the invite code of a server on this instance; a missing or unknown code (and the default community code) returns `400`, and the new account joins that server. The same rule applies to desktop registration and to a first Google sign-in, which read the invite from the `/invite/<code>` return path. Signing in to an existing account is never affected.
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
   - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it can no longer validate (its expiry plus the validation leeway); if revocation cannot be stored the endpoint returns `503` but still clears the session cookie, so a reload cannot restore the browser session. Desktop clients complete sign-out and sign-in regardless; a token whose revocation failed is kept only in the OS keyring revocation list and retried on later starts.
@@ -133,6 +134,7 @@ Notes:
 - `GET /api/system/features`
   - Public integration capability flags used by web and desktop clients.
   - `turn_enabled` is true when `TURN_URLS` is configured; voice clients request TURN credentials only then.
+  - `registration_mode` is `open`, `invite` or `closed`. Clients hide sign-up when it is `closed` and ask for an invite when it is `invite`. Servers older than v0.6.0 do not send it; treat a missing value as `open`.
   - `voice_url` is the public LiveKit address (`LIVEKIT_WS_URL`), or `null`. The desktop app reads it when a user connects to a self-hosted server, to allow that voice origin.
 - `POST /api/system/observability/events`
   - Public, rate-limited, best-effort operational event endpoint.

@@ -104,6 +104,8 @@ pub struct AppState {
     pub email_verification_enabled: bool,
     pub email_verification_required: bool,
     pub password_reset_enabled: bool,
+    /// Who may create an account; enforced in `services::registration`.
+    pub registration_mode: services::registration::RegistrationMode,
     pub attachment_service: Arc<services::attachments::AttachmentService>,
     pub release_http_client: reqwest::Client,
     pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
@@ -594,6 +596,7 @@ mod tests {
             smtp_user: None,
             smtp_password: None,
             email_verification_required: false,
+            registration_mode: crate::services::registration::RegistrationMode::Open,
             attachments_public_base_url: None,
             attachments_local_dir: "./storage/attachments".into(),
             attachments_s3_endpoint: None,

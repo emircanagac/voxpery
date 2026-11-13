@@ -118,6 +118,7 @@ Optional integrations note:
   - Building your own desktop app with `VITE_API_URL` and a changed release CSP also works, but the official updater replaces such a build with the official one.
 - Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
 - `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.
+- `REGISTRATION_MODE` decides who may create an account: `open` (default, anyone), `invite` (only with the invite link of a server on this instance; the new account joins that server) or `closed` (nobody). It covers email sign-up, desktop sign-up and a first Google sign-in alike; existing accounts always sign in. For a private server, create your own account and server first, then set `REGISTRATION_MODE=invite` and share that server's invite link. An unknown value stops the server at startup.
 - Keep disabled optional integrations commented out in `.env`; do not set optional variables to empty values.
 
 ## 2) Self-Host Smoke Test

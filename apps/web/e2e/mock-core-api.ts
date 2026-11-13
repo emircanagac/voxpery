@@ -75,6 +75,7 @@ export interface MockCoreState {
 
 const DEFAULT_FEATURES: SystemFeatures = {
   google_oauth_enabled: false,
+  registration_mode: 'open',
   observability_enabled: false,
   email_delivery_enabled: false,
   email_verification_enabled: false,

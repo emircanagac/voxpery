@@ -5,6 +5,7 @@ import { authApi, getAuthErrorMessage, getDesktopGoogleAuthUrl, getGoogleAuthUrl
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { useFeatureStore } from '../stores/features'
+import { inviteCodeFromInput, inviteCodeFromRedirect } from '../registrationInvite'
 import { isTauri } from '../secureStorage'
 import { openExternalUrl } from '../openExternalUrl'
 import { ROUTES } from '../routes'
@@ -49,6 +50,7 @@ export default function RegisterPage() {
     const [documentError, setDocumentError] = useState('')
     const [documentAttempt, setDocumentAttempt] = useState(0)
     const [openingGoogle, setOpeningGoogle] = useState(false)
+    const [inviteInput, setInviteInput] = useState('')
     useEffect(() => {
         let cancelled = false
         authApi.getLegalDocuments().then((status) => {
@@ -64,23 +66,35 @@ export default function RegisterPage() {
     const navigate = useNavigate()
     const googleOAuthEnabled = features?.google_oauth_enabled === true
     const legalReady = !!documents && termsAccepted && privacyAcknowledged
+    const registrationMode = features?.registration_mode ?? 'open'
+    // An invite-only server takes the invite from the link the visitor arrived with, or asks for it.
+    const redirectInvite = inviteCodeFromRedirect(redirectTo)
+    const inviteCode = redirectInvite ?? inviteCodeFromInput(inviteInput)
+    const inviteRequired = registrationMode === 'invite'
+    const missingInviteMessage = 'Enter the invite link or code you were given.'
 
     const turnstileSiteKey = runtimeConfig().turnstileSiteKey || import.meta.env.VITE_TURNSTILE_SITE_KEY
     const desktopApp = isTauri()
 
     const handleGoogleLogin = async () => {
         if (!googleOAuthEnabled || !legalReady || !documents || loading || openingGoogle) return
+        if (inviteRequired && !inviteCode) {
+            setError(missingInviteMessage)
+            return
+        }
+        // The server reads the invite from the return path, so a typed code travels as one.
+        const googleRedirect = inviteRequired && inviteCode ? ROUTES.invite(inviteCode) : redirectTo
         setOpeningGoogle(true)
         setError('')
         try {
             if (isTauri()) {
-                const url = await getDesktopGoogleAuthUrl(redirectTo, {
+                const url = await getDesktopGoogleAuthUrl(googleRedirect, {
                     intent: 'register',
                     legal: currentLegalAcceptance(documents),
                 })
                 await openExternalUrl(url)
             } else {
-                window.location.assign(getGoogleAuthUrl(redirectTo, { intent: 'register', legal: currentLegalAcceptance(documents) }))
+                window.location.assign(getGoogleAuthUrl(googleRedirect, { intent: 'register', legal: currentLegalAcceptance(documents) }))
             }
         } catch {
             setError('Could not open Google sign-in in your browser. Try again or use email/password.')
@@ -109,6 +123,10 @@ export default function RegisterPage() {
             setError('Passwords do not match')
             return
         }
+        if (inviteRequired && !inviteCode) {
+            setError(missingInviteMessage)
+            return
+        }
         if (turnstileSiteKey && !captchaToken) {
             setError('Please complete the CAPTCHA verification')
             return
@@ -121,6 +139,7 @@ export default function RegisterPage() {
                 password,
                 currentLegalAcceptance(documents),
                 captchaToken || undefined,
+                inviteRequired ? inviteCode ?? undefined : undefined,
             )
             await setAuth(res.token, res.user)
             setActiveDmChannelId(null)
@@ -136,6 +155,24 @@ export default function RegisterPage() {
         } finally {
             setLoading(false)
         }
+    }
+
+    if (registrationMode === 'closed') {
+        return (
+            <main className="auth-page">
+                <div className="auth-card">
+                    <Link to={ROUTES.landing} className="auth-landing-link" aria-label="Back to Voxpery" title="Back to Voxpery">
+                        <img src="/fox-animated.svg" alt="" className="auth-logo" width={80} height={80} />
+                    </Link>
+                    <h1>Voxpery</h1>
+                    <p>This server is not accepting new accounts.</p>
+                    <p className="auth-footer">
+                        Already have an account?{' '}
+                        <Link to={redirectTo ? `${ROUTES.login}?redirect=${encodeURIComponent(redirectTo)}` : ROUTES.login}>Sign In</Link>
+                    </p>
+                </div>
+            </main>
+        )
     }
 
     return (
@@ -159,6 +196,20 @@ export default function RegisterPage() {
                 )}
 
                 <div className="auth-register-fields">
+                {inviteRequired && !redirectInvite && (
+                <div className="form-group">
+                    <label htmlFor="register-invite">Invite link or code</label>
+                    <input
+                        id="register-invite"
+                        type="text"
+                        value={inviteInput}
+                        onChange={(e) => setInviteInput(e.target.value)}
+                        placeholder="Paste the invite you were given"
+                        autoComplete="off"
+                        required
+                    />
+                </div>
+                )}
                 <div className="form-group">
                     <label htmlFor="register-username">Username</label>
                     <input

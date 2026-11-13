@@ -69,6 +69,8 @@ pub struct Config {
     pub smtp_password: Option<String>,
     /// Require verified email addresses for flows that enforce email trust.
     pub email_verification_required: bool,
+    /// Who may create an account (`REGISTRATION_MODE`: open, invite or closed).
+    pub registration_mode: crate::services::registration::RegistrationMode,
     /// Public base URL for attachment links (optional, falls back to PUBLIC_API_URL).
     pub attachments_public_base_url: Option<String>,
     /// Local attachment directory for uploaded files.
@@ -277,6 +279,10 @@ impl Config {
             email_verification_required: std::env::var("EMAIL_VERIFICATION_REQUIRED")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
+            registration_mode: crate::services::registration::RegistrationMode::parse(
+                std::env::var("REGISTRATION_MODE").ok().as_deref(),
+            )
+            .unwrap_or_else(|message| panic!("{message}")),
             attachments_public_base_url: std::env::var("ATTACHMENTS_PUBLIC_BASE_URL")
                 .ok()
                 .map(|v| v.trim().to_string())
