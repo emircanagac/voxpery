@@ -13,6 +13,55 @@ This repository now supports a **full Docker Compose deployment**:
 - Docker Engine + Docker Compose v2
 - A copied `.env` file from `.env.example`
 
+## Public server with HTTPS
+
+The shortest path to a server other people can reach. It runs the published release images
+behind a bundled reverse proxy (Caddy) that obtains and renews TLS certificates on its own.
+
+You need:
+
+- A Linux server with a public IPv4 address, Docker Engine and a current Docker Compose v2.
+- Three DNS `A` records pointing at that server, for example `chat.example.com` (the address
+  people open), `api.example.com` and `livekit.example.com`. Keep all three under the same
+  domain, as in this example, so the sign-in cookie set by the API is sent from the web app.
+- Open ports: `80/tcp` and `443/tcp` (web, API and certificates), `443/udp` (HTTP/3), and for
+  voice `7881/tcp`, `7882/udp` and `50000-50200/udp`.
+
+```bash
+git clone https://github.com/emircanagac/voxpery.git
+cd voxpery
+./scripts/ops/init_env.sh --web-domain chat.example.com --api-domain api.example.com \
+  --livekit-domain livekit.example.com --node-ip <public IPv4 of this server>
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --no-build
+```
+
+Then open `https://chat.example.com` and create the first account. The first request to each
+domain can take a few seconds while its certificate is issued.
+
+What the two commands do:
+
+- `init_env.sh` creates `.env` from `.env.example`: a separate random value for every
+  `CHANGE_ME` secret, the public URLs for your three domains, `COOKIE_SECURE=1`,
+  `APP_ENV=production`, your own `LIVEKIT_API_KEY` name and the release images matching this checkout (`--image-tag` selects
+  another release). It never changes an existing `.env`; remove the file to start over.
+- `docker-compose.proxy.yml` adds the `proxy` service on ports 80 and 443 and routes the three
+  domains to `web`, `server` and `livekit`. The proxy has a fixed address on its own Docker
+  network and the server trusts forwarded client addresses from that address only
+  (`TRUSTED_PROXY_CIDRS` is set for you; a value in `.env` is ignored while this file is used).
+
+Notes:
+
+- Always pass both `-f` files to later `docker compose` commands (`ps`, `logs`, `pull`,
+  `down`), or set `COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml` in `.env`.
+- `--node-ip` writes `LIVEKIT_NODE_IP`, the address LiveKit announces for voice. Set it on a
+  public server; if you left it out, add `LIVEKIT_NODE_IP=<public IPv4>` to `.env` yourself.
+- To update, check out the new release, set `VOXPERY_SERVER_IMAGE` and `VOXPERY_WEB_IMAGE` in
+  `.env` to its tag, then run `docker compose ... pull` and `docker compose ... up -d --no-build`.
+- If you already run your own reverse proxy, skip `docker-compose.proxy.yml` and follow the
+  manual steps below; the two must not both listen on ports 80 and 443.
+- Optional integrations (email, Google sign-in, CAPTCHA, malware scanning) and your own legal
+  documents are configured in `.env` as described in the sections below.
+
 ## 1) Prepare Environment
 
 ```bash
