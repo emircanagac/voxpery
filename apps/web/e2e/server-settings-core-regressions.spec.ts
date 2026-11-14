@@ -468,6 +468,26 @@ test.describe('mocked server settings UI regressions', () => {
     }, iconUrl)
     expect(size).toEqual([512, 512])
   })
+  test('resets the invite link after a second click and shows the new one', { tag: '@core' }, async ({ page }) => {
+    const state = createServerSettingsState()
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    await openServerSettings(page)
+    const invite = page.locator('.server-overview-invite')
+    await expect(invite.locator('code')).toContainText('/invite/settings-guild')
+
+    // The first click only asks; cancelling leaves the link alone.
+    await invite.getByRole('button', { name: 'Reset invite link' }).click()
+    await expect(invite.getByText('stop working right away')).toBeVisible()
+    await invite.getByRole('button', { name: 'Cancel' }).click()
+    expect(state.servers[0].invite_code).toBe('settings-guild')
+
+    await invite.getByRole('button', { name: 'Reset invite link' }).click()
+    await invite.getByRole('button', { name: 'Reset link', exact: true }).click()
+    await expect(invite.locator('code')).toContainText('/invite/settings-guild-rotated')
+    await expect(invite.getByRole('button', { name: 'Reset invite link' })).toBeVisible()
+    expect(state.servers[0].invite_code).toBe('settings-guild-rotated')
+  })
   test('drops a server at once when this account is removed from it', { tag: '@core' }, async ({ page }) => {
     const other = buildCoreServer({ id: 'server-remaining', name: 'Remaining Guild', invite_code: 'remaining-guild' })
     const state = createServerSettingsState()

@@ -207,6 +207,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `ServerChannelsUpdated`
 - `ServerUpdated` (`server_id`, `name`, `icon_url`, `description`)
   - Sent to every member, the owner's other sessions included, when `PATCH /api/servers/:server_id` changes the server. It carries only what members can see; the invite code is not included.
+  - Also sent when the invite link is reset. The event never carries the invite code; clients reload `GET /api/servers` to read it.
 
 ### Voice
 

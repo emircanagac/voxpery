@@ -30,6 +30,10 @@ export const serverApi = {
     ) =>
         apiFetch<Server>(`/api/servers/${serverId}`, { method: 'PATCH', body: payload, token }),
 
+    /** Replaces the invite code; the old link stops working at once. */
+    rotateInvite: (serverId: string, token: AuthToken) =>
+        apiFetch<Server>(`/api/servers/${serverId}/invite/rotate`, { method: 'POST', token }),
+
     join: (inviteCode: string, token: AuthToken) =>
         apiFetch<Server>('/api/servers/join', { method: 'POST', body: { invite_code: inviteCode }, token }),
 

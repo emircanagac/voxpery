@@ -3098,6 +3098,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                       settingsServer={settingsServer}
                       settingsServerId={settingsServerId}
                       settingsServerInviteLink={settingsServerInviteLink}
+                      canRotateInvite={(isOwner || hasManageServer) && settingsServer?.invite_code !== 'voxpery'}
                       showServerSettings={showServerSettings}
                       timeoutEntries={timeoutEntries}
                       token={token}
