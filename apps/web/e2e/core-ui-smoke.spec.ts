@@ -37,6 +37,8 @@ test.describe('mocked core UI smoke', () => {
     await page.getByRole('button', { name: announcements.name, exact: false }).first().click()
     await expect(badge).toHaveCount(0)
     await expect.poll(() => state.channelReadMarks.includes(announcements.id)).toBe(true)
+  })
+
   test('opens the DM or channel a clicked notification is about', { tag: '@core' }, async ({ page }) => {
     const server = buildCoreServer()
     const channels = buildCoreChannels(server.id)
