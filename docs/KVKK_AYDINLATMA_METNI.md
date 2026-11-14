@@ -48,6 +48,7 @@ Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar
 
 - Hesap verileri ve içerik, siz ya da hesabınız silinene kadar saklanır.
 - Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler, yüklenen dosyalar ve başkalarının sizin hakkınızda yazdıkları dahil kişisel notlar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye, grup doğrudan mesajları en eski üyeye geçer.
+- Sunucu denetim kayıtları 180 gün saklanır, sonra silinir. Düzenlenen ya da otomatik moderasyonun engellediği bir mesaja ait kayıt, mesaj metninin en çok 160 karakterini içerir; mesaj ya da hesabınız silindiğinde bu alıntı da silinir, bir kanal ya da sunucu tümüyle silindiğinde en geç 10 dakika içinde kaldırılır.
 - Sunucu kayıtları ve veri tabanı yedekleri en fazla 14 gün tutulur; silinen veriler yedeklerden de 14 gün içinde çıkar.
 - İstek sınırı sayaçları ve tamamlanmayan kayıtlar dakikalar ile saatler içinde kendiliğinden silinir.
 

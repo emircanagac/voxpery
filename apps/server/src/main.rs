@@ -214,6 +214,13 @@ async fn main() {
             {
                 tracing::warn!("Moving stored avatars failed: {error}");
             }
+            match voxpery_server::services::audit::purge_stale(&release_state.db).await {
+                Ok((0, 0)) => {}
+                Ok((cleared, deleted)) => tracing::info!(
+                    "Audit log cleanup: {cleared} records lost their quoted text, {deleted} expired"
+                ),
+                Err(error) => tracing::warn!("Audit log cleanup failed: {error}"),
+            }
         }
     });
 

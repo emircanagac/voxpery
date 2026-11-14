@@ -1097,3 +1097,166 @@ async fn message_search_combines_only_the_filters_a_request_uses() {
         .is_empty());
     assert!(search("q=".into()).await.is_empty());
 }
+
+#[tokio::test]
+async fn quoted_message_text_leaves_the_audit_log_with_the_message_or_the_account() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "previewowner").await;
+    let (author_auth, author_id, author_password) =
+        register_named_user(&mut app, "previewauthor").await;
+    let (server_id, channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Previews").await;
+    join_with_invite(&mut app, &author_auth, &invite_code).await;
+
+    // Sends a message in `channel` and edits it once, leaving one edit record with a quote.
+    async fn edited_message(app: &mut axum::Router, auth: &str, channel: Uuid, text: &str) -> Uuid {
+        let (status, message) = api_json(
+            app,
+            "POST",
+            &format!("/api/messages/{channel}"),
+            auth,
+            Some(json!({ "content": format!("{text} before") })),
+        )
+        .await;
+        assert!(status.is_success(), "send failed: {message}");
+        let id = message["id"].as_str().unwrap().to_string();
+        let (status, body) = api_json(
+            app,
+            "PATCH",
+            &format!("/api/messages/item/{id}"),
+            auth,
+            Some(json!({ "content": format!("{text} after") })),
+        )
+        .await;
+        assert!(status.is_success(), "edit failed: {body}");
+        Uuid::parse_str(&id).unwrap()
+    }
+    // The edit record of a message: (record exists, it still quotes text).
+    async fn edit_record(state: &AppState, message_id: Uuid) -> (bool, bool) {
+        let details: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT details FROM audit_log WHERE action = 'message_edit' AND resource_id = $1",
+        )
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap();
+        match details {
+            Some(details) => (
+                true,
+                details.get("before_preview").is_some() || details.get("after_preview").is_some(),
+            ),
+            None => (false, false),
+        }
+    }
+
+    // Deleting one message clears its quote and keeps the record.
+    let deleted_one = edited_message(&mut app, &owner_auth, channel_id, "single").await;
+    let kept = edited_message(&mut app, &owner_auth, channel_id, "kept").await;
+    assert_eq!(edit_record(&state, deleted_one).await, (true, true));
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{deleted_one}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(edit_record(&state, deleted_one).await, (true, false));
+    assert_eq!(edit_record(&state, kept).await, (true, true));
+
+    // Deleting a channel takes its messages along; the periodic cleanup clears those quotes.
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &owner_auth,
+        Some(json!({ "server_id": server_id, "name": "short-lived", "channel_type": "text" })),
+    )
+    .await;
+    assert!(status.is_success(), "channel create failed: {channel}");
+    let doomed_channel = Uuid::parse_str(channel["id"].as_str().unwrap()).unwrap();
+    let cascaded = edited_message(&mut app, &owner_auth, doomed_channel, "cascade").await;
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/{doomed_channel}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert!(status.is_success());
+    assert_eq!(edit_record(&state, cascaded).await, (true, true));
+    voxpery_server::services::audit::purge_stale(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(edit_record(&state, cascaded).await, (true, false));
+    assert_eq!(edit_record(&state, kept).await, (true, true));
+
+    // Deleting an account clears the quotes of its messages and of what AutoMod blocked.
+    let authored = edited_message(&mut app, &author_auth, channel_id, "authored").await;
+    sqlx::query(
+        r#"INSERT INTO audit_log (actor_id, server_id, action, resource_type, details)
+           VALUES ($1, $2, 'automod_message_block', 'message', $3)"#,
+    )
+    .bind(author_id)
+    .bind(server_id)
+    .bind(json!({
+        "rule_name": "links",
+        "trigger_type": "link_filter",
+        "matched_value": "https://blocked.example",
+        "content_preview": "see https://blocked.example",
+        "content_truncated": false
+    }))
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &author_auth,
+        Some(json!({ "confirm": "DELETE", "password": author_password })),
+    )
+    .await;
+    assert!(status.is_success(), "account deletion failed: {body}");
+    assert_eq!(edit_record(&state, authored).await, (true, false));
+    let blocked: serde_json::Value = sqlx::query_scalar(
+        "SELECT details FROM audit_log WHERE server_id = $1 AND action = 'automod_message_block'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(blocked.get("content_preview").is_none() && blocked.get("matched_value").is_none());
+    assert_eq!(blocked["rule_name"], "links");
+
+    // Records older than the retention period are deleted; newer ones stay.
+    let aged = |days: i32| {
+        sqlx::query_scalar::<_, Uuid>(
+            r#"INSERT INTO audit_log (at, actor_id, server_id, action, resource_type)
+               VALUES (NOW() - make_interval(days => $1), $2, $3, 'server_update', 'server')
+               RETURNING id"#,
+        )
+        .bind(days)
+        .bind(owner_id)
+        .bind(server_id)
+        .fetch_one(&state.db)
+    };
+    let expired = aged(181).await.unwrap();
+    let recent = aged(179).await.unwrap();
+    let (_, deleted) = voxpery_server::services::audit::purge_stale(&state.db)
+        .await
+        .unwrap();
+    assert!(deleted >= 1);
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM audit_log WHERE id = ANY($1)")
+        .bind(vec![expired, recent])
+        .fetch_all(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(remaining, vec![recent]);
+}

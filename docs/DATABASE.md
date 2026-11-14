@@ -202,6 +202,8 @@ Uniqueness (case-insensitive):
 
 - `id`, `at`, `actor_id`, `server_id`, `action`, `resource_type`, `resource_id`, `channel_id`, `reason`, `details`
 - Voice moderation rows use `resource_id` for the target member and `channel_id` for the affected or destination voice channel. Move details preserve both source and destination channel names/IDs.
+- Retention: rows older than 180 days are deleted by a job that runs every 10 minutes, in batches of 5000 (`services::audit::purge_stale`, index `idx_audit_log_at`).
+- Quoted message text: `message_edit` rows hold `before_preview`/`after_preview` and `automod_message_block` rows hold `content_preview`/`matched_value` (up to 160 characters). The quote follows the message: deleting a message clears its edit rows in the same transaction, deleting an account clears the rows of its messages and its AutoMod rows before they move to the placeholder account, and the periodic job clears edit rows whose message went away with its channel or server. Migration `065` added the partial index `idx_audit_log_message_edit_resource` and cleared what was left from before.
 
 ### `server_bans`
 
