@@ -5,6 +5,7 @@ pub mod dm;
 pub mod friends;
 pub mod images;
 pub mod messages;
+pub mod notifications;
 pub mod releases;
 pub mod servers;
 pub mod system;

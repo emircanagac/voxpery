@@ -25,6 +25,8 @@ users
  +--< password_reset_tokens
  +--< uploaded_attachments
  |
+ +--< channel_reads, message_mentions, notification_mutes (per user, see Notifications)
+ |
  +--< dm_channel_members >-- dm_channels --< dm_messages --< dm_message_reactions
                              +--< dm_channel_reads
                              +--< dm_channel_pins
@@ -152,6 +154,21 @@ Uniqueness (case-insensitive):
 
 - Canonicalized pair table (`user_a < user_b`)
 - Primary key `(user_a, user_b)`
+
+### `channel_reads`
+
+- `user_id`, `channel_id`, `last_read_message_id` (nullable, `ON DELETE SET NULL`), `last_read_at`, `updated_at`
+- Primary key `(user_id, channel_id)`. `last_read_at` is the creation time of the last message read, not the time of reading; the upsert only moves it forward. A channel without a row counts as read up to `server_members.joined_at`. Added in migration `066`.
+
+### `message_mentions`
+
+- `message_id`, `user_id`, `channel_id`, `created_at`; primary key `(message_id, user_id)`
+- Mentions by name in server messages, at most 20 per message, only members who can see the channel. `channel_id` and `created_at` copy the message's values so mention counts read one index (`idx_message_mentions_user_channel`). Rewritten in the transaction that edits the message; all references cascade. `@everyone`/`@here` are the boolean `messages.mention_everyone` instead (partial index `idx_messages_channel_mention_everyone`). Added in migration `066`.
+
+### `notification_mutes`
+
+- `user_id`, `server_id`, `channel_id`, `created_at`; exactly one of `server_id`/`channel_id` is set (`CHECK num_nonnulls(...) = 1`)
+- Partial unique indexes on `(user_id, server_id)` and `(user_id, channel_id)`. All references cascade. Rows of a server the user left stay and apply again on rejoin. Added in migration `066`.
 
 ### `user_notes`
 

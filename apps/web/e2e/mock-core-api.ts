@@ -54,6 +54,14 @@ export interface MockCoreState {
   serverMessageSendDelayMs: number
   pinnedMessageIdsByChannelId: Record<string, string[]>
   serverUpdateCount: number
+  /** What `GET /api/notifications/state` returns; read marks remove channels from it. */
+  notificationState: {
+    channels: Array<{ channel_id: string; server_id: string; unread_count: number; mention_count: number }>
+    muted_server_ids: string[]
+    muted_channel_ids: string[]
+  }
+  /** Channel ids in the order `POST /api/notifications/channels/:id/read` was called. */
+  channelReadMarks: string[]
   serverJoinCount: number
   joinedInviteCodes: string[]
   onboardingUpdateCount: number
@@ -358,6 +366,8 @@ export function createMockCoreState(overrides: Partial<MockCoreState> = {}): Moc
     serverMessageSendDelayMs: 0,
     pinnedMessageIdsByChannelId: {},
     serverUpdateCount: 0,
+    notificationState: { channels: [], muted_server_ids: [], muted_channel_ids: [] },
+    channelReadMarks: [],
     serverJoinCount: 0,
     joinedInviteCodes: [],
     onboardingUpdateCount: 0,
@@ -657,6 +667,40 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
       email_verified: true,
     }
     await json(route, { message: 'Your email address has been verified.' })
+    return
+  }
+
+  if (pathname === '/api/notifications/state' && method === 'GET') {
+    await json(route, state.notificationState)
+    return
+  }
+
+  const channelReadMatch = pathname.match(/^\/api\/notifications\/channels\/([^/]+)\/read$/)
+  if (channelReadMatch && method === 'POST') {
+    const channelId = decodeURIComponent(channelReadMatch[1] ?? '')
+    state.channelReadMarks = [...state.channelReadMarks, channelId]
+    state.notificationState = {
+      ...state.notificationState,
+      channels: state.notificationState.channels.filter((entry) => entry.channel_id !== channelId),
+    }
+    await json(route, { channel_id: channelId, last_read_at: new Date().toISOString() })
+    return
+  }
+
+  if (pathname === '/api/notifications/mutes' && method === 'PUT') {
+    const body = parseJsonBody<{ server_ids?: string[]; channel_ids?: string[]; muted?: boolean }>(request)
+    const update = (current: string[], ids: string[] | undefined) => body.muted
+      ? [...current, ...(ids ?? []).filter((id) => !current.includes(id))]
+      : current.filter((id) => !(ids ?? []).includes(id))
+    state.notificationState = {
+      ...state.notificationState,
+      muted_server_ids: update(state.notificationState.muted_server_ids, body.server_ids),
+      muted_channel_ids: update(state.notificationState.muted_channel_ids, body.channel_ids),
+    }
+    await json(route, {
+      muted_server_ids: state.notificationState.muted_server_ids,
+      muted_channel_ids: state.notificationState.muted_channel_ids,
+    })
     return
   }
 

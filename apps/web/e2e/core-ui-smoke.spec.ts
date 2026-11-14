@@ -13,6 +13,32 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  test('shows unread and mention badges kept by the server and marks the opened channel read', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const announcements = channels[1]
+    const state = createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels },
+      notificationState: {
+        channels: [{ channel_id: announcements.id, server_id: server.id, unread_count: 5, mention_count: 2 }],
+        muted_server_ids: [],
+        muted_channel_ids: [],
+      },
+    })
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    await page.locator(`.server-icon[data-server-id="${server.id}"]`).click()
+    await expect(page.locator('.chat-messages')).toBeVisible()
+    // Messages that arrived while this browser was closed still show as a mention badge.
+    const badge = page.locator('.channel-unread-badge')
+    await expect(badge).toHaveText('@2')
+    expect(state.channelReadMarks).not.toContain(announcements.id)
+
+    await page.getByRole('button', { name: announcements.name, exact: false }).first().click()
+    await expect(badge).toHaveCount(0)
+    await expect.poll(() => state.channelReadMarks.includes(announcements.id)).toBe(true)
+  })
+
   for (const scenario of [{ width: 1920, theme: 'dark' }, { width: 1100, theme: 'light' }, { width: 390, theme: 'dark' }, { width: 320, theme: 'light' }]) {
     test(`prepares voice without capture and retains preferences across views at ${scenario.width}px`, { tag: [1920, 320].includes(scenario.width) ? '@core' : [] }, async ({ page }, testInfo) => {
       const server = buildCoreServer()

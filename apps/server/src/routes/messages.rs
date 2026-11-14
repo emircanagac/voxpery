@@ -144,6 +144,13 @@ fn neutralize_mass_mentions(content: &str) -> String {
     result
 }
 
+/// Whether the text holds an `@everyone` or `@here` that was not neutralized.
+fn contains_mass_mention(content: &str) -> bool {
+    content
+        .char_indices()
+        .any(|(index, ch)| ch == '@' && mass_mention_token_len_at(content, index).is_some())
+}
+
 fn can_use_mass_mentions(perms: Permissions) -> bool {
     perms.contains(Permissions::MANAGE_SERVER) || perms.contains(Permissions::MANAGE_MESSAGES)
 }
@@ -849,6 +856,12 @@ async fn send_message(
     )
     .await?;
 
+    let mention_everyone = can_use_mass_mentions(channel_perms) && contains_mass_mention(&content);
+    let mentioned_ids = crate::services::mentions::resolve_mentions(
+        &state.db, server_id, channel_id, claims.sub, &content,
+    )
+    .await?;
+
     let mut tx = state.db.begin().await?;
     crate::services::attachment_release::lock_uploads_for_message(
         &mut tx,
@@ -861,9 +874,10 @@ async fn send_message(
     let inserted_row = sqlx::query_as::<_, MessageRow>(
         r#"WITH new_msg AS (
                INSERT INTO messages (
-                   id, channel_id, user_id, content, attachments, client_request_id, created_at
+                   id, channel_id, user_id, content, attachments, client_request_id, created_at,
+                   mention_everyone
                )
-               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+               VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
                ON CONFLICT (channel_id, user_id, client_request_id)
                    WHERE client_request_id IS NOT NULL
                DO NOTHING
@@ -891,8 +905,19 @@ async fn send_message(
     .bind(&content)
     .bind(&normalized_attachments)
     .bind(&client_request_id)
+    .bind(mention_everyone)
     .fetch_optional(&mut *tx)
     .await?;
+    if let Some(row) = inserted_row.as_ref() {
+        crate::services::mentions::store_mentions(
+            &mut tx,
+            row.id,
+            channel_id,
+            row.created_at,
+            &mentioned_ids,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     let (row, inserted) = if let Some(row) = inserted_row {
@@ -1093,11 +1118,36 @@ async fn edit_message(
     )
     .await?;
 
-    sqlx::query("UPDATE messages SET content = $1, edited_at = NOW() WHERE id = $2")
-        .bind(&content)
-        .bind(message_id)
-        .execute(&state.db)
+    // Mentions follow the edited text; they keep the message's own time, so an edit never
+    // turns an old message into a new mention.
+    let mention_everyone = can_use_mass_mentions(channel_perms) && contains_mass_mention(&content);
+    let mentioned_ids = crate::services::mentions::resolve_mentions(
+        &state.db, server_id, channel_id, claims.sub, &content,
+    )
+    .await?;
+    let mut tx = state.db.begin().await?;
+    let created_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        r#"UPDATE messages
+           SET content = $1, edited_at = NOW(), mention_everyone = $2
+           WHERE id = $3
+           RETURNING created_at"#,
+    )
+    .bind(&content)
+    .bind(mention_everyone)
+    .bind(message_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(created_at) = created_at {
+        crate::services::mentions::store_mentions(
+            &mut tx,
+            message_id,
+            channel_id,
+            created_at,
+            &mentioned_ids,
+        )
         .await?;
+    }
+    tx.commit().await?;
 
     let (before_preview, before_truncated) = audit_content_preview(&previous_content);
     let (after_preview, after_truncated) = audit_content_preview(&content);

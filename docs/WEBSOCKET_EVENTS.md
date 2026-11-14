@@ -168,6 +168,10 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `DmRead`
   - Targeted to the user who read the DM so other open sessions can clear the same unread badge.
   - Payload includes `channel_id`, `user_id`, and `last_read_message_id`.
+- `ChannelRead`
+  - Targeted to the user who read a server channel (`POST /api/notifications/channels/:channel_id/read`) so other open sessions clear the same unread and mention badges.
+  - Payload: `channel_id`, `user_id`, and `last_read_at` (creation time of the last message read). Sent only when the read mark moved.
+  - Missed `ChannelRead` events need no replay: clients reload `GET /api/notifications/state` after reconnecting.
 - `MessageUpdated`
 - `MessageDeleted`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.

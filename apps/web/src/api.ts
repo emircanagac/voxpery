@@ -71,6 +71,7 @@ export { resolveAvatarUrl, resolveInlineMediaUrl, resolveRemoteImageUrl, resolve
 export { setImageProxyGrant } from './api/imageProxyGrant'
 export { friendApi } from './api/friends'
 export { userNoteApi } from './api/userNotes'
+export { notificationApi } from './api/notifications'
 export { dmApi } from './api/dm'
 export { messageApi } from './api/messages'
 export { createWebSocket } from './api/websocket'

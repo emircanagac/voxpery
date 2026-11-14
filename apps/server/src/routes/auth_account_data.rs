@@ -497,6 +497,45 @@ pub(super) async fn export_my_data(
         archive_files.push((path, bytes));
     }
 
+    // Notification state: what the account muted, how far it read each channel and where it was
+    // mentioned. Names instead of identifiers, like the rest of the export.
+    let muted_targets =
+        sqlx::query_as::<_, (String, Option<String>, chrono::DateTime<chrono::Utc>)>(
+            r#"SELECT s.name, c.name, nm.created_at
+           FROM notification_mutes nm
+           LEFT JOIN channels c ON c.id = nm.channel_id
+           INNER JOIN servers s ON s.id = COALESCE(nm.server_id, c.server_id)
+           WHERE nm.user_id = $1
+           ORDER BY nm.created_at"#,
+        )
+        .bind(claims.sub)
+        .fetch_all(&state.db)
+        .await?;
+    let channel_read_marks = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+        r#"SELECT s.name, c.name, r.last_read_at
+           FROM channel_reads r
+           INNER JOIN channels c ON c.id = r.channel_id
+           INNER JOIN servers s ON s.id = c.server_id
+           WHERE r.user_id = $1
+           ORDER BY s.name, c.name"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+    let received_mentions = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+        r#"SELECT s.name, c.name, mm.created_at
+           FROM message_mentions mm
+           INNER JOIN channels c ON c.id = mm.channel_id
+           INNER JOIN servers s ON s.id = c.server_id
+           WHERE mm.user_id = $1
+           ORDER BY mm.created_at DESC
+           LIMIT $2"#,
+    )
+    .bind(claims.sub)
+    .bind(DATA_EXPORT_MESSAGE_LIMIT)
+    .fetch_all(&state.db)
+    .await?;
+
     let payload = serde_json::json!({
         "export": {
             "format": "voxpery-user-data-v3",
@@ -567,6 +606,17 @@ pub(super) async fn export_my_data(
         "messages": {
             "server": server_messages,
             "direct": dm_messages
+        },
+        "notifications": {
+            "muted": muted_targets.iter().map(|(server, channel, muted_at)| {
+                serde_json::json!({ "server": server, "channel": channel, "muted_at": muted_at })
+            }).collect::<Vec<_>>(),
+            "channel_read_marks": channel_read_marks.iter().map(|(server, channel, read_up_to)| {
+                serde_json::json!({ "server": server, "channel": channel, "read_up_to": read_up_to })
+            }).collect::<Vec<_>>(),
+            "mentions_received": received_mentions.iter().map(|(server, channel, at)| {
+                serde_json::json!({ "server": server, "channel": channel, "message_sent_at": at })
+            }).collect::<Vec<_>>()
         }
     });
 

@@ -554,6 +554,8 @@ async fn handle_socket(
                             user_id: target_user_id,
                             ..
                         } => *target_user_id == user_id,
+                        // Sent to the reader's own sessions directly, never broadcast.
+                        WsEvent::ChannelRead { .. } => false,
                         WsEvent::PresenceUpdate { .. }
                         | WsEvent::UserUpdated { .. }
                         | WsEvent::MemberJoined { .. }
