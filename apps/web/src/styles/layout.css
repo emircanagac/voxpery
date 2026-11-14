@@ -170,6 +170,46 @@
   -webkit-user-select: none;
 }
 
+/* Floats under the top bar while the realtime connection is down; it takes no layout space
+   and only its own box takes clicks. */
+.connection-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 8px 6px 12px;
+  border: var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.connection-banner-retry {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--user-accent-contrast, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connection-banner-retry:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
 /* Window buttons sit closer to the edge without shifting the centered Quick Search. */
 .shell-topbar--desktop .window-controls {
   margin-right: -6px;

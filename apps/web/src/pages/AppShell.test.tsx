@@ -194,7 +194,7 @@ describe('AppShell social refresh', () => {
     expect(screen.queryByRole('button', { name: 'Request a feature' })).toBeNull()
   })
 
-  it('retries exhausted WebSocket connectivity only on visible return and removes lifecycle listeners on teardown', () => {
+  it('retries long-lost WebSocket connectivity at once on visible return and removes lifecycle listeners on teardown', () => {
     let visibility: DocumentVisibilityState = 'hidden'
     vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
     const view = renderAppShell()
@@ -203,7 +203,8 @@ describe('AppShell social refresh', () => {
       useSocketStore.setState({ reconnectAttempt: 8 })
       socket.onclose?.(new CloseEvent('close', { code: 1006 }))
     })
-    expect(useSocketStore.getState().shouldReconnect).toBe(false)
+    // Reconnecting never gives up; a hidden tab just waits for its next timed retry.
+    expect(useSocketStore.getState().shouldReconnect).toBe(true)
     act(() => document.dispatchEvent(new Event('visibilitychange')))
     expect(apiMocks.createWebSocket).toHaveBeenCalledTimes(1)
     visibility = 'visible'

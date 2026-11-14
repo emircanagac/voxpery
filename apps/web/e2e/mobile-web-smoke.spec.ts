@@ -9,10 +9,36 @@ import {
   buildRequests,
   buildServerMessage,
   createMockCoreState,
+  dropMockSocketServer,
   installMockCoreApi,
+  restoreMockSocketServer,
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
+  test('shows the reconnecting banner inside a phone viewport and clears it on return', async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+    }))
+    await page.goto('/servers')
+    await expect(page.locator('.shell-topbar')).toBeVisible()
+    const banner = page.getByRole('status').filter({ hasText: 'Connection lost' })
+    await expect(banner).toHaveCount(0)
+
+    await dropMockSocketServer(page)
+    await expect(banner).toBeVisible({ timeout: 8000 })
+    const box = (await banner.boundingBox())!
+    const viewport = page.viewportSize()!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+    // The banner never blocks the app: the page under it still takes clicks.
+    await page.getByRole('button', { name: 'Voxpery', exact: false }).first().click({ trial: true })
+
+    await restoreMockSocketServer(page)
+    await banner.getByRole('button', { name: 'Try now' }).click()
+    await expect(banner).toHaveCount(0)
+  })
+
   test('opens Settings directly from the compact topbar and restores focus on dismissal', async ({ page }) => {
     const server = buildCoreServer()
     await installMockCoreApi(page, createMockCoreState({

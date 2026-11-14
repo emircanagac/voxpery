@@ -452,6 +452,14 @@ export async function installMockCoreApi(page: Page, state: MockCoreState = crea
           ;(window as unknown as { __mockSockets?: MockWebSocket[] }).__mockSockets ??= []
           ;(window as unknown as { __mockSockets: MockWebSocket[] }).__mockSockets.push(this)
           window.setTimeout(() => {
+            // Specs set `__mockSocketOffline` to make every new connection fail like a server that is down.
+            if ((window as unknown as { __mockSocketOffline?: boolean }).__mockSocketOffline) {
+              this.readyState = MockWebSocket.CLOSED
+              const closed = new CloseEvent('close', { code: 1006, reason: 'mock offline' })
+              this.onclose?.(closed)
+              this.dispatchEvent(closed)
+              return
+            }
             this.readyState = MockWebSocket.OPEN
             const event = new Event('open')
             this.onopen?.(event)
@@ -1468,4 +1476,28 @@ async function json(route: Route, body: unknown, status = 200) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Drops the realtime connection as a server outage would: the open socket closes abnormally and
+ * every reconnect fails until `restoreMockSocketServer` is called.
+ */
+export async function dropMockSocketServer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __mockSocketOffline?: boolean
+      __mockSockets?: Array<{ readyState: number; onclose: ((event: CloseEvent) => void) | null }>
+    }
+    w.__mockSocketOffline = true
+    const socket = (w.__mockSockets ?? []).at(-1)
+    if (!socket) return
+    socket.readyState = 3
+    socket.onclose?.(new CloseEvent('close', { code: 1006, reason: 'mock server down' }))
+  })
+}
+
+export async function restoreMockSocketServer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    ;(window as unknown as { __mockSocketOffline?: boolean }).__mockSocketOffline = false
+  })
 }
