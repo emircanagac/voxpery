@@ -215,6 +215,8 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 
 - Redis is required for JWT blacklist checks, distributed rate limits, and the WebSocket event bus.
 - The bundled Redis runs with `--maxmemory ${REDIS_MAXMEMORY:-512mb}` and `--maxmemory-policy noeviction`: when full it rejects new writes instead of evicting keys, so revoked tokens and sessions are never dropped silently. An external Redis should use a memory cap and `noeviction` as well.
+- The bundled Redis keeps an append-only file (`--appendonly yes --appendfsync everysec`), so a crash loses at most the last second of sign-outs and rate-limit state. `scripts/ops/redis_start.sh` starts it; on the first start after updating from 0.5.x it converts the existing snapshot once, which takes a few seconds, and Redis does not start if that conversion fails. An external Redis should enable the append-only file as well.
+- `server` and `web` report their health to Docker (`/health` and `/healthz`), `docker compose ps` shows both as `healthy`, and `web` starts once `server` is healthy.
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
 - Presence and voice state are shared between instances through Redis, so `/ws` needs no sticky routing. Each instance writes a snapshot every 10 seconds; one that stops writing for 35 seconds is treated as gone and its sessions are cleared.
