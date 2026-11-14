@@ -915,8 +915,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             mutedServerIds,
             incrementServerMention,
             incrementServerUnread,
-            setActiveChannel,
-            setActiveServer,
             setChannels,
             setChannelCategoriesForServer,
             setChannelPins,
@@ -932,7 +930,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             send,
             pushToast,
         })
-    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setActiveChannel, setActiveServer, setChannelCategoriesForServer, setChannels, user])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setChannelCategoriesForServer, setChannels, user])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
