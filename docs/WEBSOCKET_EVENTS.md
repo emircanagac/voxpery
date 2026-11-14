@@ -50,6 +50,8 @@ Slow clients: events addressed to one connection wait in a queue of at most 256 
 
 Missed events: a connection that falls behind the shared event stream, or whose queue overflows, cannot know what it lost. The server closes it with code `1013`, and the client reconnects and reloads messages, servers, members, friends and voice state, so it never keeps showing stale data.
 
+Server restart: a server that is stopping closes every connection with code `1012` and answers new handshakes with HTTP 503. Clients treat it like any other drop: they reconnect and reload their state. Voice is left as it is during the shutdown (no `VoiceStateUpdate` departure is sent); a client that was in a call sends `JoinVoice` again after reconnecting.
+
 ### `Unsubscribe`
 
 ```json

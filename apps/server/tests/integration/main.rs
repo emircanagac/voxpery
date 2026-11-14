@@ -312,6 +312,7 @@ async fn build_test_app_with_storage(
         attachment_service: Arc::new(attachment_service),
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
+        shutdown: Default::default(),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);

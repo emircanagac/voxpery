@@ -107,6 +107,8 @@ services:
       dockerfile: Dockerfile
     container_name: voxpery-server
     restart: unless-stopped
+    # The server finishes running requests (up to 20 s) and closes WebSockets before it exits.
+    stop_grace_period: 30s
     env_file:
       - .env
     environment:

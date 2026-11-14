@@ -1743,3 +1743,52 @@ async fn category_delete_and_rename_match_names_case_insensitively_and_report_cl
             .unwrap();
     assert_eq!(category.as_deref(), Some("Delta"));
 }
+
+#[tokio::test]
+async fn voice_claims_without_a_session_are_cleaned_up_after_a_restart() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (api_url, removed) = spawn_livekit_with_participant("PA_left_behind").await;
+    let (_app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://client-livekit.example.test".to_string(),
+        Some(api_url),
+    )
+    .await;
+    use voxpery_server::services::voice_revoke;
+    let channel_id = Uuid::new_v4();
+    let returned_id = Uuid::new_v4();
+    let missing_id = Uuid::new_v4();
+    // Both were in the call when the previous process stopped; only one rejoined.
+    voice_revoke::record_voice_claim(&state, returned_id, channel_id).await;
+    voice_revoke::record_voice_claim(&state, missing_id, channel_id).await;
+    state.voice_sessions.insert(returned_id, channel_id);
+
+    let cleared = voice_revoke::reconcile_orphaned_voice_claims(&state).await;
+    assert!(cleared >= 1);
+    let removed_now = removed.lock().unwrap().clone();
+    assert!(
+        removed_now
+            .iter()
+            .any(|entry| entry.contains(&missing_id.to_string())),
+        "the participant that never came back must be removed: {removed_now:?}"
+    );
+    assert!(
+        !removed_now
+            .iter()
+            .any(|entry| entry.contains(&returned_id.to_string())),
+        "a participant with a voice session must stay: {removed_now:?}"
+    );
+
+    // The orphaned claim is gone, so a second pass finds nothing for that user.
+    removed.lock().unwrap().clear();
+    voice_revoke::reconcile_orphaned_voice_claims(&state).await;
+    assert!(removed.lock().unwrap().is_empty());
+
+    voice_revoke::clear_voice_claim(&state, returned_id, channel_id).await;
+}

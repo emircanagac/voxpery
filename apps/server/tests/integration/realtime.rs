@@ -2776,3 +2776,80 @@ async fn server_name_changes_reach_members_without_the_invite_code() {
         "the invite code must not be broadcast: {event}"
     );
 }
+
+#[tokio::test]
+async fn shutdown_closes_websockets_with_1012_and_keeps_the_voice_session() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "restartcaller").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Restart Guild")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let addr = spawn_ws_app(&state).await;
+    let mut ws = connect_ws(addr, &owner_auth).await;
+    ws_send(
+        &mut ws,
+        json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } }),
+    )
+    .await;
+    receive_ws_event(&mut ws, "VoiceControlUpdate").await;
+    assert_eq!(
+        state.voice_sessions.get(&owner_id).map(|entry| *entry),
+        Some(voice_channel_id)
+    );
+
+    state.shutdown.begin();
+
+    let close_code = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .expect("the server must close the websocket on shutdown")
+            .expect("the websocket must end with a close frame")
+            .expect("websocket read failed");
+        if let WsMessage::Close(frame) = message {
+            break frame.map(|frame| u16::from(frame.code));
+        }
+    };
+    assert_eq!(close_code, Some(1012));
+    assert_eq!(
+        state
+            .shutdown
+            .wait_for_sockets(std::time::Duration::from_secs(5))
+            .await,
+        0,
+        "the connection must finish its cleanup"
+    );
+    // The call survives the restart: the session and its claim stay for the client to rejoin.
+    assert_eq!(
+        state.voice_sessions.get(&owner_id).map(|entry| *entry),
+        Some(voice_channel_id)
+    );
+    assert!(!state.sessions.contains_key(&owner_id));
+
+    // A stopping server takes no new realtime connections.
+    let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!(
+            "voxpery.auth,{}",
+            owner_auth.trim_start_matches("Bearer ")
+        ))
+        .unwrap(),
+    );
+    request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    match connect_async(request).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), 503);
+        }
+        other => panic!("expected a 503 handshake refusal, got {other:?}"),
+    }
+
+    voxpery_server::services::voice_revoke::clear_voice_claim(&state, owner_id, voice_channel_id)
+        .await;
+}

@@ -333,6 +333,97 @@ pub async fn clear_voice_claim(state: &AppState, user_id: Uuid, channel_id: Uuid
     }
 }
 
+/// How long after startup clients get to reconnect and rejoin voice before the leftovers of the
+/// previous process are cleaned up.
+const STARTUP_VOICE_RECONCILIATION_DELAY: Duration = Duration::from_secs(60);
+
+fn parse_voice_join_claim_key(key: &str) -> Option<(Uuid, Uuid)> {
+    let (user_id, channel_id) = key.strip_prefix("voice:join_claim:")?.split_once(':')?;
+    Some((
+        Uuid::parse_str(user_id).ok()?,
+        Uuid::parse_str(channel_id).ok()?,
+    ))
+}
+
+/// Runs [`reconcile_orphaned_voice_claims`] once, after clients had time to come back.
+pub fn spawn_startup_voice_reconciliation(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        tokio::time::sleep(STARTUP_VOICE_RECONCILIATION_DELAY).await;
+        reconcile_orphaned_voice_claims(&state).await;
+    });
+}
+
+/// A server that stops keeps voice claims and LiveKit participants so calls survive a restart.
+/// A claim whose user has no voice session on any instance belongs to a client that did not
+/// come back: its LiveKit participant would stay audible without appearing in the voice list,
+/// so it is removed and the departure is announced. Returns how many claims were cleared.
+pub async fn reconcile_orphaned_voice_claims(state: &Arc<AppState>) -> usize {
+    // Sessions held by other instances must be known first; without them every claim would
+    // look orphaned.
+    if let Err(error) = ws::cluster::sync_peers(state).await {
+        tracing::warn!(
+            "Voice reconciliation skipped, instance sync failed: {}",
+            error
+        );
+        return 0;
+    }
+    let keys: Result<Vec<String>, redis::RedisError> = async {
+        let mut conn = state.redis.connection().await?;
+        let mut iter = conn.scan_match::<_, String>("voice:join_claim:*").await?;
+        let mut keys = Vec::new();
+        while let Some(key) = iter.next_item().await {
+            keys.push(key);
+        }
+        Ok(keys)
+    }
+    .await;
+    let keys = match keys {
+        Ok(keys) => keys,
+        Err(error) => {
+            tracing::warn!("Voice reconciliation skipped, claims unreadable: {}", error);
+            return 0;
+        }
+    };
+
+    let mut cleared = 0;
+    for (user_id, channel_id) in keys
+        .iter()
+        .filter_map(|key| parse_voice_join_claim_key(key))
+    {
+        let session_channel = state.voice_sessions.get(&user_id).map(|entry| *entry);
+        if session_channel == Some(channel_id) {
+            continue;
+        }
+        clear_voice_claim(state, user_id, channel_id).await;
+        remove_livekit_participant(state, channel_id, user_id, "no voice session after restart")
+            .await;
+        cleared += 1;
+        // In another channel by now: only the room left behind needed cleaning.
+        if session_channel.is_some() {
+            continue;
+        }
+        let server_id = server_id_for_channel_from_state(state, channel_id).await;
+        ws::publish_event(
+            state,
+            WsEvent::VoiceStateUpdate {
+                channel_id: None,
+                user_id,
+                server_id,
+                channel_active_since_ms: None,
+                previous_channel_id: Some(channel_id),
+            },
+        )
+        .await;
+    }
+    if cleared > 0 {
+        tracing::info!(
+            "Voice reconciliation cleared {} orphaned voice claims",
+            cleared
+        );
+    }
+    cleared
+}
+
 /// When Redis cannot answer this says yes: a working call must not end over an outage.
 async fn voice_claim_exists(state: &AppState, user_id: Uuid, channel_id: Uuid) -> bool {
     let result: Result<bool, redis::RedisError> = async {
