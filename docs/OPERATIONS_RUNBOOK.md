@@ -303,7 +303,7 @@ With `ATTACHMENTS_S3_*` set, new files are in the bucket and not in this volume,
 
 Redis outage or full memory:
 
-Redis holds the token blacklist, rate limits and short-lived sign-in codes. All of them fail closed on purpose: with Redis unreachable, sign-in and every signed-in request are refused, and the server must not be changed to skip these checks. When Redis is full it rejects writes (`OOM command not allowed` in the logs), so sign-in, logout and rate-limited actions fail while reads may still work.
+Redis holds the token blacklist, rate limits and short-lived sign-in codes. All of them fail closed on purpose: with Redis unreachable, sign-in and every signed-in request are refused, and the server must not be changed to skip these checks. When Redis is full it rejects writes (`OOM command not allowed` in the logs), so sign-in, logout and rate-limited actions fail while reads may still work. Signed-in requests refused during the outage get `503`, not `401`, so clients stay signed in and recover on their own once Redis is back; each refused request waits a few seconds for Redis first.
 
 ```bash
 docker compose ps redis

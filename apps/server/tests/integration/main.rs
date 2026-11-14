@@ -229,6 +229,52 @@ async fn build_test_app_with_storage(
     livekit_api_url: Option<String>,
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
 ) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_storage_and_redis(
+        email_verification_enabled,
+        email_verification_required,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+        object_store,
+        redis_client(),
+    )
+    .await
+}
+
+/// An app whose Redis refuses every connection, sharing the test database: accounts made
+/// through a normal app exist here too.
+async fn setup_app_with_unreachable_redis() -> (axum::Router, Arc<AppState>) {
+    let unreachable = SharedRedis::new(
+        redis::Client::open("redis://127.0.0.1:1").expect("Failed to create Redis client"),
+    );
+    build_test_app_with_storage_and_redis(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+        None,
+        unreachable,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_test_app_with_storage_and_redis(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+    object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
+    redis: SharedRedis,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -261,7 +307,7 @@ async fn build_test_app_with_storage(
     let state = Arc::new(AppState {
         instance_id: Uuid::new_v4(),
         db,
-        redis: redis_client(),
+        redis,
         jwt_secret: jwt_secret(),
         jwt_expiration: 86400,
         tx,

@@ -1743,3 +1743,26 @@ async fn category_delete_and_rename_match_names_case_insensitively_and_report_cl
             .unwrap();
     assert_eq!(category.as_deref(), Some("Delta"));
 }
+
+/// An unreachable Redis is an outage, not a sign-out: a signed-in request is refused with 503,
+/// so clients keep the session instead of dropping to the sign-in screen.
+#[tokio::test]
+async fn unreachable_redis_refuses_with_503_instead_of_401() {
+    let (mut app, _state) = setup_app().await;
+    let (auth, _user_id, _) = register_named_user(&mut app, "outage").await;
+    let (status, body) = api_json(&mut app, "GET", "/api/auth/session", &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (mut down, _down_state) = setup_app_with_unreachable_redis().await;
+    // One route behind each auth middleware: plain and legal-consent.
+    for uri in ["/api/auth/session", "/api/servers"] {
+        let (status, body) = api_json(&mut down, "GET", uri, &auth, None).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{uri}: {body}");
+        assert_eq!(body["code"], "SERVICE_UNAVAILABLE", "{uri}: {body}");
+    }
+
+    // A token that fails the signature check is still a 401; Redis is not asked.
+    let (status, body) =
+        api_json(&mut down, "GET", "/api/servers", "Bearer not-a-token", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+}

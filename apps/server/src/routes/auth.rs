@@ -23,8 +23,8 @@ use uuid::Uuid;
 use crate::{
     errors::AppError,
     middleware::auth::{
-        claims_match_current_token_version, require_auth,
-        require_auth_and_current_legal_consent_unverified_ok, token_from_request, Claims,
+        require_auth, require_auth_and_current_legal_consent_unverified_ok, token_from_request,
+        Claims,
     },
     models::{
         AuthResponse, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
