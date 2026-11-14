@@ -24,8 +24,6 @@ export interface AppLayoutEventContext {
     mutedServerIds: AppState['mutedServerIds']
     incrementServerMention: AppState['incrementServerMention']
     incrementServerUnread: AppState['incrementServerUnread']
-    setActiveChannel: AppState['setActiveChannel']
-    setActiveServer: AppState['setActiveServer']
     setChannels: AppState['setChannels']
     setChannelCategoriesForServer: (serverId: string, categories: string[]) => void
     setChannelPins: Dispatch<SetStateAction<MessageWithAuthor[]>>
@@ -51,8 +49,6 @@ export function handleAppLayoutEvent(event: WsEvent, {
     mutedServerIds,
     incrementServerMention,
     incrementServerUnread,
-    setActiveChannel,
-    setActiveServer,
     setChannels,
     setChannelCategoriesForServer,
     setChannelPins,
@@ -176,10 +172,7 @@ export function handleAppLayoutEvent(event: WsEvent, {
                                     title: isMention ? `Mention in #${channelName}` : `New message in #${channelName}`,
                                     body: `${incoming.author?.username ?? 'Someone'}: ${incoming.content.slice(0, 120)}`,
                                     tag: `server:${incomingServerId}:channel:${incomingChannelId}`,
-                                    onClick: () => {
-                                        setActiveServer(incomingServerId)
-                                        setActiveChannel(incomingChannelId)
-                                    },
+                                    target: { kind: 'server_channel', serverId: incomingServerId, channelId: incomingChannelId },
                                 })
                             }
                         }
