@@ -26,13 +26,30 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.5.4 preparation (not release sign-off)
+### v0.6.0 preparation (not release sign-off)
 
-Version metadata is prepared for `0.5.4`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.6.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.5.4` and `voxpery/voxpery-web:v0.5.4`, the embedded web badge/build tag, desktop version `0.5.4`, the `Voxpery_0.5.4_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.6.0` and `voxpery/voxpery-web:v0.6.0`, the embedded web badge/build tag, desktop version `0.6.0`, the `Voxpery_0.6.0_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.6.0 checks
+
+Server migrations `065`, `066` and `067` run on the first start. Take a fresh database backup first: `065` deletes every audit log entry older than 180 days, which cannot be undone.
+
+- [ ] voxpery.com `/version.json` reports `v0.6.0` after the deploy, the header badge shows `v0.6.0` without a `Beta` label, and the server logs show the three migrations applied without errors.
+- [ ] Self-hosting from a clean server: `scripts/ops/init_env.sh` writes `.env`, `docker-compose.proxy.yml` obtains certificates for the web, API and LiveKit domains, sign-in, messages and a voice channel work over HTTPS, and rate limits see the real client address.
+- [ ] `docker compose ps` shows `server` and `web` as `healthy`; an existing Redis with `dump.rdb` converts to the append-only file once on the first start and keeps sign-outs.
+- [ ] Stopping Redis for 10 seconds keeps open web and desktop sessions signed in; they recover on their own and a revoked token is still refused afterwards.
+- [ ] Stopping the server for 5 minutes shows the "Connection lost" banner after 3 seconds; it clears on return and missed messages load, in a visible tab and in the desktop app.
+- [ ] `docker compose restart server` during an upload does not cut it off; two users in a voice channel stay in the call; with two instances, users of a stopped instance show offline on the other right away.
+- [ ] `REGISTRATION_MODE=invite` and `closed` with a real Google account: first sign-in follows the mode; existing accounts still sign in.
+- [ ] Server Settings resets the invite link: the old link shows an invalid invite, the new one joins.
+- [ ] Two devices of one account: reading a channel on one clears its badge on the other; a mention sent while the app is closed shows a badge on the next start; a muted channel is muted on both after a reconnect.
+- [ ] Android Chrome (real device) with notifications enabled and Voxpery in the background: a DM and a mention each show a notification, the chat still receives the message, and tapping opens that DM or channel (also listed under PWA above).
+- [ ] With VAPID keys set: Settings > Communication offers notifications while Voxpery is closed; with every tab closed, a DM arrives on Android Chrome, desktop Chrome and Firefox and opens the DM; signing out stops them. Record the iOS Home Screen result or the limit.
+- [ ] `/compare` shows the Stoat column on desktop and mobile.
 
 ### v0.5.4 checks
 

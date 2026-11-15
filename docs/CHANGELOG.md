@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-11-15
 
 ### Added
 - Notifications while Voxpery is closed: turn them on per browser in Settings > Communication to get direct messages and mentions with no Voxpery tab open (Android Chrome, desktop Chrome, Edge and Firefox; Safari on iPhone and iPad after adding Voxpery to the Home Screen). A notification names the sender, never the message. Self-hosted servers enable it with VAPID keys (see `docs/DEPLOYMENT.md`).
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: `scripts/ops/init_env.sh` writes `.env` with fresh random secrets, and `docker-compose.proxy.yml` adds an HTTPS reverse proxy (Caddy) with automatic certificates. A public server now needs three DNS records and two commands; see "Public server with HTTPS" in the deployment guide.
 
 ### Changed
+- The app header shows only the running version, such as `v0.6.0`; the `Beta` label is gone.
 - Unread and mention badges of server channels are kept by the server: messages that arrive while the app is closed or offline show up as badges, and reading or muting a channel on one device applies on your other devices too. Mutes saved in a browser move to your account the first time it signs in.
 - Privacy: the short quote of a message that the server audit log keeps for an edit or an AutoMod block is now removed when the message or the account is deleted, and audit log entries are deleted after 180 days. The Privacy Notice and KVKK text state this.
 - Self-hosting: Redis now keeps an append-only file, so sign-outs and rate limits survive a Redis crash. Existing data is converted on the first start after the update; no manual step is needed.
