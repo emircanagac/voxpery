@@ -1093,7 +1093,22 @@ pub(super) async fn google_oauth_callback(
             u
         }
         Ok(None) => {
-            // New user: create account
+            // New user: the registration mode decides before anything is stored.
+            let admission = match registration::admit(
+                &state.db,
+                state.registration_mode,
+                registration::invite_code_from_redirect(&redirect_path),
+            )
+            .await
+            {
+                Ok(admission) => admission,
+                Err(AppError::Forbidden(_)) => return failure("registration_closed"),
+                Err(AppError::Validation(_)) => return failure("registration_invite_required"),
+                Err(error) => {
+                    tracing::warn!("Google OAuth registration check failed: {error}");
+                    return failure("oauth_failed");
+                }
+            };
             if oauth_intent != "register"
                 || !legal_acknowledged
                 || validate_current_legal_documents(
@@ -1137,10 +1152,16 @@ pub(super) async fn google_oauth_callback(
                     return failure("oauth_failed");
                 }
             };
-            let user = match google_registration::create_account(&mut tx, &google_id, &email, &name)
-                .await
+            let account = match registration::insert_google_account(
+                &mut tx,
+                &google_id,
+                &email,
+                &normalize_oauth_username_seed(&name),
+                admission,
+            )
+            .await
             {
-                Ok(user) => user,
+                Ok(account) => account,
                 Err(error) => {
                     tracing::warn!("Google OAuth account creation failed: {error}");
                     return failure("oauth_failed");
@@ -1150,7 +1171,8 @@ pub(super) async fn google_oauth_callback(
                 tracing::warn!("Google OAuth transaction commit failed: {}", e);
                 return failure("oauth_failed");
             }
-            user
+            announce_invited_join(&state, &account).await;
+            account.user
         }
         Err(e) => {
             tracing::warn!("Google OAuth db lookup failed: {}", e);

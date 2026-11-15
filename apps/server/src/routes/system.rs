@@ -26,6 +26,8 @@ pub struct SystemFeaturesResponse {
     pub email_verification_enabled: bool,
     pub email_verification_required: bool,
     pub password_reset_enabled: bool,
+    /// `open`, `invite` or `closed`: whether and how new accounts can be created.
+    pub registration_mode: &'static str,
     pub observability_enabled: bool,
     /// True when this server hands out its own TURN credentials for voice.
     pub turn_enabled: bool,
@@ -46,6 +48,7 @@ async fn get_features(State(state): State<Arc<AppState>>) -> Json<SystemFeatures
         email_verification_enabled: state.email_verification_enabled,
         email_verification_required: state.email_verification_required,
         password_reset_enabled: state.password_reset_enabled,
+        registration_mode: state.registration_mode.as_str(),
         observability_enabled: state.observability_enabled,
         turn_enabled: state
             .turn_urls

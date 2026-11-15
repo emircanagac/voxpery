@@ -14,6 +14,8 @@ Only the official service publishes the hosted documents; it is recognized from 
 
 Google callbacks require a verified provider email. Existing accounts keep the normal sign-in path and acknowledge only missing/stale versions. New accounts arriving with valid Sign Up metadata use the fast path; otherwise a cookie-bound pending context leads to a server-rendered completion form. Both paths use the same transaction-level account/audit creation service. Pending completion additionally locks and consumes its short-lived context atomically. No account or full session is issued before actual acknowledgement. Desktop results remain PKCE-bound single-use exchange codes; the browser completion page has no native IPC access.
 
+Every account is created by `services/registration.rs`, whichever path the sign-up took (email, desktop or Google). It applies the server's registration mode (`REGISTRATION_MODE`: open, invite or closed), the shared rate limits, CAPTCHA and field rules, and stores the account with its legal acknowledgement proof; an invite-only sign-up joins the inviting server in the same transaction. The default community invite code never counts as an invitation.
+
 ## Stack
 
 | Layer | Technology |

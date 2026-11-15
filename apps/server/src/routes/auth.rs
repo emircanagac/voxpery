@@ -43,6 +43,10 @@ use crate::{
         DATA_EXPORT_REAUTH_MAX_AGE_SECS,
     },
     services::rate_limit::enforce_rate_limit,
+    services::registration::{
+        self, is_valid_email, validate_username, NewAccount, PasswordSignup, MAX_EMAIL_LEN,
+        RESERVED_SYSTEM_EMAIL_DOMAIN,
+    },
     services::server_membership,
     ws::WsEvent,
     AppState,
@@ -180,19 +184,6 @@ async fn perform_dummy_password_verification(password: &str) -> Result<(), AppEr
 
 /// Domain of the internal account that keeps deleted users' servers and history; no user
 /// account may use an address in it.
-const RESERVED_SYSTEM_EMAIL_DOMAIN: &str = "system.local";
-
-fn is_valid_email(email: &str) -> bool {
-    email.len() <= 255
-        && email.contains('@')
-        && email.find('@').map(|i| i > 0 && i < email.len() - 1) == Some(true)
-        && !email.rsplit_once('@').is_some_and(|(_, domain)| {
-            domain
-                .trim()
-                .eq_ignore_ascii_case(RESERVED_SYSTEM_EMAIL_DOMAIN)
-        })
-}
-
 fn frontend_base_url(state: &AppState) -> String {
     if let Some(frontend_url) = state.frontend_url.as_deref() {
         return frontend_url.trim_end_matches('/').to_string();
@@ -205,33 +196,6 @@ fn frontend_base_url(state: &AppState) -> String {
         .cloned()
         .map(|origin| origin.trim_end_matches('/').to_string())
         .unwrap_or_else(|| "http://localhost:5173".to_string())
-}
-
-fn validate_username(username: &str) -> Result<(), &'static str> {
-    if username.len() < 3 || username.len() > 32 {
-        return Err("Username must be 3-32 characters");
-    }
-    if username.starts_with('_')
-        || username.starts_with('.')
-        || username.ends_with('_')
-        || username.ends_with('.')
-    {
-        return Err("Username cannot start or end with an underscore or period");
-    }
-    if username.contains("__")
-        || username.contains("..")
-        || username.contains("_.")
-        || username.contains("._")
-    {
-        return Err("Username cannot contain consecutive underscores or periods");
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_' || c == '.')
-    {
-        return Err("Username may only contain letters, numbers, underscores, and periods");
-    }
-    Ok(())
 }
 
 fn validate_profile_text(
@@ -393,8 +357,6 @@ async fn clear_login_failures(
     Ok(())
 }
 
-/// Emails are stored and validated with at most this many characters.
-const MAX_EMAIL_LEN: usize = 255;
 /// Public (unauthenticated) auth requests are small forms; the global limit is for uploads.
 const PUBLIC_AUTH_BODY_LIMIT: usize = 64 * 1024;
 
@@ -457,81 +419,19 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(protected)
 }
 
-async fn validate_registration_captcha(
-    state: &AppState,
-    token: Option<&str>,
-    client_ip: Option<&str>,
-) -> Result<(), AppError> {
-    if let Some(secret_key) = &state.turnstile_secret_key {
-        let token = token.unwrap_or("");
-        if token.is_empty() {
-            return Err(AppError::Validation("CAPTCHA token is required".into()));
-        }
-
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|_| AppError::Internal("Could not initialize CAPTCHA verification".into()))?;
-        let mut verify_form = vec![
-            ("secret", secret_key.to_string()),
-            ("response", token.to_string()),
-        ];
-        if let Some(ip) = client_ip {
-            verify_form.push(("remoteip", ip.to_string()));
-        }
-        let res = client
-            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-            .form(&verify_form)
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::warn!("Turnstile verify request failed: {}", e);
-                AppError::Validation(
-                    "CAPTCHA verification service is temporarily unavailable. Please try again."
-                        .into(),
-                )
-            })?;
-
-        #[derive(serde::Deserialize)]
-        struct TurnstileResponse {
-            success: bool,
-            #[serde(default)]
-            error_codes: Vec<String>,
-        }
-
-        let status = res.status();
-        let raw = res.text().await.map_err(|e| {
-            tracing::warn!("Turnstile verify response read failed: {}", e);
-            AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            )
-        })?;
-
-        if !status.is_success() {
-            tracing::warn!("Turnstile verify non-success status: {}", status);
-            return Err(AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            ));
-        }
-
-        let verify_result = serde_json::from_str::<TurnstileResponse>(&raw).map_err(|e| {
-            tracing::warn!("Turnstile verify JSON parse failed: {}", e);
-            AppError::Validation(
-                "CAPTCHA verification service is temporarily unavailable. Please try again.".into(),
-            )
-        })?;
-
-        if !verify_result.success {
-            tracing::warn!(
-                "Turnstile verification failed for register request: {:?}",
-                verify_result.error_codes
-            );
-            return Err(AppError::Validation(
-                "CAPTCHA verification failed. Please retry the challenge.".into(),
-            ));
-        }
+/// Tells the members of the server whose invite admitted a new account that it joined.
+async fn announce_invited_join(state: &Arc<AppState>, account: &NewAccount) {
+    if let Some(server_id) = account.joined_server_id {
+        crate::ws::publish_event(
+            state,
+            WsEvent::MemberJoined {
+                server_id,
+                user_id: account.user.id,
+                username: account.user.username.clone(),
+            },
+        )
+        .await;
     }
-    Ok(())
 }
 
 /// POST /api/auth/register
@@ -541,7 +441,6 @@ async fn register(
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), AppError> {
-    let email = body.email.trim().to_lowercase();
     // v0.2.13 clients used one explicit checkbox labelled for both Privacy and KVKK.
     // Preserve that proof during a rolling deploy while newer clients send both fields.
     let kvkk_notice_acknowledged = body
@@ -561,119 +460,30 @@ async fn register(
         kvkk_notice_version.trim(),
     )?;
 
-    if email.len() > MAX_EMAIL_LEN || !is_valid_email(&email) {
-        return Err(AppError::Validation(
-            "Email must be a valid format (e.g. user@domain)".into(),
-        ));
-    }
-
-    // 1) Email-based rate limit
-    enforce_rate_limit(
-        &state.redis,
-        format!("auth:register:{}", email),
-        state.auth_rate_limit_max,
-        Duration::from_secs(state.auth_rate_limit_window_secs),
-        "Too many register attempts for this email. Please wait and try again.",
-    )
-    .await?;
-
-    // 2) IP-based rate limit (Flood protection)
     let client_ip = extract_client_ip(
         &state,
         &headers,
         connect_info.as_ref().map(|Extension(info)| info),
     );
-
-    // Allow max 5 accounts per IP per hour as basic flood protection
-    if let Some(ip) = client_ip.as_deref() {
-        enforce_rate_limit(
-            &state.redis,
-            format!("auth:register_ip:{}", ip),
-            5,
-            Duration::from_secs(3600), // 1 hour
-            "Too many accounts created from this IP address. Please try again later.",
-        )
-        .await?;
-    }
-
-    validate_registration_captcha(&state, body.captcha_token.as_deref(), client_ip.as_deref())
-        .await?;
-
-    // Validate input
-    let username = body.username.trim();
-    validate_username(username).map_err(|message| AppError::Validation(message.into()))?;
-    if email.len() > 255 {
-        return Err(AppError::Validation(
-            "Email must be at most 255 characters".into(),
-        ));
-    }
-    if !is_valid_email(&email) {
-        return Err(AppError::Validation(
-            "Email must be a valid format (e.g. user@domain)".into(),
-        ));
-    }
-    if body.password.len() < 8 {
-        return Err(AppError::Validation(
-            "Password must be at least 8 characters".into(),
-        ));
-    }
-    ensure_password_within_limit(&body.password)?;
-
-    // Check if user already exists
-    let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1) OR lower(username) = lower($2)",
+    let signup = registration::prepare_password_signup(
+        &state,
+        PasswordSignup {
+            username: &body.username,
+            email: &body.email,
+            password: &body.password,
+            captcha_token: body.captcha_token.as_deref(),
+            client_ip: client_ip.as_deref(),
+            invite_code: body.invite_code.as_deref(),
+        },
     )
-    .bind(&email)
-    .bind(username)
-    .fetch_one(&state.db)
     .await?;
 
-    if existing > 0 {
-        return Err(AppError::UserAlreadyExists);
-    }
-
-    // Hash password
-    let password_hash = hash_password_async(&body.password).await?;
-
-    // Insert the account and legal acknowledgement proof atomically.
+    // The account and its legal acknowledgement proof are stored atomically.
     let mut tx = state.db.begin().await?;
-    let user = sqlx::query_as::<_, User>(
-        r#"INSERT INTO users
-           (id, username, email, password_hash, status, dm_privacy, email_verified, created_at,
-            terms_version, terms_accepted_at, privacy_notice_version,
-            privacy_notice_acknowledged_at, kvkk_notice_version,
-            kvkk_notice_acknowledged_at)
-           VALUES ($1, $2, $3, $4, 'online', 'everyone', FALSE, NOW(),
-                   $5, NOW(), $6, NOW(), $7, NOW())
-           RETURNING *"#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(username)
-    .bind(&email)
-    .bind(&password_hash)
-    .bind(current_terms_version())
-    .bind(current_privacy_notice_version())
-    .bind(current_kvkk_notice_version())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|error| match error {
-        // A concurrent registration took the email or username after the check above.
-        sqlx::Error::Database(database) if database.is_unique_violation() => {
-            AppError::UserAlreadyExists
-        }
-        error => AppError::Database(error),
-    })?;
-
-    record_privacy_event(
-        &mut tx,
-        user.id,
-        "account_registered",
-        Some(current_terms_version()),
-        Some(current_privacy_notice_version()),
-        Some(current_kvkk_notice_version()),
-    )
-    .await?;
+    let account = registration::insert_password_account(&mut tx, signup).await?;
     tx.commit().await?;
+    announce_invited_join(&state, &account).await;
+    let user = account.user;
 
     // Auto-join default Voxpery server
     ensure_default_server_join(&state.db, user.id).await?;
@@ -699,7 +509,7 @@ async fn register(
 
 /// Default Voxpery server invite code.
 /// Users auto-join this official community server on register/login.
-pub(crate) const DEFAULT_SERVER_INVITE_CODE: &str = "voxpery";
+pub(crate) use crate::services::registration::DEFAULT_SERVER_INVITE_CODE;
 // Keep in sync with routes/servers.rs seeding.
 const PERM_VIEW_SERVER: i64 = 1 << 0;
 const PERM_KICK_MEMBERS: i64 = 1 << 4;

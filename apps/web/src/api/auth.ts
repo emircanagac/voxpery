@@ -111,10 +111,11 @@ export const authApi = {
         password: string,
         legal: RegistrationLegalAcceptance,
         captcha_token?: string,
+        invite_code?: string,
     ) =>
         pendingLogout.then(() => apiFetch<AuthResponse>('/api/auth/register', {
             method: 'POST',
-            body: { username, email, password, captcha_token, ...legal },
+            body: { username, email, password, captcha_token, invite_code, ...legal },
         })),
 
     login: (identifier: string, password: string) =>

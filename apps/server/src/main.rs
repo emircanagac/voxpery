@@ -155,6 +155,7 @@ async fn main() {
         email_verification_enabled: config.email_verification_enabled(),
         email_verification_required: config.email_verification_required,
         password_reset_enabled: config.password_reset_enabled(),
+        registration_mode: config.registration_mode,
         attachment_service,
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),

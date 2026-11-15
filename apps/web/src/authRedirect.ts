@@ -43,6 +43,10 @@ export function googleOAuthErrorMessage(error: string | null): string {
       return 'Google did not verify your email address. Use a verified Google account or email/password.'
     case 'oauth_failed':
       return 'Sign in with Google failed. Try again or use email/password.'
+    case 'registration_closed':
+      return 'This server is not accepting new accounts. Sign in with an existing account.'
+    case 'registration_invite_required':
+      return 'This server is invite-only. Open your invite link and sign up from there.'
     default:
       return ''
   }
