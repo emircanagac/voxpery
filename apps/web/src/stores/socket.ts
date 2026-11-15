@@ -166,12 +166,21 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         ws.onmessage = (event) => {
             if (get().connectionId !== connectionId) return
 
+            let data: Parameters<WsListener>[0]
             try {
-                const data = JSON.parse(event.data)
-                get().listeners.forEach((listener) => listener(data))
+                data = JSON.parse(event.data)
             } catch (e) {
                 console.error('WS Parse error', e)
+                return
             }
+            // One listener failing must not keep the event from the others.
+            get().listeners.forEach((listener) => {
+                try {
+                    listener(data)
+                } catch (e) {
+                    console.error('WS listener error', e)
+                }
+            })
         }
 
         set({ socket: ws })

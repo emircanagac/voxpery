@@ -19,6 +19,8 @@ const pushMocks = vi.hoisted(() => ({
   isAppBackgrounded: vi.fn(() => false),
   shouldShowPushNotification: vi.fn(() => false),
   showPushNotification: vi.fn(),
+  // What AppShell registers for clicked notifications; tests call it with the shown target.
+  targetHandler: null as ((target: unknown) => void) | null,
 }))
 
 vi.mock('../api', () => ({
@@ -55,6 +57,13 @@ vi.mock('../pushNotifications', () => ({
   isAppBackgrounded: pushMocks.isAppBackgrounded,
   shouldShowPushNotification: pushMocks.shouldShowPushNotification,
   showPushNotification: pushMocks.showPushNotification,
+  setNotificationTargetHandler: (handler: (target: unknown) => void) => {
+    pushMocks.targetHandler = handler
+    return () => {
+      if (pushMocks.targetHandler === handler) pushMocks.targetHandler = null
+    }
+  },
+  listenForNotificationClicks: () => () => {},
 }))
 
 vi.mock('../secureStorage', () => ({
@@ -321,8 +330,9 @@ describe('AppShell social refresh', () => {
       expect(useAppStore.getState().dmUnread[channel.id]).toBe(1)
     })
 
-    const notification = pushMocks.showPushNotification.mock.calls[0]?.[0] as { onClick?: () => void }
-    act(() => notification.onClick?.())
+    const notification = pushMocks.showPushNotification.mock.calls[0]?.[0] as { target?: unknown }
+    expect(notification.target).toEqual({ kind: 'dm', channelId: channel.id, messageId: 'message-notification' })
+    act(() => pushMocks.targetHandler?.(notification.target))
 
     await waitFor(() => {
       expect(screen.getByTestId('shell-child')).toHaveAttribute(

@@ -20,6 +20,8 @@ import { playMessageNotificationSound, shouldPlayNotificationSound } from '../no
 import {
   isAppBackgrounded,
   shouldShowPushNotification,
+  listenForNotificationClicks,
+  setNotificationTargetHandler,
   showPushNotification,
 } from '../pushNotifications'
 import type { DmNotificationLocationState } from '../dmNotificationNavigation'
@@ -107,6 +109,36 @@ export default function AppShell() {
   const currentPathnameRef = useRef(location.pathname)
   currentPathnameRef.current = location.pathname
   const pushToast = useToastStore((s) => s.pushToast)
+  // A clicked notification opens what it was about, whether this window or the service worker
+  // showed it, and also when the service worker had to open a new window for it.
+  useEffect(() => {
+    const removeHandler = setNotificationTargetHandler((target) => {
+      window.focus()
+      if (target.kind === 'server_channel') {
+        const store = useAppStore.getState()
+        store.setActiveServer(target.serverId)
+        store.setActiveChannel(target.channelId)
+        navigate(ROUTES.servers)
+        return
+      }
+      const state: DmNotificationLocationState = {
+        dmNotificationAnchor: {
+          channelId: target.channelId,
+          messageId: target.messageId,
+          notificationId: target.messageId ?? `${target.channelId}:${Date.now()}`,
+        },
+      }
+      setPersistedSocialView('dm')
+      useAppStore.getState().setActiveDmChannelId(target.channelId)
+      navigate(ROUTES.dm, { state })
+    })
+    const stopListening = listenForNotificationClicks()
+    return () => {
+      stopListening()
+      removeHandler()
+    }
+  }, [navigate])
+
   const [desktopUpdate, setDesktopUpdate] = useState<UpdateResult | null>(null)
   const {
     installing: installingDesktopUpdate,
@@ -600,19 +632,7 @@ export default function AppShell() {
                   title: incomingMessage?.author?.username ?? channel.peer_username,
                   body: 'sent you a direct message',
                   tag: `dm:${channel.id}`,
-                  onClick: () => {
-                    const messageId = incomingMessage?.id ?? null
-                    const state: DmNotificationLocationState = {
-                      dmNotificationAnchor: {
-                        channelId: channel.id,
-                        messageId,
-                        notificationId: messageId ?? `${channel.id}:${Date.now()}`,
-                      },
-                    }
-                    setPersistedSocialView('dm')
-                    setActiveDmChannelId(channel.id)
-                    navigate(ROUTES.dm, { state })
-                  },
+                  target: { kind: 'dm', channelId: channel.id, messageId: incomingMessage?.id ?? null },
                 })
               }
             }

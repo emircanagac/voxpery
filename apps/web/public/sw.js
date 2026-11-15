@@ -59,3 +59,40 @@ self.addEventListener('fetch', (event) => {
     }),
   )
 })
+
+// Must match NOTIFICATION_CLICK_MESSAGE and NOTIFICATION_TARGET_HASH in src/pushNotifications.ts.
+const NOTIFICATION_CLICK_MESSAGE = 'voxpery-notification-click'
+const NOTIFICATION_TARGET_HASH = '#notification='
+
+function notificationTargetPath(target) {
+  if (target && target.kind === 'dm') return '/social/dm'
+  if (target && target.kind === 'server_channel') return '/servers'
+  return '/social'
+}
+
+// A clicked notification brings an open Voxpery window forward and hands it the target; with no
+// window open it starts one at the target. The page validates the target before using it.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const data = event.notification.data
+  const target = data && typeof data === 'object' ? data.target || null : null
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      const sameOrigin = windows.filter((client) => new URL(client.url).origin === self.location.origin)
+      const client = sameOrigin.find((candidate) => candidate.focused) || sameOrigin[0]
+      if (client) {
+        try {
+          await client.focus()
+        } catch {
+          // Focusing can be refused; the window still gets the target.
+        }
+        if (target) client.postMessage({ type: NOTIFICATION_CLICK_MESSAGE, target })
+        return
+      }
+      const hash = target ? NOTIFICATION_TARGET_HASH + encodeURIComponent(JSON.stringify(target)) : ''
+      await self.clients.openWindow(notificationTargetPath(target) + hash)
+    })(),
+  )
+})

@@ -15,6 +15,31 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked mobile web smoke', () => {
+  test('opens the DM or channel a clicked notification is about on a phone', async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const announcements = channels[1]
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels },
+      dmChannels: [{ id: 'dm-ready', peer_id: 'friend-01', peer_username: 'Friend 01', peer_avatar_url: null, peer_status: 'online', unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+    }))
+
+    // With no window open, the service worker starts one at the target.
+    const target = { kind: 'server_channel', serverId: server.id, channelId: announcements.id }
+    await page.goto(`/servers#notification=${encodeURIComponent(JSON.stringify(target))}`)
+    await expect(page.getByRole('textbox', { name: `Message #${announcements.name}` })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('')
+
+    // With a window open, the service worker hands it the clicked notification.
+    await page.evaluate(() => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'voxpery-notification-click', target: { kind: 'dm', channelId: 'dm-ready', messageId: null } },
+      }))
+    })
+    await expect(page).toHaveURL(/\/social\/dm$/)
+    await expect(page.getByRole('textbox', { name: 'Message @Friend 01' })).toBeVisible()
+  })
+
   test('shows the reconnecting banner inside a phone viewport and clears it on return', async ({ page }) => {
     const server = buildCoreServer()
     await installMockCoreApi(page, createMockCoreState({

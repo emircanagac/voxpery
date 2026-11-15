@@ -200,6 +200,34 @@ describe('WebSocket Store', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('delivers an event to every listener even when one of them throws', async () => {
+    const { connect, subscribe } = useSocketStore.getState()
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failing = vi.fn(() => {
+      throw new TypeError('Illegal constructor')
+    })
+    const after = vi.fn()
+    const unsubscribeFailing = subscribe(failing)
+    const unsubscribeAfter = subscribe(after)
+    const message = { type: 'NewMessage', data: { channel_id: 'c1' } }
+
+    act(() => {
+      useSocketStore.getState().socket?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }))
+      useSocketStore.getState().socket?.onmessage?.(new MessageEvent('message', { data: 'not json' }))
+    })
+
+    expect(failing).toHaveBeenCalledTimes(1)
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(after).toHaveBeenCalledWith(message)
+    unsubscribeFailing()
+    unsubscribeAfter()
+    consoleError.mockRestore()
+  })
+
   it('calculates exponential reconnect delays with jitter', () => {
     // The first retry is spread over 0-3 s so clients do not return together after a restart.
     expect(websocketReconnectDelayMs(1, () => 0.5)).toBe(1500)
