@@ -1,12 +1,15 @@
 // Shared by ComparePage and the static fallback in compare.html (see compareStaticHtml.test.ts).
 // Every row is either checked against the linked sources or measured (see MEASURED_ON and the note).
 export const MEASURED_ON = 'October 23, 2026'
+/** Stoat (formerly Revolt) was added later, from its official site and release page. */
+export const STOAT_CHECKED_ON = 'November 15, 2026'
 
 export const comparison = [
   {
     feature: 'Price',
     voxpery: 'Free, no paid tier',
     discord: 'Free; Nitro subscription raises limits',
+    stoat: 'Free, no paid tier yet',
     element: 'Free app; paid hosting plans',
     zulip: 'Free cloud plan; paid plans',
   },
@@ -14,6 +17,7 @@ export const comparison = [
     feature: 'Open source',
     voxpery: 'AGPL-3.0 source',
     discord: 'Proprietary service',
+    stoat: 'AGPL-3.0 source',
     element: 'Open source',
     zulip: 'Open source',
   },
@@ -21,6 +25,7 @@ export const comparison = [
     feature: 'Self-hosting',
     voxpery: 'Docker deployment',
     discord: 'No official server option',
+    stoat: 'Docker Compose; official apps mostly stoat.chat only',
     element: 'Matrix homeserver',
     zulip: 'Supported',
   },
@@ -28,6 +33,7 @@ export const comparison = [
     feature: 'Voice and screen sharing',
     voxpery: 'Built-in voice and screen sharing',
     discord: 'Built in',
+    stoat: 'Voice chat',
     element: 'Element Call',
     zulip: 'Via a call provider',
   },
@@ -35,6 +41,7 @@ export const comparison = [
     feature: 'Windows installer',
     voxpery: '8.2 MB',
     discord: '146 MB',
+    stoat: '147 MB',
     element: '220 MB',
     zulip: '128 MB',
   },
@@ -42,6 +49,7 @@ export const comparison = [
     feature: 'Desktop engine',
     voxpery: 'System webview (Tauri)',
     discord: 'Bundled Chromium (Electron)',
+    stoat: 'Bundled Chromium (Electron)',
     element: 'Bundled Chromium (Electron)',
     zulip: 'Bundled Chromium (Electron)',
   },
@@ -49,6 +57,7 @@ export const comparison = [
     feature: 'Desktop platforms',
     voxpery: 'Windows, macOS, Linux',
     discord: 'Windows, macOS, Linux',
+    stoat: 'Windows, macOS, Linux',
     element: 'Windows, macOS, Linux',
     zulip: 'Windows, macOS, Linux',
   },
@@ -56,6 +65,7 @@ export const comparison = [
     feature: 'Mobile',
     voxpery: 'Installable web app; no store app yet',
     discord: 'iOS and Android apps',
+    stoat: 'Android app (beta); iOS web app',
     element: 'iOS and Android apps',
     zulip: 'iOS and Android apps',
   },
@@ -63,6 +73,7 @@ export const comparison = [
     feature: 'End-to-end encrypted messages',
     voxpery: 'Not yet',
     discord: 'No (calls only)',
+    stoat: '—',
     element: 'Yes, by default',
     zulip: 'No',
   },
@@ -70,6 +81,7 @@ export const comparison = [
     feature: 'Integrations',
     voxpery: 'No app directory yet',
     discord: 'App Directory',
+    stoat: 'Bot API',
     element: 'Widgets and bridges',
     zulip: 'Bots and integrations',
   },

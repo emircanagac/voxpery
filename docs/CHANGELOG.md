@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Android Chrome: browser notifications for new messages show up again, and showing one no longer keeps the message or its badge from reaching the chat. Tapping a notification opens the DM or channel it is about, also when no Voxpery tab is open.
 
+### Changed
+- The compare page also lists Stoat (formerly Revolt), with each value taken from Stoat's own site and release page; rows Stoat does not state are left blank.
+
 ## [0.5.4] - 2026-11-10
 
 Includes the changes prepared for 0.5.3, which was not published. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.

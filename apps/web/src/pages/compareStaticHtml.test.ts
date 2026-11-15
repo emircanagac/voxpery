@@ -5,7 +5,7 @@ import landingHtml from '../../landing.html?raw'
 import appSchema from '../seo/app-schema.json?raw'
 import commonHead from '../seo/common-head.html?raw'
 import { applySharedHtml, COMMON_HEAD_MARKER } from '../seo/sharedHtml'
-import { advantages, comparison, MEASURED_ON } from './compareContent'
+import { advantages, comparison, MEASURED_ON, STOAT_CHECKED_ON } from './compareContent'
 
 const RAW_ENTRIES: Record<string, string> = { 'index.html': indexHtml, 'landing.html': landingHtml, 'compare.html': compareHtml }
 
@@ -20,8 +20,10 @@ describe('static public page HTML', () => {
     const rows = Array.from(doc.querySelectorAll('#root tbody tr')).map(row =>
       Array.from(row.children).map(cell => cell.textContent?.trim()),
     )
-    expect(rows).toEqual(comparison.map(({ feature, voxpery, discord, element, zulip }) =>
-      [feature, voxpery, discord, element, zulip]))
+    expect(rows).toEqual(comparison.map(({ feature, voxpery, discord, stoat, element, zulip }) =>
+      [feature, voxpery, discord, stoat, element, zulip]))
+    expect(Array.from(doc.querySelectorAll('#root thead th')).map(cell => cell.textContent))
+      .toEqual(['Feature', 'Voxpery', 'Discord', 'Stoat', 'Element', 'Zulip'])
 
     const text = doc.querySelector('#root')?.textContent ?? ''
     for (const { title, text: body } of advantages) {
@@ -29,6 +31,7 @@ describe('static public page HTML', () => {
       expect(text).toContain(body)
     }
     expect(text).toContain(MEASURED_ON)
+    expect(text).toContain(STOAT_CHECKED_ON)
   })
 
   it.each([
