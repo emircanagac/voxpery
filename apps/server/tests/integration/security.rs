@@ -1765,6 +1765,7 @@ async fn unreachable_redis_refuses_with_503_instead_of_401() {
     let (status, body) =
         api_json(&mut down, "GET", "/api/servers", "Bearer not-a-token", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+}
 
 #[tokio::test]
 async fn voice_claims_without_a_session_are_cleaned_up_after_a_restart() {
