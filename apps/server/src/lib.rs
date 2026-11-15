@@ -109,6 +109,8 @@ pub struct AppState {
     pub attachment_service: Arc<services::attachments::AttachmentService>,
     pub release_http_client: reqwest::Client,
     pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
+    /// Set once the process was told to stop; see `services::shutdown`.
+    pub shutdown: services::shutdown::Shutdown,
 }
 
 #[derive(Clone, Debug)]

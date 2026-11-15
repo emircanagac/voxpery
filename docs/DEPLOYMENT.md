@@ -272,6 +272,7 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 - Presence and voice state are shared between instances through Redis, so `/ws` needs no sticky routing. Each instance writes a snapshot every 10 seconds; one that stops writing for 35 seconds is treated as gone and its sessions are cleared.
 - Local attachment storage is per-instance. For multiple backend instances, use S3 compatible storage or mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
+- An instance that is stopped (`SIGTERM`) reports its users offline to the others right away; only an instance that crashed is noticed through the 35-second snapshot expiry.
 
 ## 5) Validation Checklist
 
@@ -296,6 +297,14 @@ Manual checks:
 git pull
 docker compose up -d --build
 ```
+
+The server shuts down gracefully on `docker compose up`, `restart` and `stop`: it stops taking
+new connections, lets running requests such as uploads finish (up to 20 seconds), and closes
+WebSockets with code `1012` so clients reconnect on their own. Voice calls continue through
+the restart because the media runs through LiveKit; clients rejoin when they reconnect, and
+60 seconds after startup the server removes the participants that did not come back. The
+bundled Compose file sets `stop_grace_period: 30s` for this. If you run the server another
+way, give it at least 30 seconds between `SIGTERM` and `SIGKILL`.
 
 Upgrading an installation created before the separate database role: add
 `POSTGRES_APP_PASSWORD` (and optionally `POSTGRES_APP_USER`) to `.env`, then run the update

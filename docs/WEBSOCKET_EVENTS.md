@@ -54,6 +54,8 @@ Session checks: the server re-checks the session of every open connection every 
 
 Reconnecting: while signed in the client never stops retrying a dropped connection. The first retry waits a random 0-3 seconds, so clients do not all return in the same instant after a server restart; later retries back off exponentially with 25% jitter up to 30 seconds and continue at that pace. Only close code `4001` (session ended) stops it. A connection that stays down for more than 3 seconds shows a non-blocking "Connection lost. Reconnecting…" banner with a "Try now" button, and on return the client reloads its state as after any reconnect.
 
+Server restart: a server that is stopping closes every connection with code `1012` and answers new handshakes with HTTP 503. Clients treat it like any other drop: they reconnect and reload their state. Voice is left as it is during the shutdown (no `VoiceStateUpdate` departure is sent); a client that was in a call sends `JoinVoice` again after reconnecting.
+
 ### `Unsubscribe`
 
 ```json

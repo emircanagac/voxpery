@@ -50,6 +50,8 @@ const WS_SESSION_QUEUE_CAPACITY: usize = 256;
 /// Sent when a connection missed events (1013 "try again later"). The client reconnects, which
 /// reloads its state, instead of showing stale data until the next page load.
 const WS_MISSED_EVENTS_CLOSE_CODE: u16 = 1013;
+/// "Service restart": the server is stopping and the client should reconnect.
+const WS_SERVICE_RESTART_CLOSE_CODE: u16 = 1012;
 /// A write that cannot complete in this time means the client stopped reading; the
 /// connection is closed and the client reconnects and reloads its state.
 const WS_SEND_TIMEOUT: Duration = Duration::from_secs(20);
@@ -252,6 +254,14 @@ pub async fn ws_handler(
     State(state): State<Arc<AppState>>,
     req: Request,
 ) -> Response {
+    if state.shutdown.is_started() {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Server is restarting",
+        )
+            .into_response();
+    }
+
     let protocol_token = token_from_ws_protocol(req.headers());
     let using_cookie_auth = protocol_token.is_none();
 
@@ -411,6 +421,8 @@ async fn handle_socket(
 ) {
     let user_id = claims.sub;
     let username = account.username;
+    // Lets a graceful shutdown wait until this connection has reported its departure.
+    let _socket_guard = state.shutdown.track_socket();
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
@@ -522,6 +534,18 @@ async fn handle_socket(
                     ) {
                         break;
                     }
+                }
+                // The server is stopping: tell the client to reconnect instead of dropping it.
+                _ = send_state.shutdown.started() => {
+                    let _ = tokio::time::timeout(
+                        WS_SEND_TIMEOUT,
+                        ws_sender.send(Message::Close(Some(CloseFrame {
+                            code: WS_SERVICE_RESTART_CLOSE_CODE,
+                            reason: "Server restarting".into(),
+                        }))),
+                    )
+                    .await;
+                    break;
                 }
                 // Events from broadcast channel
                 result = broadcast_rx.recv() => {
@@ -1062,6 +1086,14 @@ async fn handle_socket(
             },
         )
         .await;
+    }
+
+    // A stopping server keeps voice as it is: the call goes on in LiveKit, the client rejoins
+    // when it reconnects, and whoever does not come back is cleaned up after the restart (see
+    // `voice_revoke::reconcile_orphaned_voice_claims`) or by the other instances.
+    if state.shutdown.is_started() {
+        tracing::info!("WebSocket closed for shutdown: {}", ShortId(user_id));
+        return;
     }
 
     // Voice ends with the connection that holds it, even while other tabs stay open; a client

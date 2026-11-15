@@ -22,5 +22,6 @@ pub mod redact;
 pub mod registration;
 pub mod server_membership;
 pub mod shared_redis;
+pub mod shutdown;
 pub mod voice_moderation;
 pub mod voice_revoke;
