@@ -40,6 +40,32 @@ npm ci
 npm run dev
 ```
 
+## Your First Contribution
+
+1. **Find a small task.** Issues labelled
+   [`good first issue`](https://github.com/emircanagac/voxpery/labels/good%20first%20issue) and
+   [`help wanted`](https://github.com/emircanagac/voxpery/labels/help%20wanted) are meant for
+   newcomers. If none are open, or you want to fix something else, open an issue first and describe
+   what you plan to change, so the work is not done twice.
+2. **Read the part you will touch.** [ARCHITECTURE.md](ARCHITECTURE.md) explains how the backend,
+   web client, desktop app and LiveKit fit together; [UI_BEHAVIOR.md](UI_BEHAVIOR.md) describes the
+   interface rules, [API.md](API.md), [WEBSOCKET_EVENTS.md](WEBSOCKET_EVENTS.md) and
+   [DATABASE.md](DATABASE.md) the contracts. [DEVELOPMENT.md](DEVELOPMENT.md) has the full local
+   setup, including the test database.
+3. **Run the checks for what you changed.** CI runs the whole matrix on your pull request; locally,
+   run the fast checks for the area you touched:
+
+   | You changed | Run |
+   |---|---|
+   | Server (`apps/server`) | `cargo check --locked --tests`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo fmt --check`, and `cargo test --locked <name>` for the tests near your change. Integration tests need PostgreSQL and Redis: `node scripts/dev/local-qa.mjs backend-test -- <name> --test-threads=1` from the repository root. |
+   | Web (`apps/web`) | `npx tsc -b`, `npm run lint`, `npx vitest run <files>`, and for a changed screen the Playwright spec that covers it: `npx playwright test <spec> --project=chromium --workers=1`. |
+   | Migrations | `node .github/scripts/validate-migration-history.mjs`. Never edit a migration that is already merged; add a new one. |
+   | Workflows or scripts | `node --test .github/scripts/*.test.mjs scripts/dev/*.test.mjs scripts/tests/*.test.mjs` |
+   | Documentation only | Check that every link you added opens. |
+
+4. **Keep the pull request to one change**, with a short description of what changed, why, and which
+   checks you ran.
+
 ## Before Opening PR
 
 Run:
@@ -88,4 +114,4 @@ If your PR changes auth/permissions/channels/database/ws behavior, update docs i
 
 ---
 
-Last verified against code on 2026-04-15.
+Last verified against code on 2026-11-15.

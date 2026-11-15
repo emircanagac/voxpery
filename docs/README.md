@@ -15,6 +15,7 @@ This folder is the source of truth for architecture, development, deployment, ro
 ## Technical Reference
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and project structure
+- **[UI_BEHAVIOR.md](UI_BEHAVIOR.md)** - Interface behavior: scrolling, layout, menus, dialogs and the voice stage
 - **[API.md](API.md)** - REST API endpoints and auth behavior
 - **[WEBSOCKET_EVENTS.md](WEBSOCKET_EVENTS.md)** - Realtime protocol and event contracts
 - **[VOICE_SYSTEM.md](VOICE_SYSTEM.md)** - LiveKit integration and voice pipeline
