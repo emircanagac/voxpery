@@ -253,3 +253,70 @@ async fn invite_mode_applies_to_desktop_registration() {
         .unwrap();
     assert!(is_member(&state, server_id, user_id).await);
 }
+
+#[tokio::test]
+async fn invite_mode_refuses_an_invite_code_that_was_reset() {
+    let (mut open_app, open_state) = setup_app().await;
+    let (owner_email, owner_username) = unique_account();
+    let (owner_token, _) = register_user(
+        &mut open_app,
+        &owner_email,
+        &owner_username,
+        "registration-test-password",
+    )
+    .await;
+    let owner_auth = format!("Bearer {owner_token}");
+    let (server_id, _channel_id, old_code) = create_server_with_default_text_channel(
+        &mut open_app,
+        &open_state,
+        &owner_auth,
+        "Leaked Invite Friends",
+    )
+    .await;
+    let (status, rotated) = api_json(
+        &mut open_app,
+        "POST",
+        &format!("/api/servers/{server_id}/invite/rotate"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rotated}");
+    let new_code = rotated["invite_code"].as_str().unwrap().to_string();
+    assert_ne!(new_code, old_code);
+
+    let (mut app, state) = setup_app_with_registration_mode(RegistrationMode::Invite, false).await;
+
+    // The leaked code no longer admits a sign-up.
+    let (email, username) = unique_account();
+    let mut body = registration_body(&email, &username, "registration-test-password");
+    body["invite_code"] = json!(old_code);
+    let (status, response) = oneshot(&mut app, register_request(&body)).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+    let stored: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = $1")
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(stored, 0, "the reset code must not create an account");
+
+    // The new code does, and the account joins the server.
+    let (email, username) = unique_account();
+    let mut body = registration_body(&email, &username, "registration-test-password");
+    body["invite_code"] = json!(new_code);
+    let (status, response) = oneshot(&mut app, register_request(&body)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+    let auth: serde_json::Value = serde_json::from_slice(&response).unwrap();
+    let user_id = Uuid::parse_str(auth["user"]["id"].as_str().unwrap()).unwrap();
+    assert!(is_member(&state, server_id, user_id).await);
+}
