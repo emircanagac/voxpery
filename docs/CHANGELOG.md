@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosting: Redis now keeps an append-only file, so sign-outs and rate limits survive a Redis crash. Existing data is converted on the first start after the update; no manual step is needed.
 - Self-hosting: `docker compose ps` reports the health of `server` and `web`, and `web` waits for a healthy `server`.
 
+### Added
+- Self-hosting: `scripts/ops/init_env.sh` writes `.env` with fresh random secrets, and `docker-compose.proxy.yml` adds an HTTPS reverse proxy (Caddy) with automatic certificates. A public server now needs three DNS records and two commands; see "Public server with HTTPS" in the deployment guide.
+
 ## [0.5.4] - 2026-11-10
 
 Includes the changes prepared for 0.5.3, which was not published. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.
