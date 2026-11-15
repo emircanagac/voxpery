@@ -51,6 +51,7 @@ Data is therefore processed in Germany and, by these providers, in other countri
 
 - Account data and content are kept until you delete them or your account.
 - Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships, uploaded files and personal notes, including notes other people wrote about you. Moderation and audit records you created are reassigned to a placeholder account, servers you own pass to their highest-ranked member, and group direct messages you own pass to their longest-standing member.
+- Server audit log entries are kept for 180 days and then deleted. An entry about an edited message, or about a message AutoMod blocked, quotes up to 160 characters of its text; the quote is removed when the message or your account is deleted, and within 10 minutes when a whole channel or server is deleted.
 - Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.
 - Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.
 

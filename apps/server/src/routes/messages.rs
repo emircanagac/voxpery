@@ -972,13 +972,17 @@ async fn delete_message(
         .await?;
     }
 
+    // The edit records of the message lose their quoted text in the same transaction.
+    let mut tx = state.db.begin().await?;
+    crate::services::audit::clear_message_edit_previews(&mut tx, message_id).await?;
     let attachments = sqlx::query_scalar::<_, Option<serde_json::Value>>(
         "DELETE FROM messages WHERE id = $1 RETURNING attachments",
     )
     .bind(message_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .flatten();
+    tx.commit().await?;
 
     crate::ws::publish_event(
         &state,

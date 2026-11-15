@@ -715,6 +715,8 @@ pub(super) async fn delete_my_account(
     .execute(&mut *tx)
     .await?;
 
+    // Quoted message text goes with the account; only then do its records change hands.
+    crate::services::audit::clear_author_previews(&mut tx, claims.sub).await?;
     sqlx::query("UPDATE audit_log SET actor_id = $1 WHERE actor_id = $2")
         .bind(deleted_placeholder_id)
         .bind(claims.sub)

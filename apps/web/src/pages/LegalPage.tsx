@@ -52,6 +52,7 @@ function EnglishPrivacyNotice() {
     <ul>
       <li>Account data and content are kept until you delete them or your account.</li>
       <li>Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships, uploaded files and personal notes, including notes other people wrote about you. Moderation and audit records you created are reassigned to a placeholder account, servers you own pass to their highest-ranked member, and group direct messages you own pass to their longest-standing member.</li>
+      <li>Server audit log entries are kept for 180 days and then deleted. An entry about an edited message, or about a message AutoMod blocked, quotes up to 160 characters of its text; the quote is removed when the message or your account is deleted, and within 10 minutes when a whole channel or server is deleted.</li>
       <li>Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.</li>
       <li>Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.</li>
     </ul>
@@ -122,6 +123,7 @@ function KvkkNotice() {
     <ul>
       <li>Hesap verileri ve içerik, siz ya da hesabınız silinene kadar saklanır.</li>
       <li>Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler, yüklenen dosyalar ve başkalarının sizin hakkınızda yazdıkları dahil kişisel notlar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye, grup doğrudan mesajları en eski üyeye geçer.</li>
+      <li>Sunucu denetim kayıtları 180 gün saklanır, sonra silinir. Düzenlenen ya da otomatik moderasyonun engellediği bir mesaja ait kayıt, mesaj metninin en çok 160 karakterini içerir; mesaj ya da hesabınız silindiğinde bu alıntı da silinir, bir kanal ya da sunucu tümüyle silindiğinde en geç 10 dakika içinde kaldırılır.</li>
       <li>Sunucu kayıtları ve veri tabanı yedekleri en fazla 14 gün tutulur; silinen veriler yedeklerden de 14 gün içinde çıkar.</li>
       <li>İstek sınırı sayaçları ve tamamlanmayan kayıtlar dakikalar ile saatler içinde kendiliğinden silinir.</li>
     </ul>
