@@ -8,8 +8,9 @@ use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use voxpery_server::{
-    build_app, config, database_url_has_placeholder, routes, validate_optional_integration_config,
-    validate_secret_config, validate_security_config, ws, AppState,
+    build_app, config, database_url_has_placeholder, routes, services::shutdown,
+    validate_optional_integration_config, validate_secret_config, validate_security_config, ws,
+    AppState,
 };
 
 #[tokio::main]
@@ -42,6 +43,13 @@ async fn main() {
         tracing::error!("Invalid optional integration configuration: {}", msg);
         return;
     }
+    let web_push = match voxpery_server::services::web_push::WebPushConfig::from_env() {
+        Ok(web_push) => web_push.map(Arc::new),
+        Err(msg) => {
+            tracing::error!("{}", msg);
+            return;
+        }
+    };
     if let Err(msg) = validate_secret_config(&[
         ("JWT_SECRET", Some(config.jwt_secret.as_str())),
         ("LIVEKIT_API_SECRET", config.livekit_api_secret.as_deref()),
@@ -155,12 +163,16 @@ async fn main() {
         email_verification_enabled: config.email_verification_enabled(),
         email_verification_required: config.email_verification_required,
         password_reset_enabled: config.password_reset_enabled(),
+        registration_mode: config.registration_mode,
         attachment_service,
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
+        shutdown: Default::default(),
+        web_push,
     });
     ws::bus::spawn_redis_event_bridge(state.clone());
     ws::cluster::spawn_peer_sync(state.clone());
+    voxpery_server::services::voice_revoke::spawn_startup_voice_reconciliation(state.clone());
     let registration_db = state.db.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -214,6 +226,13 @@ async fn main() {
             {
                 tracing::warn!("Moving stored avatars failed: {error}");
             }
+            match voxpery_server::services::audit::purge_stale(&release_state.db).await {
+                Ok((0, 0)) => {}
+                Ok((cleared, deleted)) => tracing::info!(
+                    "Audit log cleanup: {cleared} records lost their quoted text, {deleted} expired"
+                ),
+                Err(error) => tracing::warn!("Audit log cleanup failed: {error}"),
+            }
         }
     });
 
@@ -252,7 +271,7 @@ async fn main() {
         });
     }
 
-    let app = build_app(state, config.cors_origins);
+    let app = build_app(state.clone(), config.cors_origins);
 
     let host = if config.server_host == "0.0.0.0" {
         "[::]"
@@ -269,12 +288,66 @@ async fn main() {
     };
     tracing::info!("🚀 Voxpery server running on {}", addr);
 
-    if let Err(e) = axum::serve(
+    // On a stop signal the listener closes, open WebSockets are told to reconnect (close code
+    // 1012) and requests already running get a bounded time to finish.
+    let signal_state = state.clone();
+    let server = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await
-    {
-        tracing::error!("HTTP server terminated with error: {}", e);
+    .with_graceful_shutdown(async move {
+        wait_for_stop_signal().await;
+        tracing::info!("Stop signal received; shutting down gracefully");
+        signal_state.shutdown.begin();
+    });
+    let drain_limit = async {
+        state.shutdown.started().await;
+        tokio::time::sleep(shutdown::HTTP_DRAIN_TIMEOUT).await;
+    };
+    tokio::select! {
+        result = server => {
+            if let Err(e) = result {
+                tracing::error!("HTTP server terminated with error: {}", e);
+            }
+        }
+        _ = drain_limit => {
+            tracing::warn!("Requests were still running when the shutdown time ran out");
+        }
+    }
+    // Each closing WebSocket reports its user offline to the other instances before the exit.
+    let still_open = state
+        .shutdown
+        .wait_for_sockets(shutdown::SOCKET_DRAIN_TIMEOUT)
+        .await;
+    if still_open > 0 {
+        tracing::warn!(
+            "{} WebSocket connections did not finish closing",
+            still_open
+        );
+    }
+    tracing::info!("Shutdown complete");
+}
+
+/// Resolves on Ctrl+C or, on Unix, SIGTERM (what `docker stop` sends).
+async fn wait_for_stop_signal() {
+    let ctrl_c = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
     }
 }

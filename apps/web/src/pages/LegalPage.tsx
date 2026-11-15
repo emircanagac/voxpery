@@ -44,6 +44,7 @@ function EnglishPrivacyNotice() {
       <li><strong>Hosting:</strong> the servers, database and media server run in Germany.</li>
       <li><strong>Cloudflare:</strong> network delivery, attack protection and the human check (Turnstile) at sign-up. Cloudflare sees your IP address and request data.</li>
       <li><strong>Google:</strong> optional Google sign-in, and delivery of account emails such as email verification and password reset.</li>
+      <li><strong>Browser push services:</strong> if you turn on notifications for when Voxpery is closed, your browser's push service (Google, Mozilla, Apple or Microsoft, depending on the browser) delivers them. A notification names the sender and the conversation or channel, never the message, and is encrypted for your browser; the push service sees only when it is sent.</li>
       <li><strong>GIPHY and jsDelivr:</strong> GIF search goes from your device directly to GIPHY, and GIPHY GIFs in chat load directly from GIPHY. Built-in stickers load from the jsDelivr network. Both see the IP address of everyone who searches or views them. Images from other websites shown in chat are loaded through Voxpery's server, so those websites do not see your IP address.</li>
       <li><strong>GitHub:</strong> the desktop apps check for and download updates from GitHub, which sees your device's IP address.</li>
     </ul>
@@ -52,6 +53,8 @@ function EnglishPrivacyNotice() {
     <ul>
       <li>Account data and content are kept until you delete them or your account.</li>
       <li>Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships, uploaded files and personal notes, including notes other people wrote about you. Moderation and audit records you created are reassigned to a placeholder account, servers you own pass to their highest-ranked member, and group direct messages you own pass to their longest-standing member.</li>
+      <li>Server audit log entries are kept for 180 days and then deleted. An entry about an edited message, or about a message AutoMod blocked, quotes up to 160 characters of its text; the quote is removed when the message or your account is deleted, and within 10 minutes when a whole channel or server is deleted.</li>
+      <li>A browser's notification subscription for when Voxpery is closed is kept until you turn the setting off, sign out in that browser or delete your account, and is removed when the push service reports it expired.</li>
       <li>Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.</li>
       <li>Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.</li>
     </ul>
@@ -114,6 +117,7 @@ function KvkkNotice() {
       <li><strong>Barındırma:</strong> sunucular, veri tabanı ve medya sunucusu Almanya'dadır.</li>
       <li><strong>Cloudflare:</strong> ağ dağıtımı, saldırı koruması ve kayıttaki insan doğrulaması (Turnstile); IP adresinizi ve istek bilgilerini görür.</li>
       <li><strong>Google:</strong> isteğe bağlı Google ile giriş ve e-posta doğrulama ile parola sıfırlama gibi hesap e-postalarının gönderimi.</li>
+      <li><strong>Tarayıcı bildirim servisleri:</strong> Voxpery kapalıyken bildirimleri açarsanız bunları tarayıcınızın bildirim servisi (tarayıcıya göre Google, Mozilla, Apple ya da Microsoft) iletir. Bildirim mesajı değil, yalnız göndereni ve konuşmayı ya da kanalı içerir ve tarayıcınız için şifrelenir; bildirim servisi yalnız gönderim zamanını görür.</li>
       <li><strong>GIPHY ve jsDelivr:</strong> GIF araması cihazınızdan doğrudan GIPHY'ye gider ve sohbetteki GIPHY GIF'leri doğrudan GIPHY'den yüklenir. Hazır çıkartmalar jsDelivr ağından yüklenir. Her ikisi de arayan veya görüntüleyen herkesin IP adresini görür. Sohbette gösterilen diğer sitelerin resimleri Voxpery sunucusu üzerinden yüklenir, o siteler IP adresinizi görmez.</li>
       <li><strong>GitHub:</strong> masaüstü uygulamaları güncellemeleri GitHub'dan denetler ve indirir; GitHub cihazınızın IP adresini görür.</li>
     </ul>
@@ -122,6 +126,8 @@ function KvkkNotice() {
     <ul>
       <li>Hesap verileri ve içerik, siz ya da hesabınız silinene kadar saklanır.</li>
       <li>Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler, yüklenen dosyalar ve başkalarının sizin hakkınızda yazdıkları dahil kişisel notlar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye, grup doğrudan mesajları en eski üyeye geçer.</li>
+      <li>Sunucu denetim kayıtları 180 gün saklanır, sonra silinir. Düzenlenen ya da otomatik moderasyonun engellediği bir mesaja ait kayıt, mesaj metninin en çok 160 karakterini içerir; mesaj ya da hesabınız silindiğinde bu alıntı da silinir, bir kanal ya da sunucu tümüyle silindiğinde en geç 10 dakika içinde kaldırılır.</li>
+      <li>Voxpery kapalıyken bildirim almak için bir tarayıcının aboneliği, ayarı kapatana, o tarayıcıda çıkış yapana ya da hesabınızı silene kadar saklanır; bildirim servisi aboneliğin sona erdiğini bildirince silinir.</li>
       <li>Sunucu kayıtları ve veri tabanı yedekleri en fazla 14 gün tutulur; silinen veriler yedeklerden de 14 gün içinde çıkar.</li>
       <li>İstek sınırı sayaçları ve tamamlanmayan kayıtlar dakikalar ile saatler içinde kendiliğinden silinir.</li>
     </ul>

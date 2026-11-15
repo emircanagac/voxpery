@@ -303,7 +303,7 @@ With `ATTACHMENTS_S3_*` set, new files are in the bucket and not in this volume,
 
 Redis outage or full memory:
 
-Redis holds the token blacklist, rate limits and short-lived sign-in codes. All of them fail closed on purpose: with Redis unreachable, sign-in and every signed-in request are refused, and the server must not be changed to skip these checks. When Redis is full it rejects writes (`OOM command not allowed` in the logs), so sign-in, logout and rate-limited actions fail while reads may still work.
+Redis holds the token blacklist, rate limits and short-lived sign-in codes. All of them fail closed on purpose: with Redis unreachable, sign-in and every signed-in request are refused, and the server must not be changed to skip these checks. When Redis is full it rejects writes (`OOM command not allowed` in the logs), so sign-in, logout and rate-limited actions fail while reads may still work. Signed-in requests refused during the outage get `503`, not `401`, so clients stay signed in and recover on their own once Redis is back; each refused request waits a few seconds for Redis first.
 
 ```bash
 docker compose ps redis
@@ -312,7 +312,7 @@ docker compose exec -T redis redis-cli info memory | grep -E '^(used_memory_huma
 docker compose logs --since 15m redis server | grep -Ei 'redis|OOM'
 ```
 
-1. Redis is down: run `docker compose up -d redis` and wait until `docker compose ps redis` shows it healthy. The server reconnects on its own within a few seconds; it needs no restart. If it restarts in a loop, read `docker compose logs redis` first: a data file written by a newer Redis cannot be read by an older one.
+1. Redis is down: run `docker compose up -d redis` and wait until `docker compose ps redis` shows it healthy. The server reconnects on its own within a few seconds; it needs no restart. If it restarts in a loop, read `docker compose logs redis` first: a data file written by a newer Redis cannot be read by an older one. `converting the Redis snapshot failed` means the one-time conversion to the append-only file did not finish (usually a full disk); the snapshot is untouched and the next start tries again.
 2. Redis is full: raise `REDIS_MAXMEMORY` in `.env`, then run `docker compose up -d redis`. Check the host has that memory free. `redis-cli --bigkeys` and `redis-cli dbsize` show what is using it.
 3. Never run `FLUSHALL` or switch to an eviction policy to free memory: revoked tokens would become valid again until they expire.
 4. Afterwards confirm `curl -fsS http://127.0.0.1:3001/health`, sign in once, and look for the cause of the growth.

@@ -68,7 +68,10 @@ pub(crate) async fn claims_match_current_token_version(
     Ok(matches!(current, Some(v) if v == token_version))
 }
 
-async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, AppError> {
+/// Checks the signature and the logout blacklist. A Redis failure is reported as
+/// `ServiceUnavailable`, never as `Unauthorized`: access is still refused, but the client
+/// must not take an outage for a signed-out session.
+pub(crate) async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, AppError> {
     // The signature comes first: an unsigned string must not cost a Redis lookup.
     let claims = decode::<Claims>(
         token,
@@ -83,10 +86,28 @@ async fn authenticate_token(state: &AppState, token: &str) -> Result<Claims, App
         Ok(false) => {}
         Err(e) => {
             tracing::warn!("Redis JWT blacklist check failed: {}", e);
-            return Err(AppError::Unauthorized);
+            return Err(AppError::ServiceUnavailable);
         }
     }
 
+    Ok(claims)
+}
+
+/// [`authenticate_token`] plus the token-version check against the account.
+pub(crate) async fn authenticate_session_token(
+    state: &AppState,
+    token: &str,
+) -> Result<Claims, AppError> {
+    let claims = authenticate_token(state, token).await?;
+    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Token version check failed: {}", e);
+            AppError::ServiceUnavailable
+        })?;
+    if !version_ok {
+        return Err(AppError::Unauthorized);
+    }
     Ok(claims)
 }
 
@@ -99,13 +120,7 @@ pub async fn require_auth(
 ) -> Result<Response, AppError> {
     let token =
         token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
-    let claims = authenticate_token(&state, &token).await?;
-    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
-        .await
-        .map_err(|_| AppError::Unauthorized)?;
-    if !version_ok {
-        return Err(AppError::Unauthorized);
-    }
+    let claims = authenticate_session_token(&state, &token).await?;
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)
 }
@@ -140,7 +155,12 @@ async fn authenticate_with_legal_consent(
         token_from_request(req.headers(), &state.cookie_name).ok_or(AppError::Unauthorized)?;
     let claims = authenticate_token(state, &token).await?;
     let Some(account) =
-        crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await?
+        crate::services::privacy::session_account(&state.db, claims.sub, claims.ver)
+            .await
+            .map_err(|e| {
+                tracing::warn!("Session account check failed: {}", e);
+                AppError::ServiceUnavailable
+            })?
     else {
         return Err(AppError::Unauthorized);
     };

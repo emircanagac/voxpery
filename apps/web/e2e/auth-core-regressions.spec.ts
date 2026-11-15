@@ -12,6 +12,28 @@ const AUTH_FEATURES = {
 }
 
 test.describe('mocked auth and account regressions', () => {
+  test('follows the server registration mode on the sign-up page', async ({ page }) => {
+    await installMockCoreApi(page, createMockCoreState({
+      authenticated: false,
+      features: { ...AUTH_FEATURES, registration_mode: 'closed' },
+    }))
+    await page.goto('/register')
+    await expect(page.getByText('This server is not accepting new accounts.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign Up', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible()
+
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+    await installMockCoreApi(page, createMockCoreState({
+      authenticated: false,
+      features: { ...AUTH_FEATURES, registration_mode: 'invite' },
+    }))
+    await page.goto('/register')
+    await expect(page.getByLabel('Invite link or code')).toBeVisible()
+    // Arriving through an invite link carries the invite, so the field is not shown.
+    await page.goto('/register?redirect=%2Finvite%2FAbC123')
+    await expect(page.getByRole('button', { name: 'Sign Up', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Invite link or code')).toHaveCount(0)
+  })
   test('makes unavailable CAPTCHA visible and retries without enabling registration', { tag: '@core' }, async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ authenticated: false, features: AUTH_FEATURES }))
     let requests = 0

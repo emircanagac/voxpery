@@ -42,6 +42,8 @@ pub(super) struct RegistrationForm {
     kvkk_notice_acknowledged: Option<String>,
     kvkk_notice_version: String,
     captcha_token: Option<String>,
+    /// Asked for only when the server is invite-only and the app passed no invite link.
+    invite_code: Option<String>,
 }
 
 fn cookie(state: &AppState, value: &str, max_age: u32) -> String {
@@ -70,6 +72,7 @@ fn valid_origin(origin: &str) -> bool {
 struct Prefill<'a> {
     username: &'a str,
     email: &'a str,
+    invite_code: &'a str,
 }
 
 /// Errors the user can fix in the same form; everything else ends the browser flow.
@@ -139,6 +142,17 @@ fn page(
     } else {
         String::new()
     };
+    // An invite-only server asks for the code here unless the app already passed an invite link.
+    let invite = if state.registration_mode == registration::RegistrationMode::Invite
+        && registration::invite_code_from_redirect(&pending.redirect_path).is_none()
+    {
+        format!(
+            "<label for=invite_code>Invite code</label><input id=invite_code name=invite_code type=text maxlength=32 required autocomplete=off value=\"{}\">",
+            escape_html_attribute(prefill.invite_code)
+        )
+    } else {
+        String::new()
+    };
     let captcha_disabled = if state.turnstile_site_key.is_some() {
         "disabled"
     } else {
@@ -147,13 +161,14 @@ fn page(
     let html = format!(
         r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Create your Voxpery account</title>
 <style nonce="{nonce}">*{{box-sizing:border-box}}body{{margin:0;padding:16px;font:16px system-ui;background:#171925;color:#f1f3f8;min-height:100vh;display:grid;place-items:center}}main{{max-width:520px;width:100%;background:#202a4b;padding:16px;border-radius:8px}}h1{{margin-top:0}}p{{line-height:1.5;color:#bdc9e3}}label{{display:block;margin:16px 0 6px;font-weight:700;font-size:13px}}input[type=text],input[type=email],input[type=password]{{display:block;width:100%;min-height:44px;padding:10px;border:1px solid #44577f;border-radius:6px;background:#0e1b2d;color:#fff;font:inherit}}.check{{display:flex;gap:10px;align-items:flex-start;font-weight:400;font-size:14px}}.check input{{margin-top:4px}}a{{color:#9abdfb}}button{{min-height:46px;width:100%;margin-top:18px;padding:12px;background:#376bcc;color:white;border:0;border-radius:6px;font:inherit;font-weight:700;cursor:pointer}}.error{{color:#ffb4b4}}.cf-turnstile{{margin-top:18px;min-width:0}}</style>
-{captcha_script}<main><h1>Create your Voxpery account</h1><p>Voxpery will reopen when your account is ready.</p>{error}<form method="post" action="{PATH}"><input type="hidden" name="csrf_token" value="{csrf}"><label for=username>Username</label><input id=username name=username type=text minlength=3 maxlength=32 required autocomplete=username value="{username}"><label for=email>Email</label><input id=email name=email type=email maxlength=255 required autocomplete=email value="{email}"><label for=password>Password</label><input id=password name=password type=password minlength=8 required autocomplete=new-password><label for=confirm_password>Confirm password</label><input id=confirm_password name=confirm_password type=password minlength=8 required autocomplete=new-password>{captcha}<div>{options}</div><button type=submit {captcha_disabled}>Create account</button></form></main></html>"#,
+{captcha_script}<main><h1>Create your Voxpery account</h1><p>Voxpery will reopen when your account is ready.</p>{error}<form method="post" action="{PATH}"><input type="hidden" name="csrf_token" value="{csrf}"><label for=username>Username</label><input id=username name=username type=text minlength=3 maxlength=32 required autocomplete=username value="{username}"><label for=email>Email</label><input id=email name=email type=email maxlength=255 required autocomplete=email value="{email}"><label for=password>Password</label><input id=password name=password type=password minlength=8 required autocomplete=new-password><label for=confirm_password>Confirm password</label><input id=confirm_password name=confirm_password type=password minlength=8 required autocomplete=new-password>{invite}{captcha}<div>{options}</div><button type=submit {captcha_disabled}>Create account</button></form></main></html>"#,
         nonce = nonce,
         captcha_script = captcha_script.replace("{nonce}", &nonce),
         error = error,
         csrf = escape_html_attribute(&pending.csrf_token),
         username = escape_html_attribute(prefill.username),
         email = escape_html_attribute(prefill.email),
+        invite = invite,
         options = options,
     );
     let mut response = Html(html).into_response();
@@ -176,6 +191,11 @@ pub(super) async fn show(
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
+    if state.registration_mode == registration::RegistrationMode::Closed {
+        return Err(AppError::Forbidden(
+            registration::REGISTRATION_CLOSED_MESSAGE.into(),
+        ));
+    }
     if state.turnstile_secret_key.is_some() && state.turnstile_site_key.is_none() {
         return Err(AppError::Validation(
             "CAPTCHA is not configured for browser registration".into(),
@@ -289,6 +309,7 @@ pub(super) async fn complete(
     let prefill = Prefill {
         username: form.username.trim(),
         email: form.email.trim(),
+        invite_code: form.invite_code.as_deref().map(str::trim).unwrap_or(""),
     };
     if let Err(error) = validate_current_legal_documents(
         accepted[0],
@@ -315,8 +336,24 @@ pub(super) async fn complete(
         ));
     }
 
-    let user = match create_account(&state, &headers, connect_info.as_ref(), &form, &mut tx).await {
-        Ok(user) => user,
+    let typed_invite = form
+        .invite_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty());
+    let invite_code =
+        typed_invite.or_else(|| registration::invite_code_from_redirect(&pending.redirect_path));
+    let account = match create_account(
+        &state,
+        &headers,
+        connect_info.as_ref(),
+        &form,
+        invite_code,
+        &mut tx,
+    )
+    .await
+    {
+        Ok(account) => account,
         Err(error) => {
             drop(tx);
             let Some(status) = recoverable_status(&error) else {
@@ -338,6 +375,8 @@ pub(super) async fn complete(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    announce_invited_join(&state, &account).await;
+    let user = account.user;
 
     // Issue the single-use code only for a committed account.
     let token = generate_token(
@@ -380,90 +419,32 @@ pub(super) async fn complete(
     Ok(response)
 }
 
-/// Validates the submission and inserts the account inside the caller's transaction.
+/// Checks the submission and stores the account inside the caller's transaction.
 async fn create_account(
     state: &Arc<AppState>,
     headers: &HeaderMap,
     connect_info: Option<&Extension<ConnectInfo<SocketAddr>>>,
     form: &RegistrationForm,
+    invite_code: Option<&str>,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<User, AppError> {
+) -> Result<NewAccount, AppError> {
     if form.password != form.confirm_password {
         return Err(AppError::Validation("Passwords do not match".into()));
     }
-    let username = form.username.trim();
-    validate_username(username).map_err(|message| AppError::Validation(message.into()))?;
-    let email = form.email.trim().to_lowercase();
-    if email.len() > 255 || !is_valid_email(&email) {
-        return Err(AppError::Validation(
-            "Email must be a valid format (e.g. user@domain)".into(),
-        ));
-    }
-    if form.password.len() < 8 {
-        return Err(AppError::Validation(
-            "Password must be at least 8 characters".into(),
-        ));
-    }
-    ensure_password_within_limit(&form.password)?;
-    enforce_rate_limit(
-        &state.redis,
-        format!("auth:register:{email}"),
-        state.auth_rate_limit_max,
-        Duration::from_secs(state.auth_rate_limit_window_secs),
-        "Too many register attempts for this email. Please wait and try again.",
-    )
-    .await?;
     let client_ip = extract_client_ip(state, headers, connect_info.map(|Extension(info)| info));
-    if let Some(ip) = client_ip.as_deref() {
-        enforce_rate_limit(
-            &state.redis,
-            format!("auth:register_ip:{ip}"),
-            5,
-            Duration::from_secs(3600),
-            "Too many accounts created from this IP address. Please try again later.",
-        )
-        .await?;
-    }
-    validate_registration_captcha(state, form.captcha_token.as_deref(), client_ip.as_deref())
-        .await?;
-    let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM users WHERE lower(email)=lower($1) OR lower(username)=lower($2)",
-    )
-    .bind(&email)
-    .bind(username)
-    .fetch_one(&mut **tx)
-    .await?;
-    if existing > 0 {
-        return Err(AppError::UserAlreadyExists);
-    }
-    let password_hash = hash_password_async(&form.password).await?;
-    let user = sqlx::query_as::<_, User>("INSERT INTO users (id,username,email,password_hash,status,dm_privacy,email_verified,created_at,terms_version,terms_accepted_at,privacy_notice_version,privacy_notice_acknowledged_at,kvkk_notice_version,kvkk_notice_acknowledged_at) VALUES ($1,$2,$3,$4,'online','everyone',FALSE,NOW(),$5,NOW(),$6,NOW(),$7,NOW()) RETURNING *")
-        .bind(Uuid::new_v4()).bind(username).bind(&email).bind(password_hash)
-        .bind(current_terms_version()).bind(current_privacy_notice_version()).bind(current_kvkk_notice_version())
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(|error| {
-            // A concurrent registration can win between the existence check and insert.
-            let unique_violation = error
-                .as_database_error()
-                .and_then(|db| db.code())
-                .is_some_and(|code| code == "23505");
-            if unique_violation {
-                AppError::UserAlreadyExists
-            } else {
-                AppError::from(error)
-            }
-        })?;
-    record_privacy_event(
-        tx,
-        user.id,
-        "account_registered",
-        Some(current_terms_version()),
-        Some(current_privacy_notice_version()),
-        Some(current_kvkk_notice_version()),
+    let signup = registration::prepare_password_signup(
+        state,
+        PasswordSignup {
+            username: &form.username,
+            email: &form.email,
+            password: &form.password,
+            captcha_token: form.captcha_token.as_deref(),
+            client_ip: client_ip.as_deref(),
+            invite_code,
+        },
     )
     .await?;
-    Ok(user)
+    registration::insert_password_account(tx, signup).await
 }
 
 #[cfg(test)]

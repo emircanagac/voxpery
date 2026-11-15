@@ -1743,3 +1743,240 @@ async fn category_delete_and_rename_match_names_case_insensitively_and_report_cl
             .unwrap();
     assert_eq!(category.as_deref(), Some("Delta"));
 }
+
+/// An unreachable Redis is an outage, not a sign-out: a signed-in request is refused with 503,
+/// so clients keep the session instead of dropping to the sign-in screen.
+#[tokio::test]
+async fn unreachable_redis_refuses_with_503_instead_of_401() {
+    let (mut app, _state) = setup_app().await;
+    let (auth, _user_id, _) = register_named_user(&mut app, "outage").await;
+    let (status, body) = api_json(&mut app, "GET", "/api/auth/session", &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (mut down, _down_state) = setup_app_with_unreachable_redis().await;
+    // One route behind each auth middleware: plain and legal-consent.
+    for uri in ["/api/auth/session", "/api/servers"] {
+        let (status, body) = api_json(&mut down, "GET", uri, &auth, None).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{uri}: {body}");
+        assert_eq!(body["code"], "SERVICE_UNAVAILABLE", "{uri}: {body}");
+    }
+
+    // A token that fails the signature check is still a 401; Redis is not asked.
+    let (status, body) =
+        api_json(&mut down, "GET", "/api/servers", "Bearer not-a-token", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+}
+
+#[tokio::test]
+async fn voice_claims_without_a_session_are_cleaned_up_after_a_restart() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (api_url, removed) = spawn_livekit_with_participant("PA_left_behind").await;
+    let (_app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://client-livekit.example.test".to_string(),
+        Some(api_url),
+    )
+    .await;
+    use voxpery_server::services::voice_revoke;
+    let channel_id = Uuid::new_v4();
+    let returned_id = Uuid::new_v4();
+    let missing_id = Uuid::new_v4();
+    // Both were in the call when the previous process stopped; only one rejoined.
+    voice_revoke::record_voice_claim(&state, returned_id, channel_id).await;
+    voice_revoke::record_voice_claim(&state, missing_id, channel_id).await;
+    state.voice_sessions.insert(returned_id, channel_id);
+
+    let cleared = voice_revoke::reconcile_orphaned_voice_claims(&state).await;
+    assert!(cleared >= 1);
+    let removed_now = removed.lock().unwrap().clone();
+    assert!(
+        removed_now
+            .iter()
+            .any(|entry| entry.contains(&missing_id.to_string())),
+        "the participant that never came back must be removed: {removed_now:?}"
+    );
+    assert!(
+        !removed_now
+            .iter()
+            .any(|entry| entry.contains(&returned_id.to_string())),
+        "a participant with a voice session must stay: {removed_now:?}"
+    );
+
+    // The orphaned claim is gone, so a second pass finds nothing for that user.
+    removed.lock().unwrap().clear();
+    voice_revoke::reconcile_orphaned_voice_claims(&state).await;
+    assert!(removed.lock().unwrap().is_empty());
+
+    voice_revoke::clear_voice_claim(&state, returned_id, channel_id).await;
+}
+
+/// A subscription body as a browser sends it, for an FCM endpoint with a fresh browser key.
+fn push_subscription_body(endpoint: &str) -> serde_json::Value {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let browser = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    json!({
+        "endpoint": endpoint,
+        "expirationTime": null,
+        "keys": {
+            "p256dh": URL_SAFE_NO_PAD.encode(browser.public_key().to_sec1_bytes()),
+            "auth": URL_SAFE_NO_PAD.encode([5u8; 16]),
+        }
+    })
+}
+
+#[tokio::test]
+async fn push_subscriptions_are_off_without_vapid_keys() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "pushoff").await;
+    let (status, features) = api_json(&mut app, "GET", "/api/system/features", &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(features["web_push_public_key"].is_null());
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(push_subscription_body(
+            "https://fcm.googleapis.com/fcm/send/off",
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn push_subscriptions_are_validated_owned_and_capped() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app_with_web_push().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "pushon").await;
+    let (other_auth, other_id, _) = register_named_user(&mut app, "pushother").await;
+    let (status, features) = api_json(&mut app, "GET", "/api/system/features", &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        features["web_push_public_key"].as_str(),
+        state.web_push.as_ref().map(|config| config.public_key())
+    );
+
+    let unique = Uuid::new_v4();
+    let endpoint = |n: usize| format!("https://fcm.googleapis.com/fcm/send/{unique}-{n}");
+    let owner_of = |endpoint: String| {
+        sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM push_subscriptions WHERE endpoint = $1")
+            .bind(endpoint)
+            .fetch_optional(&state.db)
+    };
+
+    // Only https endpoints of known push services, with well-formed keys.
+    for bad in [
+        format!("http://fcm.googleapis.com/fcm/send/{unique}"),
+        format!("https://internal.example/{unique}"),
+        format!("https://127.0.0.1/{unique}"),
+    ] {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/push/subscriptions",
+            &auth,
+            Some(push_subscription_body(&bad)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let mut bad_keys = push_subscription_body(&endpoint(0));
+    bad_keys["keys"]["auth"] = json!("short");
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(bad_keys),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(push_subscription_body(&endpoint(0))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(user_id));
+
+    // Another account signing in on the same browser takes the subscription over.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &other_auth,
+        Some(push_subscription_body(&endpoint(0))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(other_id));
+    // The first account cannot remove it any more.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/push/subscriptions",
+        &auth,
+        Some(json!({ "endpoint": endpoint(0) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(other_id));
+
+    // An account keeps its newest ten browsers.
+    for n in 1..=11 {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/push/subscriptions",
+            &auth,
+            Some(push_subscription_body(&endpoint(n))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+    let kept: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM push_subscriptions WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(kept, 10);
+    assert_eq!(owner_of(endpoint(1)).await.unwrap(), None);
+    assert_eq!(owner_of(endpoint(11)).await.unwrap(), Some(user_id));
+
+    // Signing out removes this browser.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/push/subscriptions",
+        &auth,
+        Some(json!({ "endpoint": endpoint(11) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(11)).await.unwrap(), None);
+
+    sqlx::query("DELETE FROM push_subscriptions WHERE user_id = ANY($1)")
+        .bind(vec![user_id, other_id])
+        .execute(&state.db)
+        .await
+        .unwrap();
+}

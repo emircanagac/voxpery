@@ -43,13 +43,11 @@ Voxpery is still growing. Larger platforms have broader integrations and more ma
 ```bash
 git clone https://github.com/emircanagac/voxpery.git
 cd voxpery
-cp .env.example .env
-# Replace every CHANGE_ME value in .env (openssl rand -hex 32) before starting.
-docker compose config >/dev/null
+./scripts/ops/init_env.sh   # writes .env with fresh random secrets
 docker compose up -d --build
 ```
 
-Open [localhost:5173](http://localhost:5173). For production setup, TLS, backups, and optional integrations, follow the [deployment guide](docs/DEPLOYMENT.md).
+Open [localhost:5173](http://localhost:5173). For a public server, the same script and a bundled HTTPS proxy set everything up from three domain names: see [Public server with HTTPS](docs/DEPLOYMENT.md#public-server-with-https). Backups and optional integrations are in the [deployment guide](docs/DEPLOYMENT.md).
 
 ## Build and contribute
 

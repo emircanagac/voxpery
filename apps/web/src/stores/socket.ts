@@ -10,13 +10,17 @@ type ReconnectListener = () => void
 const AUTH_EXPIRED_CLOSE_CODE = 4001
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
-const RECONNECT_MAX_ATTEMPTS = 8
+/** Reconnecting never stops while signed in; this attempt only marks a long outage in telemetry. */
+const RECONNECT_LONG_OUTAGE_ATTEMPT = 8
+/** The first retry is spread over this window, so a server restart is not followed by every client at once. */
+const RECONNECT_FIRST_DELAY_MAX_MS = 3000
 const RECONNECT_JITTER_RATIO = 0.25
 
 export function websocketReconnectDelayMs(
     attempt: number,
     random: () => number = createSecureRandomFraction,
 ): number {
+    if (attempt <= 1) return Math.round(random() * RECONNECT_FIRST_DELAY_MAX_MS)
     const exponent = Math.max(0, attempt - 1)
     const rawDelay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** exponent)
     const jitter = 1 + (random() * 2 - 1) * RECONNECT_JITTER_RATIO
@@ -35,6 +39,8 @@ interface SocketState {
     reconnectTimer: ReturnType<typeof setTimeout> | null
     connectionId: number
     wasConnectedBefore: boolean
+    /** When the connection the app is trying to restore went down; null while connected or signed out. */
+    disconnectedSince: number | null
 
     // Actions
     connect: (token: string | null) => void
@@ -58,6 +64,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     reconnectTimer: null,
     connectionId: 0,
     wasConnectedBefore: false,
+    disconnectedSince: null,
 
     connect: (token) => {
         const state = get()
@@ -87,6 +94,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
                 reconnectAttempt: 0,
                 reconnectTimer: null,
                 wasConnectedBefore: true,
+                disconnectedSince: null,
             })
 
             // Fire reconnect listeners if this was a re-establishment (not first connect)
@@ -113,20 +121,29 @@ export const useSocketStore = create<SocketState>((set, get) => ({
                     foregroundReconnectAllowed: false,
                     reconnectAttempt: 0,
                     reconnectTimer: null,
+                    disconnectedSince: null,
                 })
                 return
             }
 
-            set({ isConnected: false, socket: null })
+            set({
+                isConnected: false,
+                socket: null,
+                disconnectedSince: get().shouldReconnect ? get().disconnectedSince ?? Date.now() : null,
+            })
 
-            // Auto-reconnect for active sessions.
+            // Auto-reconnect for active sessions. It never gives up: after the delay reaches its cap
+            // the retries simply continue at that pace until the server is back.
             // Web cookie-auth sessions use token=null, so reconnect intent must
             // be tracked separately from the bearer token itself.
             const { shouldReconnect, reconnectAttempt } = get()
-            if (shouldReconnect && reconnectAttempt < RECONNECT_MAX_ATTEMPTS) {
+            if (shouldReconnect) {
                 const nextAttempt = reconnectAttempt + 1
                 if (nextAttempt === 1) {
                     reportObservabilityEvent('websocket_reconnect_started')
+                }
+                if (nextAttempt === RECONNECT_LONG_OUTAGE_ATTEMPT + 1) {
+                    reportObservabilityEvent('websocket_reconnect_exhausted')
                 }
                 const delayMs = websocketReconnectDelayMs(nextAttempt)
                 const reconnectTimer = setTimeout(() => {
@@ -143,21 +160,27 @@ export const useSocketStore = create<SocketState>((set, get) => ({
                 }, delayMs)
 
                 set({ reconnectAttempt: nextAttempt, reconnectTimer })
-            } else if (shouldReconnect) {
-                reportObservabilityEvent('websocket_reconnect_exhausted')
-                set({ shouldReconnect: false, reconnectAttempt: 0, reconnectTimer: null })
             }
         }
 
         ws.onmessage = (event) => {
             if (get().connectionId !== connectionId) return
 
+            let data: Parameters<WsListener>[0]
             try {
-                const data = JSON.parse(event.data)
-                get().listeners.forEach((listener) => listener(data))
+                data = JSON.parse(event.data)
             } catch (e) {
                 console.error('WS Parse error', e)
+                return
             }
+            // One listener failing must not keep the event from the others.
+            get().listeners.forEach((listener) => {
+                try {
+                    listener(data)
+                } catch (e) {
+                    console.error('WS listener error', e)
+                }
+            })
         }
 
         set({ socket: ws })
@@ -181,6 +204,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             foregroundReconnectAllowed: false,
             reconnectAttempt: 0,
             reconnectTimer: null,
+            disconnectedSince: null,
             connectionId: get().connectionId + 1,
         })
         get().socket?.close()

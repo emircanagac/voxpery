@@ -113,49 +113,6 @@ pub(super) struct Acceptance {
     kvkk_notice_version: String,
 }
 
-pub(super) async fn create_account(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    google_id: &str,
-    email: &str,
-    name: &str,
-) -> Result<User, AppError> {
-    let seed = normalize_oauth_username_seed(name);
-    let base = if seed.len() >= 3 {
-        seed.chars().take(24).collect::<String>()
-    } else {
-        "user".into()
-    };
-    let mut created = None;
-    for attempt in 0..8 {
-        let username = if attempt == 0 {
-            base.clone()
-        } else {
-            format!("{base}{}", &Uuid::new_v4().simple().to_string()[..8])
-        };
-        let user = sqlx::query_as::<_, User>("INSERT INTO users (id,username,email,password_hash,status,dm_privacy,google_id,email_verified,terms_version,terms_accepted_at,privacy_notice_version,privacy_notice_acknowledged_at,kvkk_notice_version,kvkk_notice_acknowledged_at) VALUES ($1,$2,$3,'oauth','online','everyone',$4,TRUE,$5,NOW(),$6,NOW(),$7,NOW()) ON CONFLICT DO NOTHING RETURNING *")
-            .bind(Uuid::new_v4()).bind(username).bind(email).bind(google_id)
-            .bind(current_terms_version()).bind(current_privacy_notice_version()).bind(current_kvkk_notice_version())
-            .fetch_optional(&mut **tx).await?;
-        if user.is_some() {
-            created = user;
-            break;
-        }
-    }
-    let user = created.ok_or_else(|| {
-        AppError::Conflict("Account already exists. Return to Voxpery and sign in again.".into())
-    })?;
-    record_privacy_event(
-        tx,
-        user.id,
-        "account_registered",
-        Some(current_terms_version()),
-        Some(current_privacy_notice_version()),
-        Some(current_kvkk_notice_version()),
-    )
-    .await?;
-    Ok(user)
-}
-
 pub(super) async fn complete(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -209,13 +166,21 @@ pub(super) async fn complete(
             },
         ));
     }
-    let user = create_account(
+    let admission = registration::admit(
+        &state.db,
+        state.registration_mode,
+        registration::invite_code_from_redirect(&pending.redirect_path),
+    )
+    .await?;
+    let account = registration::insert_google_account(
         &mut tx,
         &pending.google_id,
         &pending.email,
-        &pending.username_seed,
+        &normalize_oauth_username_seed(&pending.username_seed),
+        admission,
     )
     .await?;
+    let user = &account.user;
     sqlx::query("DELETE FROM pending_google_registrations WHERE cookie_hash=$1")
         .bind(hash)
         .execute(&mut *tx)
@@ -248,6 +213,7 @@ pub(super) async fn complete(
         Redirect::to(&format!("{origin}{}", pending.redirect_path)).into_response()
     };
     tx.commit().await?;
+    announce_invited_join(&state, &account).await;
     if let Err(error) = ensure_default_server_join(&state.db, user.id).await {
         tracing::warn!("Default server join after registration failed: {error}");
     }

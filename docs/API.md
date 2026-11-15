@@ -48,6 +48,7 @@ Important behavior:
 ## Auth Endpoints
 
 - `POST /api/auth/register`
+  - Subject to the server's registration mode (`REGISTRATION_MODE`, reported by `GET /api/system/features`). `closed`: `403`. `invite`: the body must carry `invite_code`, the invite code of a server on this instance; a missing or unknown code (and the default community code) returns `400`, and the new account joins that server. The same rule applies to desktop registration and to a first Google sign-in, which read the invite from the `/invite/<code>` return path. Signing in to an existing account is never affected.
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
   - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it can no longer validate (its expiry plus the validation leeway); if revocation cannot be stored the endpoint returns `503` but still clears the session cookie, so a reload cannot restore the browser session. Desktop clients complete sign-out and sign-in regardless; a token whose revocation failed is kept only in the OS keyring revocation list and retried on later starts.
@@ -133,6 +134,7 @@ Notes:
 - `GET /api/system/features`
   - Public integration capability flags used by web and desktop clients.
   - `turn_enabled` is true when `TURN_URLS` is configured; voice clients request TURN credentials only then.
+  - `registration_mode` is `open`, `invite` or `closed`. Clients hide sign-up when it is `closed` and ask for an invite when it is `invite`. Servers older than v0.6.0 do not send it; treat a missing value as `open`.
   - `voice_url` is the public LiveKit address (`LIVEKIT_WS_URL`), or `null`. The desktop app reads it when a user connects to a self-hosted server, to allow that voice origin.
 - `POST /api/system/observability/events`
   - Public, rate-limited, best-effort operational event endpoint.
@@ -153,6 +155,9 @@ Notes:
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
 - `GET /api/servers/invite/:invite_code` (public invite preview)
+- `POST /api/servers/:server_id/invite/rotate` (requires `MANAGE_SERVER`)
+  - Replaces the invite code and returns the server with the new one. The old code stops working at once for joining and for the invite preview; current members stay. The audit log records `invite_rotate` without either code, and members receive `ServerUpdated` and reload their server list for the new code.
+  - Returns `403` for the official Voxpery community, whose `voxpery` code is fixed. Limited to 5 resets per user per hour (`429`).
   - Includes `icon_grant` when the server has an `icon_url`: an image proxy grant valid for that icon only, so visitors who are not signed in can see it.
 - `GET /api/servers/invite/:invite_code/rules` (public; the invite code grants access to the rules shown before joining)
 - `GET /api/servers/:server_id/rules` (members only)
@@ -325,6 +330,34 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
 
+## Notifications
+
+Unread counts, mention counts and mutes of server channels are kept per account, so badges survive a closed app and agree between devices. Direct messages keep their own read state (`/api/dm`).
+
+- `GET /api/notifications/state`
+  - Returns `{ channels, muted_server_ids, muted_channel_ids }`. `channels` lists only text channels the caller can see that have messages from other people after the caller's read mark: `{ channel_id, server_id, unread_count, mention_count }`, both counts capped at 99. A channel without a read mark counts as read up to the moment the caller joined the server.
+  - `mention_count` adds mentions by name and `@everyone`/`@here` messages. Mutes are returned, not applied; clients decide what a muted server or channel shows.
+- `POST /api/notifications/channels/:channel_id/read`
+  - Body `{ "message_id": "..." }` (optional): moves the caller's read mark to that message, or to the newest message of the channel when it is absent or no longer exists. The mark is the creation time of the message, never the time of the request, and it only moves forward; a late request for an older message changes nothing.
+  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute.
+- `PUT /api/notifications/mutes`
+  - Body `{ "server_ids": [...], "channel_ids": [...], "muted": true|false }`, at most 200 ids of each kind. Servers and channels the caller is not a member of are ignored. Returns the caller's full mute lists. Limited to 60 requests per minute.
+  - Other open sessions pick up mute changes the next time they load the notification state (sign-in or reconnect); no event is sent.
+- Mentions by name: when a server message is sent or edited, `@username` words (whole words, at most 20 per message) are matched to members who can see the channel; the author is never mentioned. An edit replaces the mentions of the message but keeps its original time, so it never turns an old message into a new mention. `@everyone`/`@here` set `messages.mention_everyone` only for authors allowed to use them.
+- The data export lists mutes, read marks and received mentions under `notifications`, with server and channel names instead of ids.
+
+## Push Notifications
+
+Web Push for direct messages and mentions while the recipient has no open connection on any instance. Off unless the server has VAPID keys; `GET /api/system/features` then returns `web_push_public_key` (the key browsers subscribe with), otherwise `null`.
+
+- `POST /api/push/subscriptions`
+  - Body: the browser's `PushSubscription.toJSON()` (`endpoint`, `keys.p256dh`, `keys.auth`). Only `https` endpoints of the known push services are accepted (`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.notify.windows.com`); others and malformed keys return `400`. Returns `204`; `503 FEATURE_DISABLED` without VAPID keys.
+  - One row per browser: an endpoint subscribed by another account moves to the caller. An account keeps its newest 10 browsers. Limited to 30 changes per hour together with `DELETE`.
+- `DELETE /api/push/subscriptions`
+  - Body `{ "endpoint": "..." }`: forgets the caller's subscription for that browser (turning the setting off, signing out). Returns `204`, also when there was none.
+- Sending: after a direct message, to the other members; after a message with mentions, to the mentioned members (all members who can see the channel for `@everyone`/`@here`). Skipped for recipients who are connected anywhere, in Do Not Disturb, or who muted that server. The encrypted payload is `{ "type": "dm", "sender", "channel_id" }` or `{ "type": "mention", "sender", "server_id", "channel_id" }`, never message text; `TTL` 3600, `Urgency: high`, one `Topic` per channel. Requests go out without redirects or retries, 5 s timeout, at most 16 at once, only to public addresses of the push service; a `404`/`410` answer deletes the subscription.
+- The data export lists each subscription's push service and dates under `notifications.push_subscriptions`, without endpoint or keys.
+
 ## Personal Notes
 
 - `GET /api/users/:user_id/note`
@@ -447,6 +480,7 @@ Common statuses:
 - `428` current legal-document acknowledgement required
 - `429` too many requests
 - `500` internal error
+- `503` with code `SERVICE_UNAVAILABLE` and `Retry-After: 5` when the server cannot check the session because the database or Redis did not answer. Access is refused, but it is not a `401`: clients keep the session and try again.
 
 ---
 

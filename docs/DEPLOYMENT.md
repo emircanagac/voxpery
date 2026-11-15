@@ -13,6 +13,55 @@ This repository now supports a **full Docker Compose deployment**:
 - Docker Engine + Docker Compose v2
 - A copied `.env` file from `.env.example`
 
+## Public server with HTTPS
+
+The shortest path to a server other people can reach. It runs the published release images
+behind a bundled reverse proxy (Caddy) that obtains and renews TLS certificates on its own.
+
+You need:
+
+- A Linux server with a public IPv4 address, Docker Engine and a current Docker Compose v2.
+- Three DNS `A` records pointing at that server, for example `chat.example.com` (the address
+  people open), `api.example.com` and `livekit.example.com`. Keep all three under the same
+  domain, as in this example, so the sign-in cookie set by the API is sent from the web app.
+- Open ports: `80/tcp` and `443/tcp` (web, API and certificates), `443/udp` (HTTP/3), and for
+  voice `7881/tcp`, `7882/udp` and `50000-50200/udp`.
+
+```bash
+git clone https://github.com/emircanagac/voxpery.git
+cd voxpery
+./scripts/ops/init_env.sh --web-domain chat.example.com --api-domain api.example.com \
+  --livekit-domain livekit.example.com --node-ip <public IPv4 of this server>
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --no-build
+```
+
+Then open `https://chat.example.com` and create the first account. The first request to each
+domain can take a few seconds while its certificate is issued.
+
+What the two commands do:
+
+- `init_env.sh` creates `.env` from `.env.example`: a separate random value for every
+  `CHANGE_ME` secret, the public URLs for your three domains, `COOKIE_SECURE=1`,
+  `APP_ENV=production`, your own `LIVEKIT_API_KEY` name and the release images matching this checkout (`--image-tag` selects
+  another release). It never changes an existing `.env`; remove the file to start over.
+- `docker-compose.proxy.yml` adds the `proxy` service on ports 80 and 443 and routes the three
+  domains to `web`, `server` and `livekit`. The proxy has a fixed address on its own Docker
+  network and the server trusts forwarded client addresses from that address only
+  (`TRUSTED_PROXY_CIDRS` is set for you; a value in `.env` is ignored while this file is used).
+
+Notes:
+
+- Always pass both `-f` files to later `docker compose` commands (`ps`, `logs`, `pull`,
+  `down`), or set `COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml` in `.env`.
+- `--node-ip` writes `LIVEKIT_NODE_IP`, the address LiveKit announces for voice. Set it on a
+  public server; if you left it out, add `LIVEKIT_NODE_IP=<public IPv4>` to `.env` yourself.
+- To update, check out the new release, set `VOXPERY_SERVER_IMAGE` and `VOXPERY_WEB_IMAGE` in
+  `.env` to its tag, then run `docker compose ... pull` and `docker compose ... up -d --no-build`.
+- If you already run your own reverse proxy, skip `docker-compose.proxy.yml` and follow the
+  manual steps below; the two must not both listen on ports 80 and 443.
+- Optional integrations (email, Google sign-in, CAPTCHA, malware scanning) and your own legal
+  documents are configured in `.env` as described in the sections below.
+
 ## 1) Prepare Environment
 
 ```bash
@@ -97,6 +146,16 @@ S3 compatible storage is optional:
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
+- Notifications while Voxpery is closed (Web Push) are disabled unless `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` are all set; the server refuses to start when only some are set or the two keys do not belong together. Without them Settings does not offer the option. Generate the key pair once (on any machine with OpenSSL) and keep the private key as secret as `JWT_SECRET`:
+
+  ```bash
+  openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem
+  echo "VAPID_PUBLIC_KEY=$(openssl ec -in vapid.pem -outform DER 2>/dev/null | tail -c 65 | base64 -w0 | tr '/+' '_-' | tr -d '=')"
+  echo "VAPID_PRIVATE_KEY=$(openssl ec -in vapid.pem -outform DER 2>/dev/null | head -c 39 | tail -c 32 | base64 -w0 | tr '/+' '_-' | tr -d '=')"
+  rm vapid.pem
+  ```
+
+  `VAPID_SUBJECT` is a contact address for push services (`mailto:admin@example.com` or an `https://` URL). The server only sends to the push services of Chrome/Edge (`fcm.googleapis.com`), Firefox (`updates.push.services.mozilla.com`), Safari (`web.push.apple.com`) and Windows (`*.notify.windows.com`) over HTTPS, so it needs outbound HTTPS to those hosts. A notification carries the sender's name and the conversation or channel, never the message text. Changing the keys invalidates every browser's subscription; people turn the setting on again. iPhone and iPad receive these notifications only when Voxpery was added to the Home Screen (iOS 16.4 or later); the desktop app does not use Web Push.
 - Cloudflare Turnstile: set `TURNSTILE_SECRET_KEY` on the server and the public site key for the web build (`VITE_TURNSTILE_SITE_KEY`, passed as `TURNSTILE_SITE_KEY_PUBLIC` to the web image). Desktop email registration renders its CAPTCHA from the API, so the server environment must also contain the public site key as `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`). Prebuilt web images do not provide it to the server. With a secret key but no server-side site key, `/api/auth/desktop-registration` refuses to start registration and `/api/auth/captcha-frame` (in-app desktop registration) returns `404`. The Turnstile widget's hostname list must include the API host (for example `api.voxpery.com`), because the desktop CAPTCHA runs on that origin.
 - Set `METRICS_BIND` to enable internal Prometheus metrics; see [OBSERVABILITY.md](OBSERVABILITY.md). Never publish that port.
 - Privacy-safe operational observability is disabled by default. Set `OBSERVABILITY_ENABLED=true`
@@ -118,6 +177,7 @@ Optional integrations note:
   - Building your own desktop app with `VITE_API_URL` and a changed release CSP also works, but the official updater replaces such a build with the official one.
 - Direct calls to disabled integration endpoints return `FEATURE_DISABLED`.
 - `EMAIL_VERIFICATION_REQUIRED=true` requires SMTP email delivery and fails startup if email delivery is not configured.
+- `REGISTRATION_MODE` decides who may create an account: `open` (default, anyone), `invite` (only with the invite link of a server on this instance; the new account joins that server) or `closed` (nobody). It covers email sign-up, desktop sign-up and a first Google sign-in alike; existing accounts always sign in. For a private server, create your own account and server first, then set `REGISTRATION_MODE=invite` and share that server's invite link. An unknown value stops the server at startup.
 - Keep disabled optional integrations commented out in `.env`; do not set optional variables to empty values.
 
 ## 2) Self-Host Smoke Test
@@ -215,11 +275,14 @@ The backend is ready for multiple instances for REST traffic and cross-instance 
 
 - Redis is required for JWT blacklist checks, distributed rate limits, and the WebSocket event bus.
 - The bundled Redis runs with `--maxmemory ${REDIS_MAXMEMORY:-512mb}` and `--maxmemory-policy noeviction`: when full it rejects new writes instead of evicting keys, so revoked tokens and sessions are never dropped silently. An external Redis should use a memory cap and `noeviction` as well.
+- The bundled Redis keeps an append-only file (`--appendonly yes --appendfsync everysec`), so a crash loses at most the last second of sign-outs and rate-limit state. `scripts/ops/redis_start.sh` starts it; on the first start after updating from 0.5.x it converts the existing snapshot once, which takes a few seconds, and Redis does not start if that conversion fails. An external Redis should enable the append-only file as well.
+- `server` and `web` report their health to Docker (`/health` and `/healthz`), `docker compose ps` shows both as `healthy`, and `web` starts once `server` is healthy.
 - WebSocket broadcast events are bridged through Redis Pub/Sub so clients connected to different backend instances receive message, server, channel, member, profile, presence, friend, and DM notifications.
 - Active WebSocket socket handles remain process-local. This is expected; each instance only writes to the sockets it owns.
 - Presence and voice state are shared between instances through Redis, so `/ws` needs no sticky routing. Each instance writes a snapshot every 10 seconds; one that stops writing for 35 seconds is treated as gone and its sessions are cleared.
 - Local attachment storage is per-instance. For multiple backend instances, use S3 compatible storage or mount the same persistent shared volume for `ATTACHMENTS_LOCAL_DIR` before scaling writes.
 - Prefer one LiveKit deployment endpoint shared by all backend instances.
+- An instance that is stopped (`SIGTERM`) reports its users offline to the others right away; only an instance that crashed is noticed through the 35-second snapshot expiry.
 
 ## 5) Validation Checklist
 
@@ -244,6 +307,14 @@ Manual checks:
 git pull
 docker compose up -d --build
 ```
+
+The server shuts down gracefully on `docker compose up`, `restart` and `stop`: it stops taking
+new connections, lets running requests such as uploads finish (up to 20 seconds), and closes
+WebSockets with code `1012` so clients reconnect on their own. Voice calls continue through
+the restart because the media runs through LiveKit; clients rejoin when they reconnect, and
+60 seconds after startup the server removes the participants that did not come back. The
+bundled Compose file sets `stop_grace_period: 30s` for this. If you run the server another
+way, give it at least 30 seconds between `SIGTERM` and `SIGKILL`.
 
 Upgrading an installation created before the separate database role: add
 `POSTGRES_APP_PASSWORD` (and optionally `POSTGRES_APP_USER`) to `.env`, then run the update

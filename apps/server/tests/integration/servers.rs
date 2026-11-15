@@ -3335,3 +3335,113 @@ async fn channel_overrides_only_carry_channel_scoped_permissions() {
         "server-scoped bits from an override must be ignored: {perms:?}"
     );
 }
+
+#[tokio::test]
+async fn rotating_the_invite_code_invalidates_the_old_link() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "rotateowner").await;
+    let (member_auth, _, _) = register_named_user(&mut app, "rotatemember").await;
+    let (late_auth, _, _) = register_named_user(&mut app, "rotatelate").await;
+    let (server_id, _, old_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Rotate Guild")
+            .await;
+    join_with_invite(&mut app, &member_auth, &old_code).await;
+    let rotate_uri = format!("/api/servers/{server_id}/invite/rotate");
+
+    // Members without MANAGE_SERVER and strangers cannot rotate.
+    let (status, _) = api_json(&mut app, "POST", &rotate_uri, &member_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = api_json(&mut app, "POST", &rotate_uri, &late_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, body) = api_json(&mut app, "POST", &rotate_uri, &owner_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "rotate failed: {body}");
+    let new_code = body["invite_code"].as_str().unwrap().to_string();
+    assert_ne!(new_code, old_code);
+    assert_eq!(new_code.len(), old_code.len());
+
+    // The old link is dead for joining and for the public preview; the new one works.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers/join",
+        &late_auth,
+        Some(json!({ "invite_code": old_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/invite/{old_code}"),
+        &late_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    join_with_invite(&mut app, &late_auth, &new_code).await;
+
+    // Members get the new code from their server list.
+    let (status, servers) = api_json(&mut app, "GET", "/api/servers", &member_auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|server| server["id"] == json!(server_id))
+        .expect("the member still sees the server");
+    assert_eq!(listed["invite_code"], json!(new_code));
+
+    // The audit log records the rotation without either code.
+    let details: Vec<Option<serde_json::Value>> = sqlx::query_scalar(
+        "SELECT details FROM audit_log WHERE server_id = $1 AND action = 'invite_rotate'",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(details.len(), 1);
+    let recorded = serde_json::to_string(&details).unwrap();
+    assert!(!recorded.contains(&old_code) && !recorded.contains(&new_code));
+
+    // The official community server keeps its fixed code.
+    let official_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM servers WHERE invite_code = 'voxpery'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let official_owner: Uuid = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
+        .bind(official_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    // Even its owner is refused, so the test user owns it for one request.
+    let set_official_owner = |owner: Uuid| {
+        sqlx::query("UPDATE servers SET owner_id = $1 WHERE id = $2")
+            .bind(owner)
+            .bind(official_id)
+            .execute(&state.db)
+    };
+    set_official_owner(owner_id).await.unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{official_id}/invite/rotate"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    set_official_owner(official_owner).await.unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.to_string().contains("keeps its invite link"), "{body}");
+    let still: String = sqlx::query_scalar("SELECT invite_code FROM servers WHERE id = $1")
+        .bind(official_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(still, "voxpery");
+}

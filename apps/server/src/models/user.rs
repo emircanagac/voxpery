@@ -131,6 +131,9 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub captcha_token: Option<String>,
+    /// Invite code of the server that admits this sign-up when the server is invite-only.
+    #[serde(default)]
+    pub invite_code: Option<String>,
     pub terms_accepted: bool,
     pub terms_version: String,
     pub privacy_notice_acknowledged: bool,

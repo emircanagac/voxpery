@@ -9,10 +9,87 @@ import {
   buildRequests,
   buildServerMessage,
   createMockCoreState,
+  dropMockSocketServer,
   installMockCoreApi,
+  restoreMockSocketServer,
 } from './mock-core-api'
 
 test.describe('mocked core UI smoke', () => {
+  test('opens the DM or channel a clicked notification is about', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const announcements = channels[1]
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels },
+      dmChannels: [{ id: 'dm-ready', peer_id: 'friend-01', peer_username: 'Friend 01', peer_avatar_url: null, peer_status: 'online', unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+    }))
+
+    // With no window open, the service worker starts one at the target.
+    const target = { kind: 'server_channel', serverId: server.id, channelId: announcements.id }
+    await page.goto(`/servers#notification=${encodeURIComponent(JSON.stringify(target))}`)
+    await expect(page.locator('.channel-item.active')).toContainText(announcements.name)
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('')
+
+    // With a window open, the service worker hands it the clicked notification.
+    await page.evaluate(() => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'voxpery-notification-click', target: { kind: 'dm', channelId: 'dm-ready', messageId: null } },
+      }))
+    })
+    await expect(page).toHaveURL(/\/social\/dm$/)
+    await expect(page.getByPlaceholder('Message @Friend 01')).toBeVisible()
+  })
+
+  test('shows unread and mention badges kept by the server and marks the opened channel read', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    const channels = buildCoreChannels(server.id)
+    const announcements = channels[1]
+    const state = createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: channels },
+      notificationState: {
+        channels: [{ channel_id: announcements.id, server_id: server.id, unread_count: 5, mention_count: 2 }],
+        muted_server_ids: [],
+        muted_channel_ids: [],
+      },
+    })
+    await installMockCoreApi(page, state)
+    await page.goto('/servers')
+    await page.locator(`.server-icon[data-server-id="${server.id}"]`).click()
+    await expect(page.locator('.chat-messages')).toBeVisible()
+    // Messages that arrived while this browser was closed still show as a mention badge.
+    const badge = page.locator('.channel-unread-badge')
+    await expect(badge).toHaveText('@2')
+    expect(state.channelReadMarks).not.toContain(announcements.id)
+
+    await page.getByRole('button', { name: announcements.name, exact: false }).first().click()
+    await expect(badge).toHaveCount(0)
+    await expect.poll(() => state.channelReadMarks.includes(announcements.id)).toBe(true)
+  })
+
+  test('shows a reconnecting banner while the realtime connection is down and clears it on return', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+    }))
+    await page.goto('/servers')
+    await expect(page.locator('.shell-topbar')).toBeVisible()
+    const banner = page.getByRole('status').filter({ hasText: 'Connection lost' })
+    await expect(banner).toHaveCount(0)
+
+    await dropMockSocketServer(page)
+    await expect(banner).toBeVisible({ timeout: 8000 })
+    const box = (await banner.boundingBox())!
+    const viewport = page.viewportSize()!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+    // The banner never blocks the app: the page under it still takes clicks.
+    await page.getByRole('button', { name: 'Voxpery', exact: false }).first().click({ trial: true })
+
+    await restoreMockSocketServer(page)
+    await banner.getByRole('button', { name: 'Try now' }).click()
+    await expect(banner).toHaveCount(0)
+  })
+
   for (const scenario of [{ width: 1920, theme: 'dark' }, { width: 1100, theme: 'light' }, { width: 390, theme: 'dark' }, { width: 320, theme: 'light' }]) {
     test(`prepares voice without capture and retains preferences across views at ${scenario.width}px`, { tag: [1920, 320].includes(scenario.width) ? '@core' : [] }, async ({ page }, testInfo) => {
       const server = buildCoreServer()

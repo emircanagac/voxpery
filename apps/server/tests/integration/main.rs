@@ -11,6 +11,7 @@ mod direct_messages;
 mod messages;
 mod platform;
 mod realtime;
+mod registration;
 mod security;
 mod servers;
 mod user_notes;
@@ -43,6 +44,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 use tower::ServiceExt;
 use uuid::Uuid;
+use voxpery_server::services::registration::RegistrationMode;
 use voxpery_server::services::shared_redis::SharedRedis;
 use voxpery_server::{
     build_app, run_migrations,
@@ -111,6 +113,27 @@ fn redis_client() -> SharedRedis {
         redis::Client::open(redis_url)
             .expect("Failed to create Redis client for integration tests"),
     )
+}
+
+tokio::task_local! {
+    /// Set by `setup_app_with_web_push` so the app is built with VAPID keys.
+    static WEB_PUSH_ENABLED: bool;
+}
+
+/// A freshly generated VAPID key pair; tests never send to a real push service.
+fn test_web_push_config() -> voxpery_server::services::web_push::WebPushConfig {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    voxpery_server::services::web_push::WebPushConfig::from_parts(
+        &URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes()),
+        &URL_SAFE_NO_PAD.encode(secret.to_bytes()),
+        "mailto:ops@example.com",
+    )
+    .expect("generated VAPID keys are valid")
+}
+
+async fn setup_app_with_web_push() -> (axum::Router, Arc<AppState>) {
+    WEB_PUSH_ENABLED.scope(true, setup_app()).await
 }
 
 async fn setup_app() -> (axum::Router, Arc<AppState>) {
@@ -229,6 +252,74 @@ async fn build_test_app_with_storage(
     livekit_api_url: Option<String>,
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
 ) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        email_verification_enabled,
+        email_verification_required,
+        password_reset_enabled,
+        observability_enabled,
+        google_oauth_enabled,
+        livekit_ws_url,
+        livekit_api_url,
+        object_store,
+        RegistrationMode::Open,
+        redis_client(),
+    )
+    .await
+}
+
+async fn setup_app_with_registration_mode(
+    registration_mode: RegistrationMode,
+    google_oauth_enabled: bool,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        google_oauth_enabled,
+        "wss://livekit.test.local".to_string(),
+        None,
+        None,
+        registration_mode,
+        redis_client(),
+    )
+    .await
+}
+
+/// An app whose Redis refuses every connection, sharing the test database: accounts made
+/// through a normal app exist here too.
+async fn setup_app_with_unreachable_redis() -> (axum::Router, Arc<AppState>) {
+    let unreachable = SharedRedis::new(
+        redis::Client::open("redis://127.0.0.1:1").expect("Failed to create Redis client"),
+    );
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+        None,
+        RegistrationMode::Open,
+        unreachable,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn build_test_app_with_registration_mode(
+    email_verification_enabled: bool,
+    email_verification_required: bool,
+    password_reset_enabled: bool,
+    observability_enabled: bool,
+    google_oauth_enabled: bool,
+    livekit_ws_url: String,
+    livekit_api_url: Option<String>,
+    object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
+    registration_mode: RegistrationMode,
+    redis: SharedRedis,
+) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -261,7 +352,7 @@ async fn build_test_app_with_storage(
     let state = Arc::new(AppState {
         instance_id: Uuid::new_v4(),
         db,
-        redis: redis_client(),
+        redis,
         jwt_secret: jwt_secret(),
         jwt_expiration: 86400,
         tx,
@@ -309,9 +400,15 @@ async fn build_test_app_with_storage(
         email_verification_enabled,
         email_verification_required,
         password_reset_enabled,
+        registration_mode,
         attachment_service: Arc::new(attachment_service),
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
+        shutdown: Default::default(),
+        web_push: WEB_PUSH_ENABLED
+            .try_with(|enabled| *enabled)
+            .unwrap_or(false)
+            .then(|| Arc::new(test_web_push_config())),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);

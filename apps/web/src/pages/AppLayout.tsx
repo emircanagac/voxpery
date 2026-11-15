@@ -38,6 +38,7 @@ import {
     saveMessageDraft,
 } from '../messageDrafts'
 import { isAppBackgrounded } from '../pushNotifications'
+import { loadNotificationState, scheduleChannelRead, startMuteSync } from '../notificationSync'
 import { getMemberPanelOpen, setMemberPanelOpen } from '../memberPanelPreference'
 import { createReplyContentSnippet } from '../replyPreview'
 import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
@@ -366,6 +367,16 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 setServersLoading(false)
             })
     }, [isLoggedIn, token, setServers, setServersLoading])
+
+    // Unread counts, mention counts and mutes are kept by the server: load them at sign-in and
+    // send this window's mute changes back.
+    useEffect(() => {
+        if (!isLoggedIn) return
+        void loadNotificationState(token, () => (isViewActive ? activeChannelIdRef.current : null)).catch(() => {})
+        return startMuteSync(() => tokenRef.current ?? null)
+        // The view state is read when the response arrives; it must not restart the load.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn, token])
 
     useEffect(() => {
         if (!isLoggedIn || servers.length === 0) return
@@ -731,6 +742,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 .finally(() => setServersLoading(false))
 
             friendApi.list(token).then(setFriends).catch(() => {})
+            // Messages missed while disconnected show up as badges again.
+            void loadNotificationState(token, () => activeChannelIdRef.current).catch(() => {})
 
             const currentServerId = activeServerIdRef.current
             if (currentServerId) {
@@ -871,6 +884,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
         clearServerUnread(activeChannelId)
         clearServerMention(activeChannelId)
+        if (!isAppBackgrounded()) scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
 
         // Messages that arrived while the app was in the background stay unread until the
         // user returns; then they get the divider and are marked read.
@@ -881,6 +895,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             setChannelUnreadDividerCount(pendingUnread)
             clearServerUnread(activeChannelId)
             clearServerMention(activeChannelId)
+            scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
         }
         window.addEventListener('focus', syncReadOnReturn)
         document.addEventListener('visibilitychange', syncReadOnReturn)
@@ -915,8 +930,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             mutedServerIds,
             incrementServerMention,
             incrementServerUnread,
-            setActiveChannel,
-            setActiveServer,
             setChannels,
             setChannelCategoriesForServer,
             setChannelPins,
@@ -932,7 +945,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             send,
             pushToast,
         })
-    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setActiveChannel, setActiveServer, setChannelCategoriesForServer, setChannels, user])
+    }, [channels, channelsByServerId, incrementServerMention, incrementServerUnread, isViewActive, mutedChannelIds, mutedServerIds, pushToast, send, setChannelCategoriesForServer, setChannels, user])
 
     // Subscribe to WebSocket events (connection is managed globally by AppShell)
     useEffect(() => {
@@ -3098,6 +3111,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                       settingsServer={settingsServer}
                       settingsServerId={settingsServerId}
                       settingsServerInviteLink={settingsServerInviteLink}
+                      canRotateInvite={(isOwner || hasManageServer) && settingsServer?.invite_code !== 'voxpery'}
                       showServerSettings={showServerSettings}
                       timeoutEntries={timeoutEntries}
                       token={token}

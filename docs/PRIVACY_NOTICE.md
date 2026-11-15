@@ -42,6 +42,7 @@ The web app uses one sign-in cookie, which keeps you signed in until you sign ou
 - **Hosting:** the servers, database and media server run in Germany.
 - **Cloudflare:** network delivery, attack protection and the human check (Turnstile) at sign-up. Cloudflare sees your IP address and request data.
 - **Google:** optional Google sign-in, and delivery of account emails such as email verification and password reset.
+- **Browser push services:** if you turn on notifications for when Voxpery is closed, your browser's push service (Google, Mozilla, Apple or Microsoft, depending on the browser) delivers them. A notification names the sender and the conversation or channel, never the message, and is encrypted for your browser; the push service sees only when it is sent.
 - **GIPHY and jsDelivr:** GIF search goes from your device directly to GIPHY, and GIPHY GIFs in chat load directly from GIPHY. Built-in stickers load from the jsDelivr network. Both see the IP address of everyone who searches or views them. Images from other websites shown in chat are loaded through Voxpery's server, so those websites do not see your IP address.
 - **GitHub:** the desktop apps check for and download updates from GitHub, which sees your device's IP address.
 
@@ -51,6 +52,8 @@ Data is therefore processed in Germany and, by these providers, in other countri
 
 - Account data and content are kept until you delete them or your account.
 - Deleting your account immediately deletes your profile, messages, direct messages, reactions, friendships, memberships, uploaded files and personal notes, including notes other people wrote about you. Moderation and audit records you created are reassigned to a placeholder account, servers you own pass to their highest-ranked member, and group direct messages you own pass to their longest-standing member.
+- Server audit log entries are kept for 180 days and then deleted. An entry about an edited message, or about a message AutoMod blocked, quotes up to 160 characters of its text; the quote is removed when the message or your account is deleted, and within 10 minutes when a whole channel or server is deleted.
+- A browser's notification subscription for when Voxpery is closed is kept until you turn the setting off, sign out in that browser or delete your account, and is removed when the push service reports it expired.
 - Server logs and database backups are kept for at most 14 days, so deleted data also leaves backups within 14 days.
 - Rate-limit counters and unfinished sign-ups expire on their own, within minutes to hours.
 

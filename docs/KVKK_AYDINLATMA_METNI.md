@@ -39,6 +39,7 @@ Web uygulaması oturumu açık tutan tek bir oturum çerezi ve Google ya da masa
 - **Barındırma:** sunucular, veri tabanı ve medya sunucusu Almanya'dadır.
 - **Cloudflare:** ağ dağıtımı, saldırı koruması ve kayıttaki insan doğrulaması (Turnstile); IP adresinizi ve istek bilgilerini görür.
 - **Google:** isteğe bağlı Google ile giriş ve e-posta doğrulama ile parola sıfırlama gibi hesap e-postalarının gönderimi.
+- **Tarayıcı bildirim servisleri:** Voxpery kapalıyken bildirimleri açarsanız bunları tarayıcınızın bildirim servisi (tarayıcıya göre Google, Mozilla, Apple ya da Microsoft) iletir. Bildirim mesajı değil, yalnız göndereni ve konuşmayı ya da kanalı içerir ve tarayıcınız için şifrelenir; bildirim servisi yalnız gönderim zamanını görür.
 - **GIPHY ve jsDelivr:** GIF araması cihazınızdan doğrudan GIPHY'ye gider ve sohbetteki GIPHY GIF'leri doğrudan GIPHY'den yüklenir. Hazır çıkartmalar jsDelivr ağından yüklenir. Her ikisi de arayan veya görüntüleyen herkesin IP adresini görür. Sohbette gösterilen diğer sitelerin resimleri Voxpery sunucusu üzerinden yüklenir, o siteler IP adresinizi görmez.
 - **GitHub:** masaüstü uygulamaları güncellemeleri GitHub'dan denetler ve indirir; GitHub cihazınızın IP adresini görür.
 
@@ -48,6 +49,8 @@ Bu nedenle kişisel verileriniz yurt dışına (Almanya'ya ve bu sağlayıcılar
 
 - Hesap verileri ve içerik, siz ya da hesabınız silinene kadar saklanır.
 - Hesap silindiğinde profil, mesajlar, doğrudan mesajlar, tepkiler, arkadaşlıklar, üyelikler, yüklenen dosyalar ve başkalarının sizin hakkınızda yazdıkları dahil kişisel notlar hemen silinir. Oluşturduğunuz moderasyon ve denetim kayıtları bir yer tutucu hesaba aktarılarak kalır; sahibi olduğunuz sunucular en yüksek rütbeli üyeye, grup doğrudan mesajları en eski üyeye geçer.
+- Sunucu denetim kayıtları 180 gün saklanır, sonra silinir. Düzenlenen ya da otomatik moderasyonun engellediği bir mesaja ait kayıt, mesaj metninin en çok 160 karakterini içerir; mesaj ya da hesabınız silindiğinde bu alıntı da silinir, bir kanal ya da sunucu tümüyle silindiğinde en geç 10 dakika içinde kaldırılır.
+- Voxpery kapalıyken bildirim almak için bir tarayıcının aboneliği, ayarı kapatana, o tarayıcıda çıkış yapana ya da hesabınızı silene kadar saklanır; bildirim servisi aboneliğin sona erdiğini bildirince silinir.
 - Sunucu kayıtları ve veri tabanı yedekleri en fazla 14 gün tutulur; silinen veriler yedeklerden de 14 gün içinde çıkar.
 - İstek sınırı sayaçları ve tamamlanmayan kayıtlar dakikalar ile saatler içinde kendiliğinden silinir.
 

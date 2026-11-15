@@ -75,6 +75,7 @@ describe('WebSocket Store', () => {
       reconnectTimer: null,
       connectionId: 0,
       wasConnectedBefore: false,
+      disconnectedSince: null,
     })
     MockWebSocket.instances = []
     reportObservabilityEvent.mockClear()
@@ -199,13 +200,44 @@ describe('WebSocket Store', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('delivers an event to every listener even when one of them throws', async () => {
+    const { connect, subscribe } = useSocketStore.getState()
+    act(() => {
+      connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failing = vi.fn(() => {
+      throw new TypeError('Illegal constructor')
+    })
+    const after = vi.fn()
+    const unsubscribeFailing = subscribe(failing)
+    const unsubscribeAfter = subscribe(after)
+    const message = { type: 'NewMessage', data: { channel_id: 'c1' } }
+
+    act(() => {
+      useSocketStore.getState().socket?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }))
+      useSocketStore.getState().socket?.onmessage?.(new MessageEvent('message', { data: 'not json' }))
+    })
+
+    expect(failing).toHaveBeenCalledTimes(1)
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(after).toHaveBeenCalledWith(message)
+    unsubscribeFailing()
+    unsubscribeAfter()
+    consoleError.mockRestore()
+  })
+
   it('calculates exponential reconnect delays with jitter', () => {
-    expect(websocketReconnectDelayMs(1, () => 0.5)).toBe(1000)
+    // The first retry is spread over 0-3 s so clients do not return together after a restart.
+    expect(websocketReconnectDelayMs(1, () => 0.5)).toBe(1500)
     expect(websocketReconnectDelayMs(2, () => 0.5)).toBe(2000)
     expect(websocketReconnectDelayMs(3, () => 0.5)).toBe(4000)
     expect(websocketReconnectDelayMs(20, () => 0.5)).toBe(30000)
-    expect(websocketReconnectDelayMs(1, () => 0)).toBe(750)
-    expect(websocketReconnectDelayMs(1, () => 1)).toBe(1250)
+    expect(websocketReconnectDelayMs(1, () => 0)).toBe(0)
+    expect(websocketReconnectDelayMs(1, () => 1)).toBe(3000)
+    expect(websocketReconnectDelayMs(2, () => 0)).toBe(1500)
+    expect(websocketReconnectDelayMs(2, () => 1)).toBe(2500)
   })
 
   it('should handle reconnection', async () => {
@@ -226,8 +258,8 @@ describe('WebSocket Store', () => {
       state.socket?.close()
     })
 
-    // Wait for auto-reconnect (1s base delay)
-    await vi.advanceTimersByTimeAsync(1300)
+    // Wait for auto-reconnect (the first retry comes within 3 s)
+    await vi.advanceTimersByTimeAsync(3100)
 
     expect(reconnectListener).toHaveBeenCalled()
     expect(reportObservabilityEvent.mock.calls).toEqual([
@@ -253,7 +285,7 @@ describe('WebSocket Store', () => {
       state.socket?.close()
     })
 
-    await vi.advanceTimersByTimeAsync(1300)
+    await vi.advanceTimersByTimeAsync(3100)
 
     const next = useSocketStore.getState()
     expect(next.socket).toBeTruthy()
@@ -275,7 +307,7 @@ describe('WebSocket Store', () => {
 
     await act(async () => {
       MockWebSocket.instances[0].close(1013)
-      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(3100)
     })
 
     expect(MockWebSocket.instances).toHaveLength(2)
@@ -330,7 +362,7 @@ describe('WebSocket Store', () => {
     unsubscribe()
   })
 
-  it('should stop reconnecting after the reconnect cap', async () => {
+  it('keeps reconnecting after the eighth attempt and reports the long outage once', async () => {
     const { connect } = useSocketStore.getState()
 
     act(() => {
@@ -343,12 +375,17 @@ describe('WebSocket Store', () => {
       useSocketStore.getState().socket?.close()
     })
 
-    await vi.advanceTimersByTimeAsync(30000)
+    expect(useSocketStore.getState().reconnectAttempt).toBe(9)
+    expect(useSocketStore.getState().disconnectedSince).not.toBe(null)
+    await vi.advanceTimersByTimeAsync(38000)
 
     const state = useSocketStore.getState()
-    expect(state.socket).toBe(null)
-    expect(state.shouldReconnect).toBe(false)
+    expect(state.shouldReconnect).toBe(true)
+    expect(state.isConnected).toBe(true)
     expect(state.reconnectAttempt).toBe(0)
+    expect(state.disconnectedSince).toBe(null)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(reportObservabilityEvent.mock.calls.filter(([name]) => name === 'websocket_reconnect_exhausted')).toHaveLength(1)
   })
 
   it('should not create duplicate sockets while connecting', () => {
@@ -362,15 +399,14 @@ describe('WebSocket Store', () => {
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
-  it('retries an exhausted cookie-auth connection on foreground without duplicate sockets', async () => {
+  it('retries a long-disconnected cookie-auth connection on foreground without duplicate sockets', async () => {
     useSocketStore.getState().connect(null)
     await vi.runAllTimersAsync()
     const onReconnect = vi.fn()
     useSocketStore.getState().onReconnect(onReconnect)
     useSocketStore.setState({ reconnectAttempt: 8 })
     useSocketStore.getState().socket?.close()
-    await vi.advanceTimersByTimeAsync(30000)
-    expect(useSocketStore.getState().shouldReconnect).toBe(false)
+    expect(useSocketStore.getState().shouldReconnect).toBe(true)
     useSocketStore.getState().resumeConnection()
     useSocketStore.getState().resumeConnection()
     await vi.runAllTimersAsync()

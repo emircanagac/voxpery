@@ -1,0 +1,87 @@
+# Optional HTTPS reverse proxy for self-hosted deployments (Caddy with automatic TLS).
+#
+# Use it together with the main file:
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+#
+# Requirements: three DNS records pointing at this host (web, API, LiveKit), ports 80 and
+# 443 reachable from the internet, and the PROXY_* values in .env
+# (`scripts/ops/init_env.sh` writes them). See docs/DEPLOYMENT.md.
+#
+# The proxy has a fixed address on its own network, so the server trusts forwarded
+# client-IP headers from exactly that address and from nothing else.
+
+services:
+  proxy:
+    image: caddy:2.11.9-alpine
+    container_name: voxpery-proxy
+    restart: unless-stopped
+    depends_on:
+      - web
+      - server
+      - livekit
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    configs:
+      - source: proxy_caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - proxy_data:/data
+      - proxy_config:/config
+    networks:
+      proxy:
+        ipv4_address: 172.31.250.2
+
+  web:
+    networks:
+      - default
+      - proxy
+
+  server:
+    environment:
+      # Overrides .env: only the proxy above may supply forwarded client addresses.
+      TRUSTED_PROXY_CIDRS: 172.31.250.2/32
+    networks:
+      - default
+      - proxy
+
+  livekit:
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/29
+
+volumes:
+  proxy_data:
+  proxy_config:
+
+configs:
+  proxy_caddyfile:
+    content: |
+      ${PROXY_WEB_DOMAIN:?PROXY_WEB_DOMAIN must be set in .env} {
+      	reverse_proxy web:8080
+      }
+
+      ${PROXY_API_DOMAIN:?PROXY_API_DOMAIN must be set in .env} {
+      	reverse_proxy server:3001 {
+      		# Caddy replaces X-Forwarded-For itself; these two headers are the other ways the
+      		# server reads a client address, so a client must not be able to supply them.
+      		header_up X-Real-IP {remote_host}
+      		header_up -CF-Connecting-IP
+      	}
+      }
+
+      ${PROXY_LIVEKIT_DOMAIN:?PROXY_LIVEKIT_DOMAIN must be set in .env} {
+      	reverse_proxy livekit:7880
+      }

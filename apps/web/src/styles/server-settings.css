@@ -51,6 +51,36 @@
   font-weight: 600;
 }
 
+.invite-rotate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.invite-rotate > .copy-btn,
+.invite-rotate .copy-btn:not(.invite-rotate__confirm) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.invite-rotate__confirm {
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-text);
+}
+
+.invite-rotate__confirm:hover {
+  background: var(--btn-danger-bg-hover);
+}
+
+.invite-rotate__warning {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
 .server-settings-icon-preview {
     width: 100%;
     height: 100%;

@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { serverApi, channelApi, type Channel, type MessageWithAuthor, type WsEvent } from '../api'
 import { useToastStore } from '../stores/toast'
+import { scheduleChannelRead } from '../notificationSync'
 import { withUpdatedAuthor } from '../messageAuthors'
 import { applyMessageUpdate } from '../messageUpdates'
 import { applyIncomingMessage } from '../messageResilience'
@@ -23,8 +24,6 @@ export interface AppLayoutEventContext {
     mutedServerIds: AppState['mutedServerIds']
     incrementServerMention: AppState['incrementServerMention']
     incrementServerUnread: AppState['incrementServerUnread']
-    setActiveChannel: AppState['setActiveChannel']
-    setActiveServer: AppState['setActiveServer']
     setChannels: AppState['setChannels']
     setChannelCategoriesForServer: (serverId: string, categories: string[]) => void
     setChannelPins: Dispatch<SetStateAction<MessageWithAuthor[]>>
@@ -50,8 +49,6 @@ export function handleAppLayoutEvent(event: WsEvent, {
     mutedServerIds,
     incrementServerMention,
     incrementServerUnread,
-    setActiveChannel,
-    setActiveServer,
     setChannels,
     setChannelCategoriesForServer,
     setChannelPins,
@@ -136,6 +133,10 @@ export function handleAppLayoutEvent(event: WsEvent, {
                         messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
                     }
                 }
+                // Reading a message in the open channel moves the read mark on the server too.
+                if (isCurrentVisibleChannel && !isAppBackgrounded() && incoming.author?.user_id !== user?.id) {
+                    scheduleChannelRead(incomingChannelId, tokenRef.current ?? null, incoming.id)
+                }
                 // An open channel only reads its messages while the app is in the foreground.
                 if (!isCurrentVisibleChannel || isAppBackgrounded()) {
                     if (incoming.author?.user_id !== user?.id) {
@@ -171,10 +172,7 @@ export function handleAppLayoutEvent(event: WsEvent, {
                                     title: isMention ? `Mention in #${channelName}` : `New message in #${channelName}`,
                                     body: `${incoming.author?.username ?? 'Someone'}: ${incoming.content.slice(0, 120)}`,
                                     tag: `server:${incomingServerId}:channel:${incomingChannelId}`,
-                                    onClick: () => {
-                                        setActiveServer(incomingServerId)
-                                        setActiveChannel(incomingChannelId)
-                                    },
+                                    target: { kind: 'server_channel', serverId: incomingServerId, channelId: incomingChannelId },
                                 })
                             }
                         }
@@ -318,6 +316,15 @@ export function handleAppLayoutEvent(event: WsEvent, {
                 refreshServerSnapshot(sid, t, true)
                 break
             }
+            case 'ChannelRead': {
+                // Another window or device of this account read the channel.
+                const d = event.data
+                if (!d.channel_id || d.user_id !== user?.id) break
+                const store = useAppStore.getState()
+                store.clearServerUnread(d.channel_id)
+                store.clearServerMention(d.channel_id)
+                break
+            }
             case 'ServerUpdated': {
                 const d = event.data
                 if (!d.server_id) break
@@ -331,6 +338,15 @@ export function handleAppLayoutEvent(event: WsEvent, {
                         description: d.description ?? undefined,
                     }
                     : server)))
+                // The event never carries the invite code; a reset link is read from the server list.
+                void serverApi.list(tokenRef.current ?? null).then((list) => {
+                    const fresh = list.find((server) => server.id === d.server_id)
+                    if (!fresh) return
+                    const current = useAppStore.getState()
+                    current.setServers(current.servers.map((server) => (server.id === fresh.id
+                        ? { ...server, invite_code: fresh.invite_code }
+                        : server)))
+                }).catch(() => {})
                 break
             }
             case 'ServerChannelsUpdated': {

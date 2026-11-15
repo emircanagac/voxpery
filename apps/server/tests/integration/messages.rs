@@ -1097,3 +1097,396 @@ async fn message_search_combines_only_the_filters_a_request_uses() {
         .is_empty());
     assert!(search("q=".into()).await.is_empty());
 }
+
+#[tokio::test]
+async fn quoted_message_text_leaves_the_audit_log_with_the_message_or_the_account() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, owner_id, _) = register_named_user(&mut app, "previewowner").await;
+    let (author_auth, author_id, author_password) =
+        register_named_user(&mut app, "previewauthor").await;
+    let (server_id, channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Previews").await;
+    join_with_invite(&mut app, &author_auth, &invite_code).await;
+
+    // Sends a message in `channel` and edits it once, leaving one edit record with a quote.
+    async fn edited_message(app: &mut axum::Router, auth: &str, channel: Uuid, text: &str) -> Uuid {
+        let (status, message) = api_json(
+            app,
+            "POST",
+            &format!("/api/messages/{channel}"),
+            auth,
+            Some(json!({ "content": format!("{text} before") })),
+        )
+        .await;
+        assert!(status.is_success(), "send failed: {message}");
+        let id = message["id"].as_str().unwrap().to_string();
+        let (status, body) = api_json(
+            app,
+            "PATCH",
+            &format!("/api/messages/item/{id}"),
+            auth,
+            Some(json!({ "content": format!("{text} after") })),
+        )
+        .await;
+        assert!(status.is_success(), "edit failed: {body}");
+        Uuid::parse_str(&id).unwrap()
+    }
+    // The edit record of a message: (record exists, it still quotes text).
+    async fn edit_record(state: &AppState, message_id: Uuid) -> (bool, bool) {
+        let details: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT details FROM audit_log WHERE action = 'message_edit' AND resource_id = $1",
+        )
+        .bind(message_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap();
+        match details {
+            Some(details) => (
+                true,
+                details.get("before_preview").is_some() || details.get("after_preview").is_some(),
+            ),
+            None => (false, false),
+        }
+    }
+
+    // Deleting one message clears its quote and keeps the record.
+    let deleted_one = edited_message(&mut app, &owner_auth, channel_id, "single").await;
+    let kept = edited_message(&mut app, &owner_auth, channel_id, "kept").await;
+    assert_eq!(edit_record(&state, deleted_one).await, (true, true));
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{deleted_one}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(edit_record(&state, deleted_one).await, (true, false));
+    assert_eq!(edit_record(&state, kept).await, (true, true));
+
+    // Deleting a channel takes its messages along; the periodic cleanup clears those quotes.
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &owner_auth,
+        Some(json!({ "server_id": server_id, "name": "short-lived", "channel_type": "text" })),
+    )
+    .await;
+    assert!(status.is_success(), "channel create failed: {channel}");
+    let doomed_channel = Uuid::parse_str(channel["id"].as_str().unwrap()).unwrap();
+    let cascaded = edited_message(&mut app, &owner_auth, doomed_channel, "cascade").await;
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/{doomed_channel}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert!(status.is_success());
+    assert_eq!(edit_record(&state, cascaded).await, (true, true));
+    voxpery_server::services::audit::purge_stale(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(edit_record(&state, cascaded).await, (true, false));
+    assert_eq!(edit_record(&state, kept).await, (true, true));
+
+    // Deleting an account clears the quotes of its messages and of what AutoMod blocked.
+    let authored = edited_message(&mut app, &author_auth, channel_id, "authored").await;
+    sqlx::query(
+        r#"INSERT INTO audit_log (actor_id, server_id, action, resource_type, details)
+           VALUES ($1, $2, 'automod_message_block', 'message', $3)"#,
+    )
+    .bind(author_id)
+    .bind(server_id)
+    .bind(json!({
+        "rule_name": "links",
+        "trigger_type": "link_filter",
+        "matched_value": "https://blocked.example",
+        "content_preview": "see https://blocked.example",
+        "content_truncated": false
+    }))
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/auth/account",
+        &author_auth,
+        Some(json!({ "confirm": "DELETE", "password": author_password })),
+    )
+    .await;
+    assert!(status.is_success(), "account deletion failed: {body}");
+    assert_eq!(edit_record(&state, authored).await, (true, false));
+    let blocked: serde_json::Value = sqlx::query_scalar(
+        "SELECT details FROM audit_log WHERE server_id = $1 AND action = 'automod_message_block'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(blocked.get("content_preview").is_none() && blocked.get("matched_value").is_none());
+    assert_eq!(blocked["rule_name"], "links");
+
+    // Records older than the retention period are deleted; newer ones stay.
+    let aged = |days: i32| {
+        sqlx::query_scalar::<_, Uuid>(
+            r#"INSERT INTO audit_log (at, actor_id, server_id, action, resource_type)
+               VALUES (NOW() - make_interval(days => $1), $2, $3, 'server_update', 'server')
+               RETURNING id"#,
+        )
+        .bind(days)
+        .bind(owner_id)
+        .bind(server_id)
+        .fetch_one(&state.db)
+    };
+    let expired = aged(181).await.unwrap();
+    let recent = aged(179).await.unwrap();
+    let (_, deleted) = voxpery_server::services::audit::purge_stale(&state.db)
+        .await
+        .unwrap();
+    assert!(deleted >= 1);
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM audit_log WHERE id = ANY($1)")
+        .bind(vec![expired, recent])
+        .fetch_all(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(remaining, vec![recent]);
+}
+
+#[tokio::test]
+async fn unread_mentions_and_mutes_are_kept_on_the_server() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "notifyowner").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "notifymember").await;
+    let (late_auth, late_id, _) = register_named_user(&mut app, "notifylate").await;
+    let (stranger_auth, _, _) = register_named_user(&mut app, "notifystranger").await;
+    let (server_id, channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Notify").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let username_of = |user_id: Uuid| {
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+    };
+    let member_name = username_of(member_id).await.unwrap();
+    let late_name = username_of(late_id).await.unwrap();
+
+    async fn send(app: &mut axum::Router, auth: &str, channel: Uuid, content: &str) -> Uuid {
+        let (status, message) = api_json(
+            app,
+            "POST",
+            &format!("/api/messages/{channel}"),
+            auth,
+            Some(json!({ "content": content })),
+        )
+        .await;
+        assert!(status.is_success(), "send failed: {message}");
+        Uuid::parse_str(message["id"].as_str().unwrap()).unwrap()
+    }
+    // (unread_count, mention_count) of one channel in the caller's notification state.
+    async fn counts(app: &mut axum::Router, auth: &str, channel: Uuid) -> Option<(i64, i64)> {
+        let (status, body) = api_json(app, "GET", "/api/notifications/state", auth, None).await;
+        assert_eq!(status, StatusCode::OK, "state failed: {body}");
+        body["channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["channel_id"] == json!(channel))
+            .map(|entry| {
+                (
+                    entry["unread_count"].as_i64().unwrap(),
+                    entry["mention_count"].as_i64().unwrap(),
+                )
+            })
+    }
+
+    // Nothing is unread before anyone wrote.
+    assert_eq!(counts(&mut app, &member_auth, channel_id).await, None);
+
+    let first = send(&mut app, &owner_auth, channel_id, "plain words").await;
+    let named = send(
+        &mut app,
+        &owner_auth,
+        channel_id,
+        &format!("hello @{member_name} and @{late_name}"),
+    )
+    .await;
+    send(&mut app, &owner_auth, channel_id, "@everyone listen").await;
+    // A member without the permission cannot raise a mass mention.
+    send(&mut app, &member_auth, channel_id, "@everyone me too").await;
+
+    assert_eq!(
+        counts(&mut app, &member_auth, channel_id).await,
+        Some((3, 2))
+    );
+    // The author's own messages are never unread for them; the member's one is.
+    assert_eq!(
+        counts(&mut app, &owner_auth, channel_id).await,
+        Some((1, 0))
+    );
+    // Someone who was not a member yet is not stored as mentioned, and joins with nothing unread.
+    let stored: Vec<Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM message_mentions WHERE message_id = $1")
+            .bind(named)
+            .fetch_all(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored, vec![member_id]);
+    join_with_invite(&mut app, &late_auth, &invite_code).await;
+    assert_eq!(counts(&mut app, &late_auth, channel_id).await, None);
+
+    // Editing rewrites the mentions of the message and keeps its original time.
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/messages/item/{named}"),
+        &owner_auth,
+        Some(json!({ "content": format!("hello @{late_name}") })),
+    )
+    .await;
+    assert!(status.is_success(), "edit failed: {body}");
+    assert_eq!(
+        counts(&mut app, &member_auth, channel_id).await,
+        Some((3, 1))
+    );
+    assert_eq!(counts(&mut app, &late_auth, channel_id).await, None);
+
+    // Reading up to a message moves the mark there; the other sessions of the reader hear of it.
+    let addr = spawn_ws_app(&state).await;
+    let mut other_session = connect_ws(addr, &member_auth).await;
+    ws_barrier(&mut other_session).await;
+    let read_uri = format!("/api/notifications/channels/{channel_id}/read");
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &read_uri,
+        &member_auth,
+        Some(json!({ "message_id": first })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "read failed: {body}");
+    let event = receive_ws_event(&mut other_session, "ChannelRead").await;
+    assert_eq!(event["data"]["channel_id"], json!(channel_id));
+    assert_eq!(event["data"]["user_id"], json!(member_id));
+    assert_eq!(
+        counts(&mut app, &member_auth, channel_id).await,
+        Some((2, 1))
+    );
+
+    let (status, _) = api_json(&mut app, "POST", &read_uri, &member_auth, Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(counts(&mut app, &member_auth, channel_id).await, None);
+    // The mark only moves forward.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &read_uri,
+        &member_auth,
+        Some(json!({ "message_id": first })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(counts(&mut app, &member_auth, channel_id).await, None);
+    // The owner's own mark is untouched by the member's reading.
+    assert_eq!(
+        counts(&mut app, &owner_auth, channel_id).await,
+        Some((1, 0))
+    );
+
+    // A channel the member cannot see: no mention is stored and nothing is reported.
+    let (status, channel) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &owner_auth,
+        Some(json!({ "server_id": server_id, "name": "owners-only", "channel_type": "text" })),
+    )
+    .await;
+    assert!(status.is_success(), "channel create failed: {channel}");
+    let hidden_channel = Uuid::parse_str(channel["id"].as_str().unwrap()).unwrap();
+    let everyone = everyone_role_id(&state, server_id).await;
+    put_channel_override_row(&state, hidden_channel, everyone, 0, 1).await;
+    let hidden_message = send(
+        &mut app,
+        &owner_auth,
+        hidden_channel,
+        &format!("secret @{member_name}"),
+    )
+    .await;
+    let hidden_mentions: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM message_mentions WHERE message_id = $1")
+            .bind(hidden_message)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(hidden_mentions, 0);
+    assert_eq!(counts(&mut app, &member_auth, hidden_channel).await, None);
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/notifications/channels/{hidden_channel}/read"),
+        &member_auth,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Someone outside the server cannot move a mark there either.
+    let (status, _) = api_json(&mut app, "POST", &read_uri, &stranger_auth, Some(json!({}))).await;
+    assert!(
+        status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND,
+        "unexpected status {status}"
+    );
+
+    // Mutes are stored per account; servers and channels the account is not in are ignored.
+    let (foreign_server, foreign_channel, _) =
+        create_server_with_default_text_channel(&mut app, &state, &stranger_auth, "Elsewhere")
+            .await;
+    let (status, mutes) = api_json(
+        &mut app,
+        "PUT",
+        "/api/notifications/mutes",
+        &member_auth,
+        Some(json!({
+            "server_ids": [server_id, foreign_server],
+            "channel_ids": [channel_id, foreign_channel],
+            "muted": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "mute failed: {mutes}");
+    assert_eq!(mutes["muted_server_ids"], json!([server_id]));
+    assert_eq!(mutes["muted_channel_ids"], json!([channel_id]));
+    let (_, state_body) = api_json(
+        &mut app,
+        "GET",
+        "/api/notifications/state",
+        &member_auth,
+        None,
+    )
+    .await;
+    assert_eq!(state_body["muted_server_ids"], json!([server_id]));
+    assert_eq!(state_body["muted_channel_ids"], json!([channel_id]));
+    let (status, mutes) = api_json(
+        &mut app,
+        "PUT",
+        "/api/notifications/mutes",
+        &member_auth,
+        Some(json!({ "server_ids": [server_id], "muted": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(mutes["muted_server_ids"], json!([]));
+    assert_eq!(mutes["muted_channel_ids"], json!([channel_id]));
+}

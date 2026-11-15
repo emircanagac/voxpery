@@ -104,9 +104,15 @@ pub struct AppState {
     pub email_verification_enabled: bool,
     pub email_verification_required: bool,
     pub password_reset_enabled: bool,
+    /// Who may create an account; enforced in `services::registration`.
+    pub registration_mode: services::registration::RegistrationMode,
     pub attachment_service: Arc<services::attachments::AttachmentService>,
     pub release_http_client: reqwest::Client,
     pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
+    /// Set once the process was told to stop; see `services::shutdown`.
+    pub shutdown: services::shutdown::Shutdown,
+    /// VAPID identity for Web Push; `None` turns push notifications off.
+    pub web_push: Option<Arc<services::web_push::WebPushConfig>>,
 }
 
 #[derive(Clone, Debug)]
@@ -402,6 +408,11 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             routes::attachments::router(state.clone()),
         )
         .nest("/api/messages", routes::messages::router(state.clone()))
+        .nest(
+            "/api/notifications",
+            routes::notifications::router(state.clone()),
+        )
+        .nest("/api/push", routes::push::router(state.clone()))
         .nest("/api/releases", routes::releases::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))
@@ -594,6 +605,7 @@ mod tests {
             smtp_user: None,
             smtp_password: None,
             email_verification_required: false,
+            registration_mode: crate::services::registration::RegistrationMode::Open,
             attachments_public_base_url: None,
             attachments_local_dir: "./storage/attachments".into(),
             attachments_s3_endpoint: None,

@@ -50,6 +50,12 @@ Slow clients: events addressed to one connection wait in a queue of at most 256 
 
 Missed events: a connection that falls behind the shared event stream, or whose queue overflows, cannot know what it lost. The server closes it with code `1013`, and the client reconnects and reloads messages, servers, members, friends and voice state, so it never keeps showing stale data.
 
+Session checks: the server re-checks the session of every open connection every 30 seconds and before handling a frame. A session that ended (sign-out, expiry, deleted account, outdated legal acknowledgement) closes the connection with `4001`, and the client stops reconnecting. When the check itself cannot be answered because Redis or the database is unreachable, the connection stays open; after three unanswered checks in a row, or when a frame arrives meanwhile, it is closed without `4001` (`1013` from the periodic check) and the client reconnects as after any dropped connection. An upgrade attempted during such an outage gets `503`.
+
+Reconnecting: while signed in the client never stops retrying a dropped connection. The first retry waits a random 0-3 seconds, so clients do not all return in the same instant after a server restart; later retries back off exponentially with 25% jitter up to 30 seconds and continue at that pace. Only close code `4001` (session ended) stops it. A connection that stays down for more than 3 seconds shows a non-blocking "Connection lost. Reconnecting…" banner with a "Try now" button, and on return the client reloads its state as after any reconnect.
+
+Server restart: a server that is stopping closes every connection with code `1012` and answers new handshakes with HTTP 503. Clients treat it like any other drop: they reconnect and reload their state. Voice is left as it is during the shutdown (no `VoiceStateUpdate` departure is sent); a client that was in a call sends `JoinVoice` again after reconnecting.
+
 ### `Unsubscribe`
 
 ```json
@@ -168,6 +174,10 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `DmRead`
   - Targeted to the user who read the DM so other open sessions can clear the same unread badge.
   - Payload includes `channel_id`, `user_id`, and `last_read_message_id`.
+- `ChannelRead`
+  - Targeted to the user who read a server channel (`POST /api/notifications/channels/:channel_id/read`) so other open sessions clear the same unread and mention badges.
+  - Payload: `channel_id`, `user_id`, and `last_read_at` (creation time of the last message read). Sent only when the read mark moved.
+  - Missed `ChannelRead` events need no replay: clients reload `GET /api/notifications/state` after reconnecting.
 - `MessageUpdated`
 - `MessageDeleted`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.
@@ -207,6 +217,7 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `ServerChannelsUpdated`
 - `ServerUpdated` (`server_id`, `name`, `icon_url`, `description`)
   - Sent to every member, the owner's other sessions included, when `PATCH /api/servers/:server_id` changes the server. It carries only what members can see; the invite code is not included.
+  - Also sent when the invite link is reset. The event never carries the invite code; clients reload `GET /api/servers` to read it.
 
 ### Voice
 

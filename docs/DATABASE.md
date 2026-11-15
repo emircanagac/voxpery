@@ -25,6 +25,8 @@ users
  +--< password_reset_tokens
  +--< uploaded_attachments
  |
+ +--< channel_reads, message_mentions, notification_mutes (per user, see Notifications)
+ |
  +--< dm_channel_members >-- dm_channels --< dm_messages --< dm_message_reactions
                              +--< dm_channel_reads
                              +--< dm_channel_pins
@@ -153,6 +155,26 @@ Uniqueness (case-insensitive):
 - Canonicalized pair table (`user_a < user_b`)
 - Primary key `(user_a, user_b)`
 
+### `channel_reads`
+
+- `user_id`, `channel_id`, `last_read_message_id` (nullable, `ON DELETE SET NULL`), `last_read_at`, `updated_at`
+- Primary key `(user_id, channel_id)`. `last_read_at` is the creation time of the last message read, not the time of reading; the upsert only moves it forward. A channel without a row counts as read up to `server_members.joined_at`. Added in migration `066`.
+
+### `message_mentions`
+
+- `message_id`, `user_id`, `channel_id`, `created_at`; primary key `(message_id, user_id)`
+- Mentions by name in server messages, at most 20 per message, only members who can see the channel. `channel_id` and `created_at` copy the message's values so mention counts read one index (`idx_message_mentions_user_channel`). Rewritten in the transaction that edits the message; all references cascade. `@everyone`/`@here` are the boolean `messages.mention_everyone` instead (partial index `idx_messages_channel_mention_everyone`). Added in migration `066`.
+
+### `push_subscriptions`
+
+- `id`, `user_id`, `endpoint` (unique, at most 2048 characters), `p256dh`, `auth`, `created_at`, `last_used_at`
+- One row per browser (Web Push). An endpoint subscribed again by another account moves to it; the application keeps an account's newest 10. Rows are deleted by turning the setting off, signing out, a `404`/`410` from the push service, or account deletion (cascade). The endpoint is a capability URL of the push service and is never logged or exported. Added in migration `067`.
+
+### `notification_mutes`
+
+- `user_id`, `server_id`, `channel_id`, `created_at`; exactly one of `server_id`/`channel_id` is set (`CHECK num_nonnulls(...) = 1`)
+- Partial unique indexes on `(user_id, server_id)` and `(user_id, channel_id)`. All references cascade. Rows of a server the user left stay and apply again on rejoin. Added in migration `066`.
+
 ### `user_notes`
 
 - `author_id`, `target_user_id`, `note` (1-1,000 characters), `created_at`, `updated_at`
@@ -202,6 +224,8 @@ Uniqueness (case-insensitive):
 
 - `id`, `at`, `actor_id`, `server_id`, `action`, `resource_type`, `resource_id`, `channel_id`, `reason`, `details`
 - Voice moderation rows use `resource_id` for the target member and `channel_id` for the affected or destination voice channel. Move details preserve both source and destination channel names/IDs.
+- Retention: rows older than 180 days are deleted by a job that runs every 10 minutes, in batches of 5000 (`services::audit::purge_stale`, index `idx_audit_log_at`).
+- Quoted message text: `message_edit` rows hold `before_preview`/`after_preview` and `automod_message_block` rows hold `content_preview`/`matched_value` (up to 160 characters). The quote follows the message: deleting a message clears its edit rows in the same transaction, deleting an account clears the rows of its messages and its AutoMod rows before they move to the placeholder account, and the periodic job clears edit rows whose message went away with its channel or server. Migration `065` added the partial index `idx_audit_log_message_edit_resource` and cleared what was left from before.
 
 ### `server_bans`
 

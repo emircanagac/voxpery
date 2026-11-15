@@ -50,6 +50,8 @@ const WS_SESSION_QUEUE_CAPACITY: usize = 256;
 /// Sent when a connection missed events (1013 "try again later"). The client reconnects, which
 /// reloads its state, instead of showing stale data until the next page load.
 const WS_MISSED_EVENTS_CLOSE_CODE: u16 = 1013;
+/// "Service restart": the server is stopping and the client should reconnect.
+const WS_SERVICE_RESTART_CLOSE_CODE: u16 = 1012;
 /// A write that cannot complete in this time means the client stopped reading; the
 /// connection is closed and the client reconnects and reloads its state.
 const WS_SEND_TIMEOUT: Duration = Duration::from_secs(20);
@@ -252,6 +254,14 @@ pub async fn ws_handler(
     State(state): State<Arc<AppState>>,
     req: Request,
 ) -> Response {
+    if state.shutdown.is_started() {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Server is restarting",
+        )
+            .into_response();
+    }
+
     let protocol_token = token_from_ws_protocol(req.headers());
     let using_cookie_auth = protocol_token.is_none();
 
@@ -274,9 +284,17 @@ pub async fn ws_handler(
         }
     };
 
-    let claims = match validate_ws_token(&token, &state).await {
-        Some(claims) => claims,
-        None => {
+    let claims = match crate::middleware::auth::authenticate_token(&state, &token).await {
+        Ok(claims) => claims,
+        // Redis could not answer: the session may be fine, so this is not a 401.
+        Err(crate::errors::AppError::ServiceUnavailable) => {
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "Session validation unavailable",
+            )
+                .into_response();
+        }
+        Err(_) => {
             return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
     };
@@ -352,53 +370,46 @@ pub async fn ws_handler(
         .on_upgrade(move |socket| handle_socket(socket, state, claims, token, account))
 }
 
-async fn validate_ws_token(
-    token: &str,
-    state: &AppState,
-) -> Option<crate::middleware::auth::Claims> {
-    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
-        Ok(true) => return None,
-        Ok(false) => {}
-        Err(e) => {
-            tracing::warn!("Redis JWT blacklist check failed during WS auth: {}", e);
-            return None;
-        }
-    }
-
-    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-    let claims = decode::<crate::middleware::auth::Claims>(
-        token,
-        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-        &Validation::new(Algorithm::HS256),
-    )
-    .ok()?
-    .claims;
-
-    Some(claims)
+/// Result of re-checking the session behind an open connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WsSessionCheck {
+    Valid,
+    /// Signed out, expired, deleted or legal consent outdated: the client must sign in again.
+    Invalid,
+    /// Redis or the database could not answer; says nothing about the session.
+    Unknown,
 }
 
-async fn is_ws_session_still_valid(state: &AppState, token: &str, claims: &Claims) -> bool {
+/// Consecutive unanswered session checks after which the connection is closed with 1013, so
+/// the client reconnects instead of staying on a connection nobody can vouch for.
+const WS_MAX_UNKNOWN_SESSION_CHECKS: u8 = 3;
+
+async fn check_ws_session(state: &AppState, token: &str, claims: &Claims) -> WsSessionCheck {
     let now = chrono::Utc::now().timestamp();
     if now >= claims.exp as i64 {
-        return false;
+        return WsSessionCheck::Invalid;
     }
 
     match crate::services::jwt_blacklist::is_blacklisted(&state.redis, token).await {
-        Ok(true) => return false,
+        Ok(true) => return WsSessionCheck::Invalid,
         Ok(false) => {}
         Err(e) => {
             tracing::warn!(
                 "Redis JWT blacklist check failed during WS session validation: {}",
                 e
             );
-            return false;
+            return WsSessionCheck::Unknown;
         }
     }
 
-    matches!(
-        crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await,
-        Ok(Some(account)) if account.legal_consent_current
-    )
+    match crate::services::privacy::session_account(&state.db, claims.sub, claims.ver).await {
+        Ok(Some(account)) if account.legal_consent_current => WsSessionCheck::Valid,
+        Ok(_) => WsSessionCheck::Invalid,
+        Err(e) => {
+            tracing::warn!("WS session account check failed: {}", e);
+            WsSessionCheck::Unknown
+        }
+    }
 }
 
 async fn handle_socket(
@@ -410,6 +421,8 @@ async fn handle_socket(
 ) {
     let user_id = claims.sub;
     let username = account.username;
+    // Lets a graceful shutdown wait until this connection has reported its departure.
+    let _socket_guard = state.shutdown.track_socket();
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Create a channel for sending events to this client
@@ -477,20 +490,40 @@ async fn handle_socket(
         // Skip the immediate first tick
         ping_interval.tick().await;
         auth_refresh_interval.tick().await;
+        let mut unknown_session_checks: u8 = 0;
 
         loop {
             tokio::select! {
                 _ = auth_refresh_interval.tick() => {
-                    if !is_ws_session_still_valid(&send_state, &send_token, &send_claims).await {
-                        let _ = tokio::time::timeout(
-                            WS_SEND_TIMEOUT,
-                            ws_sender.send(Message::Close(Some(CloseFrame {
-                                code: 4001,
-                                reason: "Authentication expired".into(),
-                            }))),
-                        )
-                        .await;
-                        break;
+                    match check_ws_session(&send_state, &send_token, &send_claims).await {
+                        WsSessionCheck::Valid => unknown_session_checks = 0,
+                        WsSessionCheck::Invalid => {
+                            let _ = tokio::time::timeout(
+                                WS_SEND_TIMEOUT,
+                                ws_sender.send(Message::Close(Some(CloseFrame {
+                                    code: 4001,
+                                    reason: "Authentication expired".into(),
+                                }))),
+                            )
+                            .await;
+                            break;
+                        }
+                        // An outage is not a sign-out: 4001 would make the client stop
+                        // reconnecting. Keep the connection through a short one.
+                        WsSessionCheck::Unknown => {
+                            unknown_session_checks += 1;
+                            if unknown_session_checks >= WS_MAX_UNKNOWN_SESSION_CHECKS {
+                                let _ = tokio::time::timeout(
+                                    WS_SEND_TIMEOUT,
+                                    ws_sender.send(Message::Close(Some(CloseFrame {
+                                        code: WS_MISSED_EVENTS_CLOSE_CODE,
+                                        reason: "Session validation unavailable".into(),
+                                    }))),
+                                )
+                                .await;
+                                break;
+                            }
+                        }
                     }
                 }
                 // Server-side WS ping (Ping frame; browser/axum auto-reply with Pong)
@@ -501,6 +534,18 @@ async fn handle_socket(
                     ) {
                         break;
                     }
+                }
+                // The server is stopping: tell the client to reconnect instead of dropping it.
+                _ = send_state.shutdown.started() => {
+                    let _ = tokio::time::timeout(
+                        WS_SEND_TIMEOUT,
+                        ws_sender.send(Message::Close(Some(CloseFrame {
+                            code: WS_SERVICE_RESTART_CLOSE_CODE,
+                            reason: "Server restarting".into(),
+                        }))),
+                    )
+                    .await;
+                    break;
                 }
                 // Events from broadcast channel
                 result = broadcast_rx.recv() => {
@@ -554,6 +599,8 @@ async fn handle_socket(
                             user_id: target_user_id,
                             ..
                         } => *target_user_id == user_id,
+                        // Sent to the reader's own sessions directly, never broadcast.
+                        WsEvent::ChannelRead { .. } => false,
                         WsEvent::PresenceUpdate { .. }
                         | WsEvent::UserUpdated { .. }
                         | WsEvent::MemberJoined { .. }
@@ -688,7 +735,11 @@ async fn handle_socket(
                     break;
                 }
             };
-            if !is_ws_session_still_valid(&recv_state, &recv_token, &recv_claims).await {
+            // A frame is only handled for a session known to be valid. Ending the receive side
+            // closes the connection without 4001, so after an outage the client reconnects.
+            if check_ws_session(&recv_state, &recv_token, &recv_claims).await
+                != WsSessionCheck::Valid
+            {
                 break;
             }
             match msg {
@@ -1037,6 +1088,14 @@ async fn handle_socket(
             },
         )
         .await;
+    }
+
+    // A stopping server keeps voice as it is: the call goes on in LiveKit, the client rejoins
+    // when it reconnects, and whoever does not come back is cleaned up after the restart (see
+    // `voice_revoke::reconcile_orphaned_voice_claims`) or by the other instances.
+    if state.shutdown.is_started() {
+        tracing::info!("WebSocket closed for shutdown: {}", ShortId(user_id));
+        return;
     }
 
     // Voice ends with the connection that holds it, even while other tabs stay open; a client

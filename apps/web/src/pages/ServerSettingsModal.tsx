@@ -10,6 +10,7 @@ import ServerSettingsCommunity from '../components/ServerSettingsCommunity'
 import ServerSettingsSafety, { type SafetySettingsTab } from '../components/ServerSettingsSafety'
 import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
+import InviteRotateControl from '../components/InviteRotateControl'
 import { AlertTriangle, LayoutDashboard, ListChecks, ScrollText, ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { ServerSettingsLocalTab } from './appLayoutModel'
 import { SERVER_SETTINGS_SECTION_META, PERM_MANAGE_SERVER, PERM_MANAGE_ROLES, PERM_MANAGE_CHANNELS, PERM_KICK_MEMBERS, PERM_BAN_MEMBERS, PERM_VIEW_AUDIT_LOG, PERM_MANAGE_MESSAGES, PERM_MANAGE_PINS, PERM_MUTE_MEMBERS, PERM_DEAFEN_MEMBERS, PERM_MOVE_MEMBERS } from './appLayoutModel'
@@ -110,6 +111,7 @@ export interface ServerSettingsModalProps {
     settingsServer: Server | undefined
     settingsServerId: string | null
     settingsServerInviteLink: string
+    canRotateInvite: boolean
     showServerSettings: boolean
     timeoutEntries: ServerTimeoutEntry[] | null
     token: string | null
@@ -214,6 +216,7 @@ export default function ServerSettingsModal({
     settingsServer,
     settingsServerId,
     settingsServerInviteLink,
+    canRotateInvite,
     showServerSettings,
     timeoutEntries,
     token,
@@ -551,6 +554,7 @@ export default function ServerSettingsModal({
                                                                 {copiedInvite === 'code' ? 'Copied' : 'Copy short code'}
                                                             </button>
                                                         </div>
+                                                        {canRotateInvite && <InviteRotateControl serverId={settingsServer.id} />}
                                                     </div>
                                                 </aside>
                                             </div>

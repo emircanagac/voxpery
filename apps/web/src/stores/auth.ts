@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { disableBrowserPush } from '../webPush'
 import { authApi, getApiBase, getAuthErrorMessage, isAuthError, markAuthSessionChanged, setImageProxyGrant, type LegalConsentStatus, type UserPublic } from '../api'
 import {
     isTauri,
@@ -206,8 +207,10 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                 // Clear state immediately so UI shows login without delay. Set loggingOut so App
                 // skips restoring session from cookie. Clear cookie in background.
                 set({ loggingOut: true, token: null, user: null })
-                authApi
-                    .logout(null)
+                // This browser stops receiving the account's notifications; the request goes
+                // out while the session cookie is still valid.
+                disableBrowserPush(null)
+                    .then(() => authApi.logout(null))
                     .catch(() => {})
                     .finally(() => { if (request === generation) set({ loggingOut: false }) })
             }

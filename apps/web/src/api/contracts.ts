@@ -123,9 +123,13 @@ export interface SystemFeatures {
     email_verification_enabled: boolean
     email_verification_required: boolean
     password_reset_enabled: boolean
+    /** Who may create an account. Servers older than v0.6.0 do not send it and are open. */
+    registration_mode?: 'open' | 'invite' | 'closed'
     observability_enabled: boolean
     turn_enabled?: boolean
     voice_url?: string | null
+    /** VAPID public key; absent when the server does not send push notifications. */
+    web_push_public_key?: string | null
 }
 
 export interface ServerDetail extends Server {

@@ -86,6 +86,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     "/{server_id}",
                     get(get_server).delete(delete_server).patch(update_server),
                 )
+                .route("/{server_id}/invite/rotate", post(rotate_invite))
                 .route("/{server_id}/roles", get(list_roles).post(create_role))
                 .route("/{server_id}/roles/reorder", patch(reorder_roles))
                 .route(
@@ -839,6 +840,97 @@ async fn update_server(
     .await;
 
     Ok(Json(updated))
+}
+
+/// How often a new invite code is tried when the generated one is already taken.
+const INVITE_ROTATE_ATTEMPTS: usize = 3;
+
+/// POST /api/servers/:server_id/invite/rotate — replace the invite code; the old one stops
+/// working at once. Requires MANAGE_SERVER.
+async fn rotate_invite(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Server>, AppError> {
+    enforce_rate_limit(
+        &state.redis,
+        format!("servers:invite_rotate:user:{}", claims.sub),
+        5,
+        Duration::from_secs(60 * 60),
+        "Too many invite link resets. Please try again later.",
+    )
+    .await?;
+
+    let current = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = $1")
+        .bind(server_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Server not found".into()))?;
+
+    permissions::ensure_server_permission(
+        &state.db,
+        server_id,
+        claims.sub,
+        Permissions::MANAGE_SERVER,
+    )
+    .await?;
+
+    if current.invite_code == DEFAULT_SERVER_INVITE_CODE {
+        return Err(AppError::Forbidden(
+            "The Voxpery community server keeps its invite link".into(),
+        ));
+    }
+
+    for _ in 0..INVITE_ROTATE_ATTEMPTS {
+        let mut tx = state.db.begin().await?;
+        let rotated = sqlx::query_as::<_, Server>(
+            r#"UPDATE servers
+               SET invite_code = $1
+               WHERE id = $2 AND invite_code <> $3
+               RETURNING *"#,
+        )
+        .bind(generate_invite_code())
+        .bind(server_id)
+        .bind(DEFAULT_SERVER_INVITE_CODE)
+        .fetch_optional(&mut *tx)
+        .await;
+        let updated = match rotated {
+            Ok(Some(updated)) => updated,
+            Ok(None) => return Err(AppError::NotFound("Server not found".into())),
+            // The new code belongs to another server already: try another one.
+            Err(sqlx::Error::Database(database)) if database.is_unique_violation() => continue,
+            Err(error) => return Err(error.into()),
+        };
+        // Neither code is written to the audit log: it would let its readers join.
+        crate::services::audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "invite_rotate",
+            "server",
+            Some(server_id),
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+
+        // The event carries no code; members reload their server list to get the new one.
+        crate::ws::publish_event(
+            &state,
+            WsEvent::ServerUpdated {
+                server_id,
+                name: updated.name.clone(),
+                icon_url: updated.icon_url.clone(),
+                description: updated.description.clone(),
+            },
+        )
+        .await;
+        return Ok(Json(updated));
+    }
+
+    Err(AppError::Internal(
+        "Could not generate a unique invite code".into(),
+    ))
 }
 
 /// GET /api/servers/:server_id/channels — list channels for a server.
