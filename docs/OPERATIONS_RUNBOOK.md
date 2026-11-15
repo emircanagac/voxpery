@@ -312,7 +312,7 @@ docker compose exec -T redis redis-cli info memory | grep -E '^(used_memory_huma
 docker compose logs --since 15m redis server | grep -Ei 'redis|OOM'
 ```
 
-1. Redis is down: run `docker compose up -d redis` and wait until `docker compose ps redis` shows it healthy. The server reconnects on its own within a few seconds; it needs no restart. If it restarts in a loop, read `docker compose logs redis` first: a data file written by a newer Redis cannot be read by an older one.
+1. Redis is down: run `docker compose up -d redis` and wait until `docker compose ps redis` shows it healthy. The server reconnects on its own within a few seconds; it needs no restart. If it restarts in a loop, read `docker compose logs redis` first: a data file written by a newer Redis cannot be read by an older one. `converting the Redis snapshot failed` means the one-time conversion to the append-only file did not finish (usually a full disk); the snapshot is untouched and the next start tries again.
 2. Redis is full: raise `REDIS_MAXMEMORY` in `.env`, then run `docker compose up -d redis`. Check the host has that memory free. `redis-cli --bigkeys` and `redis-cli dbsize` show what is using it.
 3. Never run `FLUSHALL` or switch to an eviction policy to free memory: revoked tokens would become valid again until they expire.
 4. Afterwards confirm `curl -fsS http://127.0.0.1:3001/health`, sign in once, and look for the cause of the growth.
