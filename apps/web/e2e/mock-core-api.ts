@@ -697,6 +697,19 @@ async function handleMockApiRoute(route: Route, state: MockCoreState) {
     return
   }
 
+  const inviteRotateMatch = pathname.match(/^\/api\/servers\/([^/]+)\/invite\/rotate$/)
+  if (inviteRotateMatch && method === 'POST') {
+    const target = state.servers.find((item) => item.id === inviteRotateMatch[1])
+    if (!target) {
+      await json(route, { error: 'Server not found' }, 404)
+      return
+    }
+    const rotated = { ...target, invite_code: `${target.invite_code}-rotated` }
+    state.servers = state.servers.map((item) => (item.id === rotated.id ? rotated : item))
+    await json(route, rotated)
+    return
+  }
+
   if (pathname === '/api/servers/join' && method === 'POST') {
     const body = parseJsonBody<{ invite_code?: string }>(request)
     const inviteCode = body.invite_code?.trim() ?? ''

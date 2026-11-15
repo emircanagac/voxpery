@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Updating or restarting the server no longer cuts off uploads and requests that are still running, and voice calls continue through the restart. Apps reconnect on their own, and with several server instances the users of a stopped instance show as offline right away.
 
+### Added
+- Server Settings can reset the invite link. The old link and code stop working right away, so a leaked invite can be shut off; people who already joined stay.
+
 ## [0.5.4] - 2026-11-10
 
 Includes the changes prepared for 0.5.3, which was not published. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.

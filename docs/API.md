@@ -155,6 +155,9 @@ Notes:
 - `DELETE /api/servers/:server_id` (owner)
 - `POST /api/servers/join`
 - `GET /api/servers/invite/:invite_code` (public invite preview)
+- `POST /api/servers/:server_id/invite/rotate` (requires `MANAGE_SERVER`)
+  - Replaces the invite code and returns the server with the new one. The old code stops working at once for joining and for the invite preview; current members stay. The audit log records `invite_rotate` without either code, and members receive `ServerUpdated` and reload their server list for the new code.
+  - Returns `403` for the official Voxpery community, whose `voxpery` code is fixed. Limited to 5 resets per user per hour (`429`).
   - Includes `icon_grant` when the server has an `icon_url`: an image proxy grant valid for that icon only, so visitors who are not signed in can see it.
 - `GET /api/servers/invite/:invite_code/rules` (public; the invite code grants access to the rules shown before joining)
 - `GET /api/servers/:server_id/rules` (members only)

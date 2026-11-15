@@ -61,6 +61,11 @@ function toAuditText(
             targetDesc = null
             contextText = null
             break
+        case 'invite_rotate':
+            actionText = 'Reset the invite link'
+            targetDesc = null
+            contextText = null
+            break
         case 'category_rename': {
             actionText = 'Renamed category'
             const oldName = textDetail(details, 'old_name')

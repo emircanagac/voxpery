@@ -331,6 +331,15 @@ export function handleAppLayoutEvent(event: WsEvent, {
                         description: d.description ?? undefined,
                     }
                     : server)))
+                // The event never carries the invite code; a reset link is read from the server list.
+                void serverApi.list(tokenRef.current ?? null).then((list) => {
+                    const fresh = list.find((server) => server.id === d.server_id)
+                    if (!fresh) return
+                    const current = useAppStore.getState()
+                    current.setServers(current.servers.map((server) => (server.id === fresh.id
+                        ? { ...server, invite_code: fresh.invite_code }
+                        : server)))
+                }).catch(() => {})
                 break
             }
             case 'ServerChannelsUpdated': {
