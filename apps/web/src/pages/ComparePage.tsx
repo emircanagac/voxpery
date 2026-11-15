@@ -6,7 +6,7 @@ import { ROUTES } from '../routes'
 import { useAuthStore } from '../stores/auth'
 import '../styles/about.css'
 import '../styles/compare.css'
-import { advantages, comparison, MEASURED_ON } from './compareContent'
+import { advantages, comparison, MEASURED_ON, STOAT_CHECKED_ON } from './compareContent'
 
 // Same order as `advantages`.
 const ADVANTAGE_ICONS = [Gauge, MonitorSmartphone, ShieldCheck, Mic, Code2, Server]
@@ -25,6 +25,12 @@ const sources = [
   { label: 'Zulip features', href: 'https://zulip.com/features/' },
   { label: 'Zulip plans', href: 'https://zulip.com/plans/' },
   { label: 'Zulip desktop (Electron)', href: 'https://github.com/zulip/zulip-desktop' },
+  { label: 'Stoat', href: 'https://stoat.chat/' },
+  { label: 'Stoat source (AGPL-3.0)', href: 'https://github.com/stoatchat/stoatchat' },
+  { label: 'Stoat self-hosting', href: 'https://github.com/stoatchat/self-hosted' },
+  { label: 'Stoat desktop releases (Electron, installer size)', href: 'https://github.com/stoatchat/for-desktop/releases/latest' },
+  { label: 'Stoat downloads (Android, iOS)', href: 'https://stoat.chat/download' },
+  { label: 'Stoat developers (bots)', href: 'https://developers.stoat.chat/' },
 ]
 
 export default function ComparePage() {
@@ -32,7 +38,7 @@ export default function ComparePage() {
   usePublicPageMetadata(
     '/compare',
     'Compare Voxpery | Open-Source & Self-Hosted Discord Alternative',
-    'Compare Voxpery, Discord, Element, and Zulip on price, open source, self-hosting, calls, app size, memory use, platforms, and encryption.',
+    'Compare Voxpery, Discord, Stoat, Element, and Zulip on price, open source, self-hosting, calls, app size, memory use, platforms, and encryption.',
   )
 
   return (
@@ -67,16 +73,18 @@ export default function ComparePage() {
                   <th scope="col">Feature</th>
                   <th scope="col" className="comparison-voxpery">Voxpery</th>
                   <th scope="col">Discord</th>
+                  <th scope="col">Stoat</th>
                   <th scope="col">Element</th>
                   <th scope="col">Zulip</th>
                 </tr>
               </thead>
               <tbody>
-                {comparison.map(({ feature, voxpery, discord, element, zulip }) => (
+                {comparison.map(({ feature, voxpery, discord, stoat, element, zulip }) => (
                   <tr key={feature}>
                     <th scope="row">{feature}</th>
                     <td>{voxpery}</td>
                     <td>{discord}</td>
+                    <td>{stoat}</td>
                     <td>{element}</td>
                     <td>{zulip}</td>
                   </tr>
@@ -88,7 +96,8 @@ export default function ComparePage() {
             Measured on {MEASURED_ON}. Installer sizes are the current Windows downloads from each official
             site or release page. Memory is the total of all app processes (Voxpery 0.4.8 with its WebView2
             processes, Discord 1.0.9265) on one Windows 11 PC, signed in with a text channel open and idle;
-            it depends on your servers and activity.
+            it depends on your servers and activity. Stoat was added on {STOAT_CHECKED_ON} from its official
+            site and release page; a dash means the project does not state it.
           </p>
         </section>
 
