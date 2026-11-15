@@ -972,8 +972,37 @@ async fn send_dm_message(
         if let Err(e) = push_dm_event_to_members(&state, channel_id, &event).await {
             tracing::warn!("Failed to push DM event to members: {}", e);
         }
+        notify_offline_dm_members(&state, channel_id, claims.sub, &message.author.username).await;
     }
     Ok(Json(message))
+}
+
+/// Web Push for the other members of the conversation who have no open connection.
+async fn notify_offline_dm_members(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    sender_id: Uuid,
+    sender: &str,
+) {
+    if state.web_push.is_none() {
+        return;
+    }
+    let members = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 AND user_id <> $2",
+    )
+    .bind(channel_id)
+    .bind(sender_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    crate::services::web_push::notify_users(
+        state.clone(),
+        members,
+        crate::services::web_push::PushPayload::Dm {
+            sender: sender.to_string(),
+            channel_id,
+        },
+    );
 }
 
 /// Sends `event` to every member's sessions, except `skip_user` (whose client already applied it).

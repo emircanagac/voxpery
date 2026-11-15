@@ -536,6 +536,25 @@ pub(super) async fn export_my_data(
     .fetch_all(&state.db)
     .await?;
 
+    // Push subscriptions: when and through which push service; the endpoint and keys are
+    // credentials of the browser and stay out of the archive.
+    let push_subscriptions = sqlx::query_as::<
+        _,
+        (
+            String,
+            chrono::DateTime<chrono::Utc>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ),
+    >(
+        r#"SELECT endpoint, created_at, last_used_at
+           FROM push_subscriptions
+           WHERE user_id = $1
+           ORDER BY created_at"#,
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+
     let payload = serde_json::json!({
         "export": {
             "format": "voxpery-user-data-v3",
@@ -616,6 +635,12 @@ pub(super) async fn export_my_data(
             }).collect::<Vec<_>>(),
             "mentions_received": received_mentions.iter().map(|(server, channel, at)| {
                 serde_json::json!({ "server": server, "channel": channel, "message_sent_at": at })
+            }).collect::<Vec<_>>(),
+            "push_subscriptions": push_subscriptions.iter().map(|(endpoint, created_at, last_used_at)| {
+                let push_service = reqwest::Url::parse(endpoint)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_string));
+                serde_json::json!({ "push_service": push_service, "created_at": created_at, "last_used_at": last_used_at })
             }).collect::<Vec<_>>()
         }
     });

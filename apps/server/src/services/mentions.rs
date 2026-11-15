@@ -84,6 +84,32 @@ pub async fn resolve_mentions(
         .collect())
 }
 
+/// Members of the server who can see the channel, except the author: the audience of an
+/// `@everyone` or `@here` message.
+pub async fn members_who_can_see(
+    db: &PgPool,
+    server_id: Uuid,
+    channel_id: Uuid,
+    author_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    let snapshot = ServerPermissionSnapshot::load(db, server_id, None).await?;
+    let members: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT user_id FROM server_members WHERE server_id = $1 AND user_id <> $2",
+    )
+    .bind(server_id)
+    .bind(author_id)
+    .fetch_all(db)
+    .await?;
+    Ok(members
+        .into_iter()
+        .filter(|user_id| {
+            snapshot
+                .channel_permissions(channel_id, *user_id)
+                .contains(Permissions::VIEW_SERVER)
+        })
+        .collect())
+}
+
 /// Replaces the stored mentions of a message, in the transaction that writes the message.
 /// `created_at` is the message's own timestamp, so an edit never makes an old mention new.
 pub async fn store_mentions(

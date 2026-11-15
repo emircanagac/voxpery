@@ -24,3 +24,4 @@ pub mod server_membership;
 pub mod shared_redis;
 pub mod voice_moderation;
 pub mod voice_revoke;
+pub mod web_push;

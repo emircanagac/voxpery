@@ -107,6 +107,8 @@ pub struct AppState {
     pub attachment_service: Arc<services::attachments::AttachmentService>,
     pub release_http_client: reqwest::Client,
     pub latest_release_cache: tokio::sync::RwLock<Option<LatestReleaseCacheEntry>>,
+    /// VAPID identity for Web Push; `None` turns push notifications off.
+    pub web_push: Option<Arc<services::web_push::WebPushConfig>>,
 }
 
 #[derive(Clone, Debug)]
@@ -406,6 +408,7 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             "/api/notifications",
             routes::notifications::router(state.clone()),
         )
+        .nest("/api/push", routes::push::router(state.clone()))
         .nest("/api/releases", routes::releases::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))

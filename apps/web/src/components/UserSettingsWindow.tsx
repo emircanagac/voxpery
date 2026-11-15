@@ -37,6 +37,7 @@ import type { VoiceDeviceOption } from '../voiceDevices'
 import { formatGlobalMuteShortcut } from '../globalMuteShortcut'
 import type { ToastItem } from '../stores/toast'
 import CustomServerPanel from './CustomServerPanel'
+import BrowserPushSetting from './BrowserPushSetting'
 import {
   footerStatusLabel,
   getInitial,
@@ -484,6 +485,7 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                       : 'Off'}
               </button>
             </div>
+            <BrowserPushSetting token={token} pushToast={pushToast} />
             <div className="user-setting-row user-setting-row--span-two">
               <div>
                 <div className="user-setting-title">Server message notifications</div>

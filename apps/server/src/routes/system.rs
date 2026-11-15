@@ -31,6 +31,8 @@ pub struct SystemFeaturesResponse {
     pub turn_enabled: bool,
     /// Public LiveKit address (`LIVEKIT_WS_URL`); desktop clients allow it for custom servers.
     pub voice_url: Option<String>,
+    /// VAPID public key browsers subscribe with; absent when push notifications are off.
+    pub web_push_public_key: Option<String>,
 }
 
 pub fn router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -52,6 +54,10 @@ async fn get_features(State(state): State<Arc<AppState>>) -> Json<SystemFeatures
             .as_deref()
             .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
         voice_url: state.livekit_ws_url.clone(),
+        web_push_public_key: state
+            .web_push
+            .as_ref()
+            .map(|config| config.public_key().to_string()),
     })
 }
 

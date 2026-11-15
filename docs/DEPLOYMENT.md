@@ -97,6 +97,16 @@ S3 compatible storage is optional:
 Optional integrations note:
 
 - Google OAuth is disabled unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are both set.
+- Notifications while Voxpery is closed (Web Push) are disabled unless `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` are all set; the server refuses to start when only some are set or the two keys do not belong together. Without them Settings does not offer the option. Generate the key pair once (on any machine with OpenSSL) and keep the private key as secret as `JWT_SECRET`:
+
+  ```bash
+  openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem
+  echo "VAPID_PUBLIC_KEY=$(openssl ec -in vapid.pem -outform DER 2>/dev/null | tail -c 65 | base64 -w0 | tr '/+' '_-' | tr -d '=')"
+  echo "VAPID_PRIVATE_KEY=$(openssl ec -in vapid.pem -outform DER 2>/dev/null | head -c 39 | tail -c 32 | base64 -w0 | tr '/+' '_-' | tr -d '=')"
+  rm vapid.pem
+  ```
+
+  `VAPID_SUBJECT` is a contact address for push services (`mailto:admin@example.com` or an `https://` URL). The server only sends to the push services of Chrome/Edge (`fcm.googleapis.com`), Firefox (`updates.push.services.mozilla.com`), Safari (`web.push.apple.com`) and Windows (`*.notify.windows.com`) over HTTPS, so it needs outbound HTTPS to those hosts. A notification carries the sender's name and the conversation or channel, never the message text. Changing the keys invalidates every browser's subscription; people turn the setting on again. iPhone and iPad receive these notifications only when Voxpery was added to the Home Screen (iOS 16.4 or later); the desktop app does not use Web Push.
 - Cloudflare Turnstile: set `TURNSTILE_SECRET_KEY` on the server and the public site key for the web build (`VITE_TURNSTILE_SITE_KEY`, passed as `TURNSTILE_SITE_KEY_PUBLIC` to the web image). Desktop email registration renders its CAPTCHA from the API, so the server environment must also contain the public site key as `TURNSTILE_SITE_KEY` (or `VITE_TURNSTILE_SITE_KEY`). Prebuilt web images do not provide it to the server. With a secret key but no server-side site key, `/api/auth/desktop-registration` refuses to start registration and `/api/auth/captcha-frame` (in-app desktop registration) returns `404`. The Turnstile widget's hostname list must include the API host (for example `api.voxpery.com`), because the desktop CAPTCHA runs on that origin.
 - Set `METRICS_BIND` to enable internal Prometheus metrics; see [OBSERVABILITY.md](OBSERVABILITY.md). Never publish that port.
 - Privacy-safe operational observability is disabled by default. Set `OBSERVABILITY_ENABLED=true`

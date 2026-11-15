@@ -96,3 +96,47 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   )
 })
+
+// A push from the server (Web Push): it says who wrote and where, never the message itself.
+// Every push shows a notification, as browsers require for push subscriptions.
+function pushNotification(data) {
+  const sender = data && typeof data.sender === 'string' ? data.sender.slice(0, 64) : 'Someone'
+  if (data && data.type === 'mention' && data.server_id && data.channel_id) {
+    return {
+      title: sender,
+      options: {
+        body: 'mentioned you',
+        tag: `server:${data.server_id}:channel:${data.channel_id}`,
+        data: { target: { kind: 'server_channel', serverId: data.server_id, channelId: data.channel_id } },
+      },
+    }
+  }
+  if (data && data.type === 'dm' && data.channel_id) {
+    return {
+      title: sender,
+      options: {
+        body: 'sent you a direct message',
+        tag: `dm:${data.channel_id}`,
+        data: { target: { kind: 'dm', channelId: data.channel_id, messageId: null } },
+      },
+    }
+  }
+  return { title: 'Voxpery', options: { body: 'You have a new notification.', data: { target: null } } }
+}
+
+self.addEventListener('push', (event) => {
+  let data = null
+  try {
+    data = event.data ? event.data.json() : null
+  } catch {
+    data = null
+  }
+  const { title, options } = pushNotification(data)
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      ...options,
+      icon: '/pwa-192.png',
+      badge: '/pwa-192.png',
+    }),
+  )
+})

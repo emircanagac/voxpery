@@ -42,6 +42,13 @@ async fn main() {
         tracing::error!("Invalid optional integration configuration: {}", msg);
         return;
     }
+    let web_push = match voxpery_server::services::web_push::WebPushConfig::from_env() {
+        Ok(web_push) => web_push.map(Arc::new),
+        Err(msg) => {
+            tracing::error!("{}", msg);
+            return;
+        }
+    };
     if let Err(msg) = validate_secret_config(&[
         ("JWT_SECRET", Some(config.jwt_secret.as_str())),
         ("LIVEKIT_API_SECRET", config.livekit_api_secret.as_deref()),
@@ -158,6 +165,7 @@ async fn main() {
         attachment_service,
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
+        web_push,
     });
     ws::bus::spawn_redis_event_bridge(state.clone());
     ws::cluster::spawn_peer_sync(state.clone());

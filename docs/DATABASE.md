@@ -165,6 +165,11 @@ Uniqueness (case-insensitive):
 - `message_id`, `user_id`, `channel_id`, `created_at`; primary key `(message_id, user_id)`
 - Mentions by name in server messages, at most 20 per message, only members who can see the channel. `channel_id` and `created_at` copy the message's values so mention counts read one index (`idx_message_mentions_user_channel`). Rewritten in the transaction that edits the message; all references cascade. `@everyone`/`@here` are the boolean `messages.mention_everyone` instead (partial index `idx_messages_channel_mention_everyone`). Added in migration `066`.
 
+### `push_subscriptions`
+
+- `id`, `user_id`, `endpoint` (unique, at most 2048 characters), `p256dh`, `auth`, `created_at`, `last_used_at`
+- One row per browser (Web Push). An endpoint subscribed again by another account moves to it; the application keeps an account's newest 10. Rows are deleted by turning the setting off, signing out, a `404`/`410` from the push service, or account deletion (cascade). The endpoint is a capability URL of the push service and is never logged or exported. Added in migration `067`.
+
 ### `notification_mutes`
 
 - `user_id`, `server_id`, `channel_id`, `created_at`; exactly one of `server_id`/`channel_id` is set (`CHECK num_nonnulls(...) = 1`)

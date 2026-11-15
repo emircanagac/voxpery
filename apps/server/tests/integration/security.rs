@@ -1743,3 +1743,168 @@ async fn category_delete_and_rename_match_names_case_insensitively_and_report_cl
             .unwrap();
     assert_eq!(category.as_deref(), Some("Delta"));
 }
+
+/// A subscription body as a browser sends it, for an FCM endpoint with a fresh browser key.
+fn push_subscription_body(endpoint: &str) -> serde_json::Value {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let browser = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    json!({
+        "endpoint": endpoint,
+        "expirationTime": null,
+        "keys": {
+            "p256dh": URL_SAFE_NO_PAD.encode(browser.public_key().to_sec1_bytes()),
+            "auth": URL_SAFE_NO_PAD.encode([5u8; 16]),
+        }
+    })
+}
+
+#[tokio::test]
+async fn push_subscriptions_are_off_without_vapid_keys() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "pushoff").await;
+    let (status, features) = api_json(&mut app, "GET", "/api/system/features", &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(features["web_push_public_key"].is_null());
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(push_subscription_body(
+            "https://fcm.googleapis.com/fcm/send/off",
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn push_subscriptions_are_validated_owned_and_capped() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app_with_web_push().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "pushon").await;
+    let (other_auth, other_id, _) = register_named_user(&mut app, "pushother").await;
+    let (status, features) = api_json(&mut app, "GET", "/api/system/features", &auth, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        features["web_push_public_key"].as_str(),
+        state.web_push.as_ref().map(|config| config.public_key())
+    );
+
+    let unique = Uuid::new_v4();
+    let endpoint = |n: usize| format!("https://fcm.googleapis.com/fcm/send/{unique}-{n}");
+    let owner_of = |endpoint: String| {
+        sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM push_subscriptions WHERE endpoint = $1")
+            .bind(endpoint)
+            .fetch_optional(&state.db)
+    };
+
+    // Only https endpoints of known push services, with well-formed keys.
+    for bad in [
+        format!("http://fcm.googleapis.com/fcm/send/{unique}"),
+        format!("https://internal.example/{unique}"),
+        format!("https://127.0.0.1/{unique}"),
+    ] {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/push/subscriptions",
+            &auth,
+            Some(push_subscription_body(&bad)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let mut bad_keys = push_subscription_body(&endpoint(0));
+    bad_keys["keys"]["auth"] = json!("short");
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(bad_keys),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &auth,
+        Some(push_subscription_body(&endpoint(0))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(user_id));
+
+    // Another account signing in on the same browser takes the subscription over.
+    let (status, _) = api_json(
+        &mut app,
+        "POST",
+        "/api/push/subscriptions",
+        &other_auth,
+        Some(push_subscription_body(&endpoint(0))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(other_id));
+    // The first account cannot remove it any more.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/push/subscriptions",
+        &auth,
+        Some(json!({ "endpoint": endpoint(0) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(0)).await.unwrap(), Some(other_id));
+
+    // An account keeps its newest ten browsers.
+    for n in 1..=11 {
+        let (status, _) = api_json(
+            &mut app,
+            "POST",
+            "/api/push/subscriptions",
+            &auth,
+            Some(push_subscription_body(&endpoint(n))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+    let kept: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM push_subscriptions WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(kept, 10);
+    assert_eq!(owner_of(endpoint(1)).await.unwrap(), None);
+    assert_eq!(owner_of(endpoint(11)).await.unwrap(), Some(user_id));
+
+    // Signing out removes this browser.
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        "/api/push/subscriptions",
+        &auth,
+        Some(json!({ "endpoint": endpoint(11) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(owner_of(endpoint(11)).await.unwrap(), None);
+
+    sqlx::query("DELETE FROM push_subscriptions WHERE user_id = ANY($1)")
+        .bind(vec![user_id, other_id])
+        .execute(&state.db)
+        .await
+        .unwrap();
+}

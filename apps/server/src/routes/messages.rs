@@ -965,6 +965,31 @@ async fn send_message(
             },
         )
         .await;
+        if state.web_push.is_some() && (mention_everyone || !mentioned_ids.is_empty()) {
+            let state = state.clone();
+            let sender = msg_with_author.author.username.clone();
+            let author_id = claims.sub;
+            tokio::spawn(async move {
+                let recipients = if mention_everyone {
+                    crate::services::mentions::members_who_can_see(
+                        &state.db, server_id, channel_id, author_id,
+                    )
+                    .await
+                    .unwrap_or_default()
+                } else {
+                    mentioned_ids
+                };
+                crate::services::web_push::notify_users(
+                    state,
+                    recipients,
+                    crate::services::web_push::PushPayload::Mention {
+                        sender,
+                        server_id,
+                        channel_id,
+                    },
+                );
+            });
+        }
     }
 
     Ok(Json(msg_with_author))
