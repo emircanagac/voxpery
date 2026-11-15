@@ -93,6 +93,8 @@ Every account is created by `services/registration.rs`, whichever path the sign-
 - Redis Pub/Sub bridges broadcast and targeted user WS events between backend instances.
 - A broadcast event carries its audience (`ws/audience.rs`): the first connection that needs it looks it up, and every other connection of the instance reads the same answer. The lookup runs once per event, so permissions are still checked at delivery while status, member and voice events cost a fixed number of queries however many clients are connected. Message and typing events keep the per-connection channel access cache.
 - Per-user active WS sessions are stored in-memory (`DashMap`) on the instance that owns each socket. Each instance also knows what the others hold (`ws/cluster.rs`): voice and presence changes are applied from the Redis bus, and a short-lived snapshot in Redis brings a new instance up to date, repairs lost events and shows when an instance has died, so `/ws` needs no sticky routing.
+- Unread counts, mentions and mutes of server channels are stored per account (`routes/notifications.rs`, `services/mentions.rs`): read marks only move forward, mentions by name are recorded when a message is sent or edited, and a `ChannelRead` event clears the badge in the reader's other sessions. Clients load the state at sign-in and after reconnecting, so nothing depends on having been connected when a message arrived. See [API.md](API.md#notifications).
+- Web Push (`services/web_push.rs`, optional with VAPID keys) reaches recipients of a direct message or mention who have no open connection on any instance; the payload names the sender and conversation, never the message. See [API.md](API.md#push-notifications).
 
 ## Security Model (Implemented)
 
@@ -120,6 +122,7 @@ Every account is created by `services/registration.rs`, whichever path the sign-
 - Several backend instances can share REST traffic and receive cross-instance WebSocket fan-out
   through Redis. Voice and presence state are shared between instances, so `/ws` needs no sticky
   routing; see Realtime Model.
+- On `SIGTERM` an instance stops taking connections, closes its WebSockets with `1012` so clients reconnect, lets running requests finish for up to 20 seconds and keeps voice sessions in place; 60 seconds after the next start it removes LiveKit participants whose user did not come back (`services/shutdown.rs`, `voice_revoke::reconcile_orphaned_voice_claims`). Compose gives it 30 seconds.
 - Prometheus metrics are served on a separate, optional bind address. Deployment steps:
   [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -134,4 +137,4 @@ Every account is created by `services/registration.rs`, whichever path the sign-
 
 ---
 
-Last verified against code on 2026-11-15 (`main` at `bc568c9`).
+Last verified against code on 2026-11-15 (`main` at `006f225`).
