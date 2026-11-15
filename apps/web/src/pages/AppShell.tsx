@@ -761,12 +761,11 @@ export default function AppShell() {
           <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
             <img src="/voxpery-logo.svg" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
-            <span
-              className="shell-brand-release"
-              title={appVersionBadge ? `Beta channel, running build ${appVersionBadge}` : 'Beta channel'}
-            >
-              {appVersionBadge ? `Beta ${appVersionBadge}` : 'Beta'}
-            </span>
+            {appVersionBadge && (
+              <span className="shell-brand-release" title={`Running build ${appVersionBadge}`}>
+                {appVersionBadge}
+              </span>
+            )}
           </button>
         </div>
         <div className="shell-topbar-center">

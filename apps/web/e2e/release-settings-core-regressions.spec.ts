@@ -941,7 +941,7 @@ test.describe('mocked release and settings regressions', () => {
       await modal.getByRole('button', { name: 'Done', exact: true }).click()
     }
   })
-  test('shows the beta channel and build version in a single brand badge', async ({ page }) => {
+  test('shows the build version in a single brand badge without a channel label', async ({ page }) => {
     const state = createMockCoreState({ friends: buildFriends(3) })
     await installMockCoreApi(page, state)
     await page.setViewportSize({ width: 1366, height: 768 })
@@ -950,9 +950,9 @@ test.describe('mocked release and settings regressions', () => {
 
     const releaseBadge = page.locator('.shell-brand-release')
     await expect(releaseBadge).toBeVisible()
-    await expect(releaseBadge).toContainText('Beta')
-    await expect(releaseBadge).toContainText('v0.2.0-test')
-    await expect(releaseBadge).toHaveAttribute('title', 'Beta channel, running build v0.2.0-test')
+    await expect(releaseBadge).toHaveText('v0.2.0-test')
+    await expect(releaseBadge).not.toContainText('Beta')
+    await expect(releaseBadge).toHaveAttribute('title', 'Running build v0.2.0-test')
 
     const hasHorizontalOverflow = await page.locator('.shell-topbar').evaluate((element) => {
       return element.scrollWidth > element.clientWidth + 1
@@ -961,7 +961,7 @@ test.describe('mocked release and settings regressions', () => {
   })
 
   for (const theme of ['Dark', 'Light', 'Custom Light']) {
-    test(`keeps the unified beta version badge flat and readable in ${theme}`, async ({ page }, testInfo) => {
+    test(`keeps the version badge flat and readable in ${theme}`, async ({ page }, testInfo) => {
       await installMockCoreApi(page, createMockCoreState())
       await page.setViewportSize({ width: 1920, height: 1080 })
       await page.goto('/social')
@@ -975,7 +975,7 @@ test.describe('mocked release and settings regressions', () => {
       }
       await page.getByRole('button', { name: 'Done', exact: true }).click()
       const badge = page.locator('.shell-brand-release')
-      await expect(badge).toHaveText('Beta v0.2.0-test')
+      await expect(badge).toHaveText('v0.2.0-test')
       await expect(badge.locator('span')).toHaveCount(0)
       for (const width of [1920, 1100, 1024, 390, 320]) {
         await page.setViewportSize({ width, height: width < 960 ? 844 : 768 })
