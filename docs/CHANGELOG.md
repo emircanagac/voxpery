@@ -7,41 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] - Unreleased
 
-
 ### Added
 - Notifications while Voxpery is closed: turn them on per browser in Settings > Communication to get direct messages and mentions with no Voxpery tab open (Android Chrome, desktop Chrome, Edge and Firefox; Safari on iPhone and iPad after adding Voxpery to the Home Screen). A notification names the sender, never the message. Self-hosted servers enable it with VAPID keys (see `docs/DEPLOYMENT.md`).
-
-### Changed
-- Self-hosting: Redis now keeps an append-only file, so sign-outs and rate limits survive a Redis crash. Existing data is converted on the first start after the update; no manual step is needed.
-- Self-hosting: `docker compose ps` reports the health of `server` and `web`, and `web` waits for a healthy `server`.
-
-### Added
+- Server Settings can reset the invite link. The old link and code stop working right away, so a leaked invite can be shut off; people who already joined stay.
+- Self-hosting: `REGISTRATION_MODE` lets a server owner limit who can create an account: `open` (default), `invite` (only with a server's invite link; the new account joins that server) or `closed`. It applies to email, desktop and Google sign-up alike; existing accounts keep signing in.
 - Self-hosting: `scripts/ops/init_env.sh` writes `.env` with fresh random secrets, and `docker-compose.proxy.yml` adds an HTTPS reverse proxy (Caddy) with automatic certificates. A public server now needs three DNS records and two commands; see "Public server with HTTPS" in the deployment guide.
 
-### Added
-- Self-hosting: `REGISTRATION_MODE` lets a server owner limit who can create an account: `open` (default), `invite` (only with a server's invite link; the new account joins that server) or `closed`. It applies to email, desktop and Google sign-up alike; existing accounts keep signing in.
+### Changed
+- Unread and mention badges of server channels are kept by the server: messages that arrive while the app is closed or offline show up as badges, and reading or muting a channel on one device applies on your other devices too. Mutes saved in a browser move to your account the first time it signs in.
+- Privacy: the short quote of a message that the server audit log keeps for an edit or an AutoMod block is now removed when the message or the account is deleted, and audit log entries are deleted after 180 days. The Privacy Notice and KVKK text state this.
+- Self-hosting: Redis now keeps an append-only file, so sign-outs and rate limits survive a Redis crash. Existing data is converted on the first start after the update; no manual step is needed.
+- Self-hosting: `docker compose ps` reports the health of `server` and `web`, and `web` waits for a healthy `server`.
+- The compare page also lists Stoat (formerly Revolt), with each value taken from Stoat's own site and release page; rows Stoat does not state are left blank.
 
 ### Fixed
 - A short database or Redis outage no longer signs everyone out: web and desktop keep the session and reconnect on their own, and requests during the outage fail within seconds instead of hanging.
-
-### Fixed
 - The app no longer stops reconnecting after a couple of minutes without the server: it keeps trying for as long as you are signed in, and shows a "Connection lost" banner with a "Try now" button while the connection is down.
-
-### Fixed
 - Updating or restarting the server no longer cuts off uploads and requests that are still running, and voice calls continue through the restart. Apps reconnect on their own, and with several server instances the users of a stopped instance show as offline right away.
-
-### Added
-- Server Settings can reset the invite link. The old link and code stop working right away, so a leaked invite can be shut off; people who already joined stay.
-
-- Privacy: the short quote of a message that the server audit log keeps for an edit or an AutoMod block is now removed when the message or the account is deleted, and audit log entries are deleted after 180 days. The Privacy Notice and KVKK text state this.
-
-- Unread and mention badges of server channels are kept by the server: messages that arrive while the app is closed or offline show up as badges, and reading or muting a channel on one device applies on your other devices too. Mutes saved in a browser move to your account the first time it signs in.
-
-### Fixed
 - Android Chrome: browser notifications for new messages show up again, and showing one no longer keeps the message or its badge from reaching the chat. Tapping a notification opens the DM or channel it is about, also when no Voxpery tab is open.
-
-### Changed
-- The compare page also lists Stoat (formerly Revolt), with each value taken from Stoat's own site and release page; rows Stoat does not state are left blank.
 
 ## [0.5.4] - 2026-11-10
 
