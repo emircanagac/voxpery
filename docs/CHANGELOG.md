@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] - Unreleased
 
+
+### Added
+- Notifications while Voxpery is closed: turn them on per browser in Settings > Communication to get direct messages and mentions with no Voxpery tab open (Android Chrome, desktop Chrome, Edge and Firefox; Safari on iPhone and iPad after adding Voxpery to the Home Screen). A notification names the sender, never the message. Self-hosted servers enable it with VAPID keys (see `docs/DEPLOYMENT.md`).
+
 ### Changed
 - Self-hosting: Redis now keeps an append-only file, so sign-outs and rate limits survive a Redis crash. Existing data is converted on the first start after the update; no manual step is needed.
 - Self-hosting: `docker compose ps` reports the health of `server` and `web`, and `web` waits for a healthy `server`.

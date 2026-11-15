@@ -115,6 +115,27 @@ fn redis_client() -> SharedRedis {
     )
 }
 
+tokio::task_local! {
+    /// Set by `setup_app_with_web_push` so the app is built with VAPID keys.
+    static WEB_PUSH_ENABLED: bool;
+}
+
+/// A freshly generated VAPID key pair; tests never send to a real push service.
+fn test_web_push_config() -> voxpery_server::services::web_push::WebPushConfig {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    voxpery_server::services::web_push::WebPushConfig::from_parts(
+        &URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes()),
+        &URL_SAFE_NO_PAD.encode(secret.to_bytes()),
+        "mailto:ops@example.com",
+    )
+    .expect("generated VAPID keys are valid")
+}
+
+async fn setup_app_with_web_push() -> (axum::Router, Arc<AppState>) {
+    WEB_PUSH_ENABLED.scope(true, setup_app()).await
+}
+
 async fn setup_app() -> (axum::Router, Arc<AppState>) {
     setup_app_with_auth_features(false, false).await
 }
@@ -384,6 +405,10 @@ async fn build_test_app_with_registration_mode(
         release_http_client,
         latest_release_cache: tokio::sync::RwLock::new(None),
         shutdown: Default::default(),
+        web_push: WEB_PUSH_ENABLED
+            .try_with(|enabled| *enabled)
+            .unwrap_or(false)
+            .then(|| Arc::new(test_web_push_config())),
     });
 
     let app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);

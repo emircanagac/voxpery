@@ -26,3 +26,4 @@ pub mod shared_redis;
 pub mod shutdown;
 pub mod voice_moderation;
 pub mod voice_revoke;
+pub mod web_push;

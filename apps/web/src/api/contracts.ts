@@ -128,6 +128,8 @@ export interface SystemFeatures {
     observability_enabled: boolean
     turn_enabled?: boolean
     voice_url?: string | null
+    /** VAPID public key; absent when the server does not send push notifications. */
+    web_push_public_key?: string | null
 }
 
 export interface ServerDetail extends Server {

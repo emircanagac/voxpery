@@ -346,6 +346,18 @@ Unread counts, mention counts and mutes of server channels are kept per account,
 - Mentions by name: when a server message is sent or edited, `@username` words (whole words, at most 20 per message) are matched to members who can see the channel; the author is never mentioned. An edit replaces the mentions of the message but keeps its original time, so it never turns an old message into a new mention. `@everyone`/`@here` set `messages.mention_everyone` only for authors allowed to use them.
 - The data export lists mutes, read marks and received mentions under `notifications`, with server and channel names instead of ids.
 
+## Push Notifications
+
+Web Push for direct messages and mentions while the recipient has no open connection on any instance. Off unless the server has VAPID keys; `GET /api/system/features` then returns `web_push_public_key` (the key browsers subscribe with), otherwise `null`.
+
+- `POST /api/push/subscriptions`
+  - Body: the browser's `PushSubscription.toJSON()` (`endpoint`, `keys.p256dh`, `keys.auth`). Only `https` endpoints of the known push services are accepted (`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.notify.windows.com`); others and malformed keys return `400`. Returns `204`; `503 FEATURE_DISABLED` without VAPID keys.
+  - One row per browser: an endpoint subscribed by another account moves to the caller. An account keeps its newest 10 browsers. Limited to 30 changes per hour together with `DELETE`.
+- `DELETE /api/push/subscriptions`
+  - Body `{ "endpoint": "..." }`: forgets the caller's subscription for that browser (turning the setting off, signing out). Returns `204`, also when there was none.
+- Sending: after a direct message, to the other members; after a message with mentions, to the mentioned members (all members who can see the channel for `@everyone`/`@here`). Skipped for recipients who are connected anywhere, in Do Not Disturb, or who muted that server. The encrypted payload is `{ "type": "dm", "sender", "channel_id" }` or `{ "type": "mention", "sender", "server_id", "channel_id" }`, never message text; `TTL` 3600, `Urgency: high`, one `Topic` per channel. Requests go out without redirects or retries, 5 s timeout, at most 16 at once, only to public addresses of the push service; a `404`/`410` answer deletes the subscription.
+- The data export lists each subscription's push service and dates under `notifications.push_subscriptions`, without endpoint or keys.
+
 ## Personal Notes
 
 - `GET /api/users/:user_id/note`
