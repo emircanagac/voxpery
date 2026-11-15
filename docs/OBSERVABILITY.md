@@ -34,7 +34,7 @@ The allowlisted client event codes are:
 
 - `frontend_session_started`, `frontend_crash`
 - `desktop_oauth_return_received`, `desktop_oauth_return_succeeded`, `desktop_oauth_return_failed`, `desktop_oauth_setup_failed`
-- `websocket_reconnect_started`, `websocket_reconnect_succeeded`, `websocket_reconnect_exhausted`
+- `websocket_reconnect_started`, `websocket_reconnect_succeeded`, `websocket_reconnect_exhausted` (sent once when eight retries in a row have failed; the client keeps retrying)
 - `voice_join_started`, `voice_join_succeeded`, `voice_join_failed`
 - `livekit_reconnect_started`, `livekit_reconnect_succeeded`, `livekit_disconnected`
 - `media_microphone_started`, `media_microphone_failed`

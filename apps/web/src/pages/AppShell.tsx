@@ -33,6 +33,7 @@ import {
   type UpdateResult,
 } from '../updater'
 import { ROUTES } from '../routes'
+import ConnectionBanner from '../components/ConnectionBanner'
 import { setPersistedSocialView } from '../socialView'
 import { formatAppVersionBadge } from '../appVersion'
 import { shellDocumentTitle, shellPlaceName } from './shellTitle'
@@ -766,6 +767,7 @@ export default function AppShell() {
           {IS_DESKTOP_WINDOW && <WindowControls />}
         </div>
       </header>
+      <ConnectionBanner />
       <main className="shell-content" id="app-content">
         <Outlet />
       </main>
