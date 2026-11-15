@@ -32,6 +32,13 @@ pub enum WsEvent {
         user_id: Uuid,
         last_read_message_id: Option<Uuid>,
     },
+    /// A server channel was read by one session of the current user; `last_read_at` is the
+    /// creation time of the last message read.
+    ChannelRead {
+        channel_id: Uuid,
+        user_id: Uuid,
+        last_read_at: chrono::DateTime<chrono::Utc>,
+    },
     /// A message was deleted in a server channel.
     MessageDeleted { channel_id: Uuid, message_id: Uuid },
     /// A message was edited or its reactions changed, in a server channel or a DM.

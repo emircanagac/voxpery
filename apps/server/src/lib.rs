@@ -406,6 +406,10 @@ pub fn build_app(state: Arc<AppState>, cors_origins: Vec<String>) -> Router {
             routes::attachments::router(state.clone()),
         )
         .nest("/api/messages", routes::messages::router(state.clone()))
+        .nest(
+            "/api/notifications",
+            routes::notifications::router(state.clone()),
+        )
         .nest("/api/releases", routes::releases::router(state.clone()))
         .nest("/api/webrtc", routes::webrtc::router(state.clone()))
         .route("/ws", axum::routing::get(ws::handler::ws_handler))

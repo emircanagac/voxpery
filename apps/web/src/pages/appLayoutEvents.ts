@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { serverApi, channelApi, type Channel, type MessageWithAuthor, type WsEvent } from '../api'
 import { useToastStore } from '../stores/toast'
+import { scheduleChannelRead } from '../notificationSync'
 import { withUpdatedAuthor } from '../messageAuthors'
 import { applyMessageUpdate } from '../messageUpdates'
 import { applyIncomingMessage } from '../messageResilience'
@@ -135,6 +136,10 @@ export function handleAppLayoutEvent(event: WsEvent, {
                     if (cached?.length && !cached.some((m) => m.id === incoming.id)) {
                         messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
                     }
+                }
+                // Reading a message in the open channel moves the read mark on the server too.
+                if (isCurrentVisibleChannel && !isAppBackgrounded() && incoming.author?.user_id !== user?.id) {
+                    scheduleChannelRead(incomingChannelId, tokenRef.current ?? null, incoming.id)
                 }
                 // An open channel only reads its messages while the app is in the foreground.
                 if (!isCurrentVisibleChannel || isAppBackgrounded()) {
@@ -316,6 +321,15 @@ export function handleAppLayoutEvent(event: WsEvent, {
                 if (!sid) break
                 const t = tokenRef.current ?? null
                 refreshServerSnapshot(sid, t, true)
+                break
+            }
+            case 'ChannelRead': {
+                // Another window or device of this account read the channel.
+                const d = event.data
+                if (!d.channel_id || d.user_id !== user?.id) break
+                const store = useAppStore.getState()
+                store.clearServerUnread(d.channel_id)
+                store.clearServerMention(d.channel_id)
                 break
             }
             case 'ServerUpdated': {

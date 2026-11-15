@@ -330,6 +330,22 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
 
+## Notifications
+
+Unread counts, mention counts and mutes of server channels are kept per account, so badges survive a closed app and agree between devices. Direct messages keep their own read state (`/api/dm`).
+
+- `GET /api/notifications/state`
+  - Returns `{ channels, muted_server_ids, muted_channel_ids }`. `channels` lists only text channels the caller can see that have messages from other people after the caller's read mark: `{ channel_id, server_id, unread_count, mention_count }`, both counts capped at 99. A channel without a read mark counts as read up to the moment the caller joined the server.
+  - `mention_count` adds mentions by name and `@everyone`/`@here` messages. Mutes are returned, not applied; clients decide what a muted server or channel shows.
+- `POST /api/notifications/channels/:channel_id/read`
+  - Body `{ "message_id": "..." }` (optional): moves the caller's read mark to that message, or to the newest message of the channel when it is absent or no longer exists. The mark is the creation time of the message, never the time of the request, and it only moves forward; a late request for an older message changes nothing.
+  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute.
+- `PUT /api/notifications/mutes`
+  - Body `{ "server_ids": [...], "channel_ids": [...], "muted": true|false }`, at most 200 ids of each kind. Servers and channels the caller is not a member of are ignored. Returns the caller's full mute lists. Limited to 60 requests per minute.
+  - Other open sessions pick up mute changes the next time they load the notification state (sign-in or reconnect); no event is sent.
+- Mentions by name: when a server message is sent or edited, `@username` words (whole words, at most 20 per message) are matched to members who can see the channel; the author is never mentioned. An edit replaces the mentions of the message but keeps its original time, so it never turns an old message into a new mention. `@everyone`/`@here` set `messages.mention_everyone` only for authors allowed to use them.
+- The data export lists mutes, read marks and received mentions under `notifications`, with server and channel names instead of ids.
+
 ## Personal Notes
 
 - `GET /api/users/:user_id/note`

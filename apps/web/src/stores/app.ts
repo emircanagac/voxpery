@@ -58,6 +58,13 @@ interface AppState {
     incrementServerMention: (channelId: string) => void
     clearServerUnread: (channelId: string) => void
     clearServerMention: (channelId: string) => void
+    /** Replaces unread counts, mention counts and mutes with what the server holds. */
+    applyServerNotificationState: (state: {
+        unread: Record<string, number>
+        mentions: Record<string, number>
+        mutedServerIds: string[]
+        mutedChannelIds: string[]
+    }) => void
     incomingRequestCount: number
     setIncomingRequestCount: (count: number) => void
     resetIncomingRequestCount: () => void
@@ -300,6 +307,13 @@ export const useAppStore = create<AppState>()(
                     const next = { ...s.serverMentionsByChannel }
                     delete next[channelId]
                     return { serverMentionsByChannel: next }
+                }),
+            applyServerNotificationState: ({ unread, mentions, mutedServerIds, mutedChannelIds }) =>
+                set({
+                    serverUnreadByChannel: unread,
+                    serverMentionsByChannel: mentions,
+                    mutedServerIds,
+                    mutedChannelIds,
                 }),
             incomingRequestCount: 0,
             setIncomingRequestCount: (count) => set({ incomingRequestCount: Math.max(0, count) }),
