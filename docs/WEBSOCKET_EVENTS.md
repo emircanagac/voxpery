@@ -50,6 +50,8 @@ Slow clients: events addressed to one connection wait in a queue of at most 256 
 
 Missed events: a connection that falls behind the shared event stream, or whose queue overflows, cannot know what it lost. The server closes it with code `1013`, and the client reconnects and reloads messages, servers, members, friends and voice state, so it never keeps showing stale data.
 
+Session checks: the server re-checks the session of every open connection every 30 seconds and before handling a frame. A session that ended (sign-out, expiry, deleted account, outdated legal acknowledgement) closes the connection with `4001`, and the client stops reconnecting. When the check itself cannot be answered because Redis or the database is unreachable, the connection stays open; after three unanswered checks in a row, or when a frame arrives meanwhile, it is closed without `4001` (`1013` from the periodic check) and the client reconnects as after any dropped connection. An upgrade attempted during such an outage gets `503`.
+
 ### `Unsubscribe`
 
 ```json

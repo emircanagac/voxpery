@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Self-hosting: `REGISTRATION_MODE` lets a server owner limit who can create an account: `open` (default), `invite` (only with a server's invite link; the new account joins that server) or `closed`. It applies to email, desktop and Google sign-up alike; existing accounts keep signing in.
 
+### Fixed
+- A short database or Redis outage no longer signs everyone out: web and desktop keep the session and reconnect on their own, and requests during the outage fail within seconds instead of hanging.
+
 ## [0.5.4] - 2026-11-10
 
 Includes the changes prepared for 0.5.3, which was not published. There are no `v0.5.3` Docker images; self-hosted servers update from 0.5.2 straight to 0.5.4.

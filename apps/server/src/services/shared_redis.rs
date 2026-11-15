@@ -9,6 +9,10 @@ use tokio::sync::OnceCell;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 const RECONNECT_RETRIES: usize = 2;
+/// Longest wait between reconnect attempts. The library's default grows to a minute, and every
+/// command issued meanwhile waits for it: requests would hang through a Redis outage instead of
+/// failing within seconds.
+const RECONNECT_MAX_DELAY_MS: u64 = 500;
 
 /// One multiplexed connection, opened on first use. Callers clone it instead of opening a TCP
 /// connection per request, and it reconnects on its own after a Redis restart.
@@ -39,7 +43,8 @@ impl SharedRedis {
                     ConnectionManagerConfig::new()
                         .set_connection_timeout(CONNECT_TIMEOUT)
                         .set_response_timeout(RESPONSE_TIMEOUT)
-                        .set_number_of_retries(RECONNECT_RETRIES),
+                        .set_number_of_retries(RECONNECT_RETRIES)
+                        .set_max_delay(RECONNECT_MAX_DELAY_MS),
                 )
             })
             .await

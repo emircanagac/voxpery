@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{header::RETRY_AFTER, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -44,6 +44,11 @@ pub enum AppError {
     #[error("Verify your email address to continue")]
     EmailVerificationRequired,
 
+    /// A dependency (database, Redis) could not answer. Unlike `Unauthorized`, it says nothing
+    /// about the caller's session: clients keep it and try again.
+    #[error("Service temporarily unavailable")]
+    ServiceUnavailable,
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -80,6 +85,11 @@ impl IntoResponse for AppError {
                 self.to_string(),
                 Some("EMAIL_VERIFICATION_REQUIRED"),
             ),
+            AppError::ServiceUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                self.to_string(),
+                Some("SERVICE_UNAVAILABLE"),
+            ),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 (
@@ -109,7 +119,13 @@ impl IntoResponse for AppError {
             }))
         };
 
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if matches!(self, AppError::ServiceUnavailable) {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from_static("5"));
+        }
+        response
     }
 }
 
@@ -144,6 +160,10 @@ mod tests {
                 StatusCode::PRECONDITION_REQUIRED,
             ),
             (AppError::EmailVerificationRequired, StatusCode::FORBIDDEN),
+            (
+                AppError::ServiceUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
         ];
         for (err, expected) in test_cases {
             let res = err.into_response();

@@ -774,29 +774,7 @@ pub(super) async fn desktop_auth_exchange(
     }
     let token = payload.token;
 
-    match crate::services::jwt_blacklist::is_blacklisted(&state.redis, &token).await {
-        Ok(true) => return Err(AppError::Unauthorized),
-        Ok(false) => {}
-        Err(e) => {
-            tracing::warn!("Redis JWT blacklist check failed: {}", e);
-            return Err(AppError::Unauthorized);
-        }
-    }
-
-    let claims = jsonwebtoken::decode::<Claims>(
-        &token,
-        &jsonwebtoken::DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
-    )
-    .map_err(|_| AppError::Unauthorized)?
-    .claims;
-
-    let version_ok = claims_match_current_token_version(&state.db, claims.sub, claims.ver)
-        .await
-        .map_err(|_| AppError::Unauthorized)?;
-    if !version_ok {
-        return Err(AppError::Unauthorized);
-    }
+    let claims = crate::middleware::auth::authenticate_session_token(&state, &token).await?;
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(claims.sub)

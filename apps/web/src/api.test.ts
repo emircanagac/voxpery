@@ -147,6 +147,8 @@ describe('API Error Handling', () => {
     it('should not detect non-auth errors', () => {
       expect(isAuthError(new Error('Network error'))).toBe(false)
       expect(isAuthError(new Error('Server error'))).toBe(false)
+      // The 503 the server sends when it cannot check the session must not end it.
+      expect(isAuthError(new Error('Service temporarily unavailable'))).toBe(false)
     })
   })
 

@@ -241,6 +241,7 @@ async fn build_test_app_with_storage(
         livekit_api_url,
         object_store,
         RegistrationMode::Open,
+        redis_client(),
     )
     .await
 }
@@ -259,6 +260,28 @@ async fn setup_app_with_registration_mode(
         None,
         None,
         registration_mode,
+        redis_client(),
+    )
+    .await
+}
+
+/// An app whose Redis refuses every connection, sharing the test database: accounts made
+/// through a normal app exist here too.
+async fn setup_app_with_unreachable_redis() -> (axum::Router, Arc<AppState>) {
+    let unreachable = SharedRedis::new(
+        redis::Client::open("redis://127.0.0.1:1").expect("Failed to create Redis client"),
+    );
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        None,
+        None,
+        RegistrationMode::Open,
+        unreachable,
     )
     .await
 }
@@ -274,6 +297,7 @@ async fn build_test_app_with_registration_mode(
     livekit_api_url: Option<String>,
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
     registration_mode: RegistrationMode,
+    redis: SharedRedis,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -307,7 +331,7 @@ async fn build_test_app_with_registration_mode(
     let state = Arc::new(AppState {
         instance_id: Uuid::new_v4(),
         db,
-        redis: redis_client(),
+        redis,
         jwt_secret: jwt_secret(),
         jwt_expiration: 86400,
         tx,

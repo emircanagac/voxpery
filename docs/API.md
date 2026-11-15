@@ -449,6 +449,7 @@ Common statuses:
 - `428` current legal-document acknowledgement required
 - `429` too many requests
 - `500` internal error
+- `503` with code `SERVICE_UNAVAILABLE` and `Retry-After: 5` when the server cannot check the session because the database or Redis did not answer. Access is refused, but it is not a `401`: clients keep the session and try again.
 
 ---
 
