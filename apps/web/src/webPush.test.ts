@@ -5,7 +5,10 @@ import { applicationServerKey, browserPushEnabled, disableBrowserPush, enableBro
 vi.mock('./api/client', () => ({ apiFetch: vi.fn() }))
 vi.mock('./secureStorage', () => ({ isTauri: vi.fn(() => false) }))
 
-const SERVER_KEY = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U'
+// An uncompressed P-256 point layout (0x04 + 64 bytes). The client only decodes the key, so it
+// does not need to be a point on the curve, and no key material is written into the source.
+const SERVER_KEY_BYTES = Uint8Array.from({ length: 65 }, (_, index) => (index === 0 ? 4 : index))
+const SERVER_KEY = btoa(String.fromCharCode(...SERVER_KEY_BYTES)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
 function fakeSubscription(endpoint: string, key: Uint8Array) {
   return {
@@ -44,6 +47,7 @@ describe('web push', () => {
     const key = applicationServerKey(SERVER_KEY)
     expect(key).toHaveLength(65)
     expect(key[0]).toBe(4)
+    expect(Array.from(key)).toEqual(Array.from(SERVER_KEY_BYTES))
   })
 
   it('subscribes with the server key and registers the subscription', async () => {
