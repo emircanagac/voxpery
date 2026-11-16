@@ -67,7 +67,7 @@
 .social-content--friends .home-friends-scroll { padding-bottom: 96px; }
 .social-content--friends .home-member-row { min-height: 72px; padding: 12px 8px; border-top: 0; border-bottom: var(--border-subtle); border-radius: 0; transition: none; cursor: default; }
 .social-content--friends .home-member-row:hover { background: var(--bg-surface-hover); }
-.social-content--friends .home-member-avatar { width: 40px; height: 40px; background: var(--accent-soft); color: var(--text-primary); box-shadow: none; }
+.social-content--friends .home-member-avatar { width: 40px; height: 40px; box-shadow: none; }
 .social-content--friends .home-member-main { align-self: stretch; }
 .social-content--friends .home-member-meta > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .social-content--friends .home-member-meta > span { flex-wrap: nowrap; overflow: hidden; }
@@ -122,7 +122,7 @@
 .social-content--friends .home-request-row { min-height: 64px; gap: 12px; padding: 12px 8px; border-top: 0; border-bottom: var(--border-subtle); transition: none; }
 .friends-request-person { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .friends-request-person > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.friends-request-avatar { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--avatar-border-radius); background: var(--accent-soft); color: var(--text-primary); font-size: 14px; }
+.friends-request-avatar { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border-radius: var(--avatar-border-radius); background: var(--accent-gradient); color: var(--accent-gradient-text); font-size: 14px; font-weight: 600; }
 .friends-request-copy { display: flex; flex-direction: column; gap: 3px; }
 .friends-request-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
 .friends-request-copy > span { color: var(--text-secondary); font-size: 12px; }

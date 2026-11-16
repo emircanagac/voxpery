@@ -27,6 +27,7 @@ textarea {
 :root[data-custom-accent='true'] .member-avatar,
 :root[data-custom-accent='true'] .member-profile-avatar,
 :root[data-custom-accent='true'] .home-member-avatar,
+:root[data-custom-accent='true'] .friends-request-avatar,
 :root[data-custom-accent='true'] .message-avatar,
 :root[data-custom-accent='true'] .user-profile-preview-avatar {
   color: var(--user-accent-contrast);

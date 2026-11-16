@@ -7,6 +7,64 @@ import {
 } from './mock-core-api'
 
 test.describe('mocked social friend UI regressions', () => {
+
+  // Letter avatars (no profile photo) must read the same in Friends, Pending and the DM list,
+  // in both themes and with a light or dark custom accent.
+  for (const scenario of [
+    { theme: 'dark', accent: null }, { theme: 'light', accent: null },
+    { theme: 'dark', accent: '#f5d76e' }, { theme: 'dark', accent: '#1e3a8a' },
+    { theme: 'light', accent: '#f5d76e' }, { theme: 'light', accent: '#1e3a8a' },
+  ]) {
+    test(`keeps letter avatars readable in ${scenario.theme} with ${scenario.accent ?? 'the default'} accent`, async ({ page }) => {
+      await page.setViewportSize({ width: 1366, height: 900 })
+      await page.addInitScript(({ theme, accent }) => {
+        localStorage.setItem('voxpery-settings-theme', theme)
+        if (accent) localStorage.setItem('voxpery-settings-theme-accent', accent)
+      }, scenario)
+      await installMockCoreApi(page, createMockCoreState({
+        friends: buildFriends(3),
+        incomingRequests: buildRequests(1, 'incoming'),
+        outgoingRequests: buildRequests(1, 'outgoing'),
+        dmChannels: [{ id: 'dm-letter', peer_id: 'friend-01', peer_username: 'Friend 01', peer_avatar_url: null, peer_status: 'online', unread_count: 0, last_message_at: null, pinned_at: null, is_pinned: false }],
+      }))
+      await page.goto('/social')
+      const main = page.locator('.social-content--friends')
+      const measure = (selector: string) => page.locator(selector).evaluateAll((elements) => {
+        const rgb = (color: string) => color.match(/[\d.]+/g)!.map(Number)
+        const luminance = (color: number[]) => color.slice(0, 3).reduce((sum, value, index) => {
+          const channel = value / 255
+          return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+            * [0.2126, 0.7152, 0.0722][index]
+        }, 0)
+        return elements.map((element) => {
+          const style = getComputedStyle(element)
+          const text = luminance(rgb(style.color))
+          const background = luminance(rgb(style.backgroundColor))
+          return {
+            contrast: (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05),
+            colors: `${style.color} on ${style.backgroundColor}`,
+          }
+        })
+      })
+
+      await main.getByRole('button', { name: 'All', exact: true }).click()
+      const friendAvatars = await measure('.social-content--friends .home-member-avatar')
+      const dmAvatars = await measure('button[aria-label^="Open DM with"] .home-member-avatar')
+      await main.getByRole('button', { name: /^Pending/ }).click()
+      const requestAvatars = await measure('.social-content--friends .friends-request-avatar')
+
+      expect(friendAvatars.length).toBeGreaterThan(0)
+      expect(dmAvatars.length).toBeGreaterThan(0)
+      expect(requestAvatars.length).toBe(2)
+      for (const avatar of [...friendAvatars, ...dmAvatars, ...requestAvatars]) {
+        expect(avatar.contrast, avatar.colors).toBeGreaterThanOrEqual(4.5)
+      }
+      // The Friends list uses the same colors as the DM list.
+      expect(friendAvatars[0].colors).toBe(dmAvatars[0].colors)
+      expect(requestAvatars[0].colors).toBe(dmAvatars[0].colors)
+    })
+  }
+
   for (const scenario of [{ width: 1920, theme: 'dark' }, { width: 1024, theme: 'light' },
     { width: 390, theme: 'dark' }, { width: 320, theme: 'light' }]) {
     test(`shows clear Send Request states at ${scenario.width}px in ${scenario.theme}`, async ({ page }, testInfo) => {
@@ -71,9 +129,14 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(row).toHaveCSS('box-shadow', 'none')
       await expect(main.locator('.home-list-group')).toHaveCSS('border-top-width', '0px')
       expect((await row.boundingBox())!.height).toBe(72)
+      // Reach the button by keyboard: Firefox shows :focus-visible only for keyboard focus,
+      // not for a focus() call from script.
+      const message = main.getByRole('button', { name: 'Message Friend 01', exact: true })
+      await message.focus()
+      await page.keyboard.press('Shift+Tab')
       await page.keyboard.press('Tab')
-      await main.getByRole('button', { name: 'Message Friend 01', exact: true }).focus()
-      await expect(main.getByRole('button', { name: 'Message Friend 01', exact: true })).toHaveCSS('outline-style', 'solid')
+      await expect(message).toBeFocused()
+      await expect(message).toHaveCSS('outline-style', 'solid')
       for (const width of [1920, 390]) {
         await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
         const backdrop = page.getByRole('button', { name: 'Close social sidebar', exact: true })
