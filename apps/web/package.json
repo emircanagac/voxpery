@@ -44,19 +44,19 @@
     "@tauri-apps/plugin-opener": "3.0.0-alpha.3",
     "@tauri-apps/plugin-process": "3.0.0-alpha.3",
     "@tauri-apps/plugin-updater": "3.0.0-alpha.3",
-    "livekit-client": "2.23.0",
+    "livekit-client": "2.24.0",
     "lucide-react": "0.577.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-router": "8.5.1",
-    "zustand": "5.0.16"
+    "zustand": "5.1.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.65.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.3",
-    "@testing-library/user-event": "14.6.8",
+    "@testing-library/user-event": "14.6.10",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -69,14 +69,14 @@
     "globals": "16.5.0",
     "jsdom": "28.1.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.72.1",
-    "vite": "8.3.6",
+    "typescript-eslint": "8.72.2",
+    "vite": "8.3.8",
     "vitest": "4.1.12",
-    "ws": "8.22.1"
+    "ws": "8.23.0"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "4.67.5",
-    "@rollup/rollup-win32-x64-msvc": "4.67.5"
+    "@rollup/rollup-linux-x64-gnu": "4.68.2",
+    "@rollup/rollup-win32-x64-msvc": "4.68.2"
   },
   "overrides": {
     "@babel/core": "^7.29.7",
