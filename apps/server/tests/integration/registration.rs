@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// One random password for this module's accounts, like `test_credential` elsewhere: a
+/// fixed literal reads as a hard-coded secret to code scanning.
+fn password() -> &'static str {
+    static PASSWORD: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    PASSWORD.get_or_init(|| test_credential("registration"))
+}
+
 fn register_request(body: &serde_json::Value) -> Request<Body> {
     Request::builder()
         .method("POST")
@@ -43,20 +50,14 @@ async fn open_mode_is_the_default_and_needs_no_invite() {
     let (mut app, _state) = setup_app().await;
     assert_eq!(registration_mode_reported(&mut app).await, "open");
     let (email, username) = unique_account();
-    register_user(&mut app, &email, &username, "registration-test-password").await;
+    register_user(&mut app, &email, &username, password()).await;
 }
 
 #[tokio::test]
 async fn closed_mode_refuses_every_sign_up_path_but_keeps_sign_in() {
     let (mut open_app, _) = setup_app().await;
     let (email, username) = unique_account();
-    register_user(
-        &mut open_app,
-        &email,
-        &username,
-        "registration-test-password",
-    )
-    .await;
+    register_user(&mut open_app, &email, &username, password()).await;
 
     let (mut app, state) = setup_app_with_registration_mode(RegistrationMode::Closed, true).await;
     assert_eq!(registration_mode_reported(&mut app).await, "closed");
@@ -65,11 +66,7 @@ async fn closed_mode_refuses_every_sign_up_path_but_keeps_sign_in() {
     let (new_email, new_username) = unique_account();
     let (status, body) = oneshot(
         &mut app,
-        register_request(&registration_body(
-            &new_email,
-            &new_username,
-            "registration-test-password",
-        )),
+        register_request(&registration_body(&new_email, &new_username, password())),
     )
     .await;
     assert_eq!(
@@ -113,7 +110,7 @@ async fn closed_mode_refuses_every_sign_up_path_but_keeps_sign_in() {
         .uri("/api/auth/login")
         .header("content-type", "application/json")
         .body(Body::from(
-            json!({ "identifier": email, "password": "registration-test-password" }).to_string(),
+            json!({ "identifier": email, "password": password() }).to_string(),
         ))
         .unwrap();
     assert_eq!(oneshot(&mut app, login).await.0, StatusCode::OK);
@@ -123,13 +120,8 @@ async fn closed_mode_refuses_every_sign_up_path_but_keeps_sign_in() {
 async fn invite_mode_needs_a_real_invite_and_joins_that_server() {
     let (mut open_app, open_state) = setup_app().await;
     let (owner_email, owner_username) = unique_account();
-    let (owner_token, _) = register_user(
-        &mut open_app,
-        &owner_email,
-        &owner_username,
-        "registration-test-password",
-    )
-    .await;
+    let (owner_token, _) =
+        register_user(&mut open_app, &owner_email, &owner_username, password()).await;
     let (server_id, _channel_id, invite_code) = create_server_with_default_text_channel(
         &mut open_app,
         &open_state,
@@ -144,7 +136,7 @@ async fn invite_mode_needs_a_real_invite_and_joins_that_server() {
     // No code, an unknown code and the public default community code are all refused.
     for invite in [None, Some("NoSuchCode"), Some("voxpery")] {
         let (email, username) = unique_account();
-        let mut body = registration_body(&email, &username, "registration-test-password");
+        let mut body = registration_body(&email, &username, password());
         if let Some(code) = invite {
             body["invite_code"] = json!(code);
         }
@@ -165,7 +157,7 @@ async fn invite_mode_needs_a_real_invite_and_joins_that_server() {
 
     // A real invite admits the sign-up and the new account is a member at once.
     let (email, username) = unique_account();
-    let mut body = registration_body(&email, &username, "registration-test-password");
+    let mut body = registration_body(&email, &username, password());
     body["invite_code"] = json!(invite_code);
     let (status, response) = oneshot(&mut app, register_request(&body)).await;
     assert_eq!(
@@ -183,13 +175,8 @@ async fn invite_mode_needs_a_real_invite_and_joins_that_server() {
 async fn invite_mode_applies_to_desktop_registration() {
     let (mut open_app, open_state) = setup_app().await;
     let (owner_email, owner_username) = unique_account();
-    let (owner_token, _) = register_user(
-        &mut open_app,
-        &owner_email,
-        &owner_username,
-        "registration-test-password",
-    )
-    .await;
+    let (owner_token, _) =
+        register_user(&mut open_app, &owner_email, &owner_username, password()).await;
     let (server_id, _channel_id, invite_code) = create_server_with_default_text_channel(
         &mut open_app,
         &open_state,
@@ -258,13 +245,8 @@ async fn invite_mode_applies_to_desktop_registration() {
 async fn invite_mode_refuses_an_invite_code_that_was_reset() {
     let (mut open_app, open_state) = setup_app().await;
     let (owner_email, owner_username) = unique_account();
-    let (owner_token, _) = register_user(
-        &mut open_app,
-        &owner_email,
-        &owner_username,
-        "registration-test-password",
-    )
-    .await;
+    let (owner_token, _) =
+        register_user(&mut open_app, &owner_email, &owner_username, password()).await;
     let owner_auth = format!("Bearer {owner_token}");
     let (server_id, _channel_id, old_code) = create_server_with_default_text_channel(
         &mut open_app,
@@ -289,7 +271,7 @@ async fn invite_mode_refuses_an_invite_code_that_was_reset() {
 
     // The leaked code no longer admits a sign-up.
     let (email, username) = unique_account();
-    let mut body = registration_body(&email, &username, "registration-test-password");
+    let mut body = registration_body(&email, &username, password());
     body["invite_code"] = json!(old_code);
     let (status, response) = oneshot(&mut app, register_request(&body)).await;
     assert_eq!(
@@ -307,7 +289,7 @@ async fn invite_mode_refuses_an_invite_code_that_was_reset() {
 
     // The new code does, and the account joins the server.
     let (email, username) = unique_account();
-    let mut body = registration_body(&email, &username, "registration-test-password");
+    let mut body = registration_body(&email, &username, password());
     body["invite_code"] = json!(new_code);
     let (status, response) = oneshot(&mut app, register_request(&body)).await;
     assert_eq!(
