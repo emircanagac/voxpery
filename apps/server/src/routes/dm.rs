@@ -1088,7 +1088,7 @@ async fn lock_group_dm(
     .await?
     .ok_or(AppError::NotFound("DM channel not found".into()))?;
     let members = sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC",
+        "SELECT user_id FROM dm_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC, user_id ASC",
     )
     .bind(channel_id)
     .fetch_all(&mut *db)
@@ -1182,9 +1182,11 @@ async fn create_group_dm(
     let mut everyone = vec![claims.sub];
     everyone.extend(&member_ids);
     sqlx::query(
+        // One microsecond apart in the order given, so "longest-standing member" (who takes
+        // over a group) is never a tie between people added together.
         r#"INSERT INTO dm_channel_members (channel_id, user_id, joined_at)
-           SELECT $1, member_id, NOW()
-           FROM UNNEST($2::uuid[]) AS member_id"#,
+           SELECT $1, member_id, NOW() + (position - 1) * INTERVAL '1 microsecond'
+           FROM UNNEST($2::uuid[]) WITH ORDINALITY AS added(member_id, position)"#,
     )
     .bind(channel_id)
     .bind(&everyone)
@@ -1245,9 +1247,11 @@ async fn add_group_dm_members(
     }
     ensure_friends_with(&mut tx, claims.sub, &added).await?;
     sqlx::query(
+        // One microsecond apart in the order given, so "longest-standing member" (who takes
+        // over a group) is never a tie between people added together.
         r#"INSERT INTO dm_channel_members (channel_id, user_id, joined_at)
-           SELECT $1, member_id, NOW()
-           FROM UNNEST($2::uuid[]) AS member_id"#,
+           SELECT $1, member_id, NOW() + (position - 1) * INTERVAL '1 microsecond'
+           FROM UNNEST($2::uuid[]) WITH ORDINALITY AS added(member_id, position)"#,
     )
     .bind(channel_id)
     .bind(&added)

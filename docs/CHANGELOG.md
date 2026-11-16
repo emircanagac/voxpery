@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The compare page also lists Stoat (formerly Revolt), with each value taken from Stoat's own site and release page; rows Stoat does not state are left blank.
 
 ### Fixed
+- Group direct messages: when the owner leaves, the member who joined first always takes over, also among people added at the same time.
 - Friends list: letter avatars of people without a profile photo are readable with a custom accent color, in the All, Online and Pending tabs, and match the direct message list.
 - A short database or Redis outage no longer signs everyone out: web and desktop keep the session and reconnect on their own, and requests during the outage fail within seconds instead of hanging.
 - The app no longer stops reconnecting after a couple of minutes without the server: it keeps trying for as long as you are signed in, and shows a "Connection lost" banner with a "Try now" button while the connection is down.
