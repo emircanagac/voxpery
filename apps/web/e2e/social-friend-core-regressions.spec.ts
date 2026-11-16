@@ -129,9 +129,14 @@ test.describe('mocked social friend UI regressions', () => {
       await expect(row).toHaveCSS('box-shadow', 'none')
       await expect(main.locator('.home-list-group')).toHaveCSS('border-top-width', '0px')
       expect((await row.boundingBox())!.height).toBe(72)
+      // Reach the button by keyboard: Firefox shows :focus-visible only for keyboard focus,
+      // not for a focus() call from script.
+      const message = main.getByRole('button', { name: 'Message Friend 01', exact: true })
+      await message.focus()
+      await page.keyboard.press('Shift+Tab')
       await page.keyboard.press('Tab')
-      await main.getByRole('button', { name: 'Message Friend 01', exact: true }).focus()
-      await expect(main.getByRole('button', { name: 'Message Friend 01', exact: true })).toHaveCSS('outline-style', 'solid')
+      await expect(message).toBeFocused()
+      await expect(message).toHaveCSS('outline-style', 'solid')
       for (const width of [1920, 390]) {
         await page.setViewportSize({ width, height: width === 1920 ? 1080 : 844 })
         const backdrop = page.getByRole('button', { name: 'Close social sidebar', exact: true })
