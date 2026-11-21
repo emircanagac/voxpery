@@ -1098,57 +1098,90 @@ async fn handle_socket(
         return;
     }
 
-    // Voice ends with the connection that holds it, even while other tabs stay open; a client
-    // whose socket only dropped rejoins on reconnect before its LiveKit participant is removed.
+    // Voice ends with the connection that holds it, even while other tabs stay open. A socket
+    // that only dropped gets `VOICE_RECONNECT_GRACE` to come back: until then nobody is told it
+    // left, and a client that rejoins the same channel in time keeps its call without a trace.
     let held_voice = state
         .voice_session_connections
         .remove_if(&user_id, |_, holder| holder.0 == connection_id)
         .is_some();
     let holder_missing = !state.voice_session_connections.contains_key(&user_id);
     if held_voice || (last_session_gone && holder_missing && !state.peers.holds_voice(user_id)) {
-        let removed_voice = state.voice_sessions.remove(&user_id);
-        if let Some((_, previous_channel_id)) = removed_voice {
-            voice_revoke::clear_voice_claim(&state, user_id, previous_channel_id).await;
-            clear_screen_share_viewer_entries_for_user(&state, user_id);
-            let departed_sid = state
-                .voice_participant_sids
-                .remove(&user_id)
-                .map(|(_, sid)| sid);
-            voice_revoke::schedule_departed_participant_removal(
-                state.clone(),
-                previous_channel_id,
-                user_id,
-                departed_sid,
-                voice_revoke::DEPARTED_VOICE_DISCONNECT_DELAY,
-            );
-            let previous_server_id = server_id_for_channel(&state.db, previous_channel_id).await;
-            let _ = state.voice_controls.remove(&user_id);
-            cleanup_voice_channel_active_since_if_empty(&state, previous_channel_id);
-            super::publish_event(
-                &state,
-                WsEvent::VoiceStateUpdate {
-                    channel_id: None,
-                    user_id,
-                    server_id: previous_server_id,
-                    channel_active_since_ms: None,
-                    previous_channel_id: Some(previous_channel_id),
-                },
-            )
-            .await;
-            super::publish_event(
-                &state,
-                voice_control_event_from_state(
-                    user_id,
-                    previous_server_id,
-                    previous_channel_id,
-                    (false, false, false, false, false, false),
-                ),
-            )
-            .await;
+        if let Some(channel_id) = state.voice_sessions.get(&user_id).map(|entry| *entry) {
+            schedule_dropped_voice_departure(state.clone(), user_id, channel_id);
         }
     }
 
     tracing::info!("WebSocket disconnected: {}", ShortId(user_id));
+}
+
+/// Ends the voice session of a user whose connection dropped, unless they come back in time.
+/// Nothing happens when the user rejoined voice here or on another instance, or when the session
+/// already ended another way (leave, moderation, a move) during the grace.
+fn schedule_dropped_voice_departure(state: Arc<AppState>, user_id: Uuid, channel_id: Uuid) {
+    tokio::spawn(async move {
+        tokio::time::sleep(voice_revoke::VOICE_RECONNECT_GRACE).await;
+        // A stopping server keeps voice; `reconcile_orphaned_voice_claims` cleans up after it.
+        if state.shutdown.is_started() {
+            return;
+        }
+        let rejoined = |state: &AppState| {
+            state.voice_session_connections.contains_key(&user_id)
+                || state.peers.holds_voice(user_id)
+        };
+        if rejoined(&state) {
+            return;
+        }
+        let removed = state
+            .voice_sessions
+            .remove_if(&user_id, |_, current| *current == channel_id)
+            .is_some();
+        if !removed {
+            return;
+        }
+        voice_revoke::clear_voice_claim(&state, user_id, channel_id).await;
+        clear_screen_share_viewer_entries_for_user(&state, user_id);
+        let departed_sid = state
+            .voice_participant_sids
+            .remove(&user_id)
+            .map(|(_, sid)| sid);
+        // The grace already gave the client its time; the participant goes right away.
+        voice_revoke::schedule_departed_participant_removal(
+            state.clone(),
+            channel_id,
+            user_id,
+            departed_sid,
+            Duration::ZERO,
+        );
+        let server_id = server_id_for_channel(&state.db, channel_id).await;
+        let _ = state.voice_controls.remove(&user_id);
+        cleanup_voice_channel_active_since_if_empty(&state, channel_id);
+        // A rejoin that raced the removal announces itself; a departure after it would be wrong.
+        if rejoined(&state) {
+            return;
+        }
+        super::publish_event(
+            &state,
+            WsEvent::VoiceStateUpdate {
+                channel_id: None,
+                user_id,
+                server_id,
+                channel_active_since_ms: None,
+                previous_channel_id: Some(channel_id),
+            },
+        )
+        .await;
+        super::publish_event(
+            &state,
+            voice_control_event_from_state(
+                user_id,
+                server_id,
+                channel_id,
+                (false, false, false, false, false, false),
+            ),
+        )
+        .await;
+    });
 }
 
 #[cfg(test)]

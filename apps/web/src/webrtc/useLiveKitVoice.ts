@@ -24,7 +24,7 @@ import {
 import { webrtcApi } from '../api/webrtc'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
-import { useSocketStore } from '../stores/socket'
+import { setVoiceSessionActive, useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { useFeatureStore } from '../stores/features'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
@@ -473,6 +473,10 @@ export function useLiveKitVoice() {
   const microphoneDeviceChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [joinedChannelId, setJoinedChannelId] = useState<string | null>(null)
+  useEffect(() => {
+    setVoiceSessionActive(!!joinedChannelId)
+    return () => setVoiceSessionActive(false)
+  }, [joinedChannelId])
   const isJoiningRef = useRef(false)
   const [isJoining, setIsJoining] = useState(false)
   // Bumped by every join, leave and unmount so suspended joins can detect they are stale.
