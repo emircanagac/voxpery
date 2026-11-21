@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.1] - Unreleased
 
 ### Fixed
+- Phones: the "Stream available" and hidden camera tiles in a voice channel keep their button and viewers inside the tile instead of spilling over the next participant.
 - Voice settings name the system default microphone and speaker "Default" on every system; Linux and macOS no longer show "Windows Default".
 
 ## [0.6.0] - 2026-11-16
