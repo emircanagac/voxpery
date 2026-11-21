@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.1] - 2026-11-21
 
+### Security
+- Security updates.
+
 ### Fixed
 - Voice channels: a short connection drop no longer shows you leaving and rejoining. The server keeps your place for 10 seconds while the app reconnects, and the app retries at once while you are in voice; only a longer outage shows you as gone.
 - Phones: the "Stream available" and hidden camera tiles in a voice channel keep their button and viewers inside the tile instead of spilling over the next participant.
