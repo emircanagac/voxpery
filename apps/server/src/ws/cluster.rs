@@ -109,6 +109,18 @@ impl Peers {
     pub fn holds_voice(&self, user_id: Uuid) -> bool {
         self.0.iter().any(|peer| peer.voice.contains(&user_id))
     }
+
+    /// An account has one voice session: once it joins on `holder` (or here, with `None`), the
+    /// other instances no longer hold it, even before their next snapshot says so. Without this
+    /// a stale entry would keep a later departure from being announced.
+    pub fn forget_voice_except(&self, user_id: Uuid, holder: Option<Uuid>) {
+        for mut peer in self.0.iter_mut() {
+            if Some(*peer.key()) != holder {
+                peer.voice.remove(&user_id);
+                peer.absent_voice.remove(&user_id);
+            }
+        }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -172,6 +184,8 @@ pub fn apply_peer_event(state: &AppState, origin: Uuid, event: &WsEvent) {
                     channel_id: *channel_id,
                 });
             }
+            drop(peer);
+            state.peers.forget_voice_except(*user_id, Some(origin));
         }
         WsEvent::VoiceStateUpdate {
             channel_id: None,
