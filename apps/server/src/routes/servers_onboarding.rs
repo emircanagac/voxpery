@@ -9,7 +9,7 @@ pub(super) fn default_onboarding_guide(server_id: Uuid) -> ServerOnboardingGuide
         body: String::new(),
         recommended_channel_ids: Vec::new(),
         starter_tasks: Vec::new(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

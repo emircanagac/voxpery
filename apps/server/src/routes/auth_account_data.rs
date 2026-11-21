@@ -22,7 +22,7 @@ pub(super) struct ExportAccountRow {
     pub(super) about_me: String,
     pub(super) status: String,
     pub(super) dm_privacy: String,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
+    pub(super) created_at: crate::timestamp::Timestamp,
     pub(super) google_connected: bool,
     pub(super) password_hash: String,
 }
@@ -39,14 +39,14 @@ pub(super) struct ExportAttachmentRow {
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub(super) struct ExportMembershipRow {
     pub(super) server_name: String,
-    pub(super) joined_at: chrono::DateTime<chrono::Utc>,
+    pub(super) joined_at: crate::timestamp::Timestamp,
     pub(super) role: String,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub(super) struct ExportFriendRow {
     pub(super) username: String,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
+    pub(super) created_at: crate::timestamp::Timestamp,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -54,7 +54,7 @@ pub(super) struct ExportFriendRequestRow {
     pub(super) direction: String,
     pub(super) other_username: String,
     pub(super) status: String,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
+    pub(super) created_at: crate::timestamp::Timestamp,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -63,8 +63,8 @@ pub(super) struct ExportServerMessageRow {
     pub(super) server_name: String,
     pub(super) content: String,
     pub(super) attachments: Option<serde_json::Value>,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
-    pub(super) edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) created_at: crate::timestamp::Timestamp,
+    pub(super) edited_at: Option<crate::timestamp::Timestamp>,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -75,8 +75,8 @@ pub(super) struct ExportDmMessageRow {
     pub(super) peer_usernames: Option<Vec<String>>,
     pub(super) content: String,
     pub(super) attachments: Option<serde_json::Value>,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
-    pub(super) edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) created_at: crate::timestamp::Timestamp,
+    pub(super) edited_at: Option<crate::timestamp::Timestamp>,
 }
 
 pub(super) fn summarize_export_attachments(
@@ -268,7 +268,7 @@ pub(super) async fn export_my_data(
     .ok_or(AppError::NotFound("User not found".into()))?;
 
     if account.password_hash == "oauth" {
-        let now = chrono::Utc::now().timestamp().max(0) as usize;
+        let now = crate::timestamp::Timestamp::now().timestamp().max(0) as usize;
         if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
             return Err(AppError::ReauthenticationRequired(
                 "Sign in with Google again before creating a data export".into(),
@@ -327,8 +327,8 @@ pub(super) async fn export_my_data(
         (
             String,
             String,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
+            crate::timestamp::Timestamp,
+            crate::timestamp::Timestamp,
         ),
     >(
         r#"SELECT u.username, n.note, n.created_at, n.updated_at
@@ -499,19 +499,18 @@ pub(super) async fn export_my_data(
 
     // Notification state: what the account muted, how far it read each channel and where it was
     // mentioned. Names instead of identifiers, like the rest of the export.
-    let muted_targets =
-        sqlx::query_as::<_, (String, Option<String>, chrono::DateTime<chrono::Utc>)>(
-            r#"SELECT s.name, c.name, nm.created_at
+    let muted_targets = sqlx::query_as::<_, (String, Option<String>, crate::timestamp::Timestamp)>(
+        r#"SELECT s.name, c.name, nm.created_at
            FROM notification_mutes nm
            LEFT JOIN channels c ON c.id = nm.channel_id
            INNER JOIN servers s ON s.id = COALESCE(nm.server_id, c.server_id)
            WHERE nm.user_id = $1
            ORDER BY nm.created_at"#,
-        )
-        .bind(claims.sub)
-        .fetch_all(&state.db)
-        .await?;
-    let channel_read_marks = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.db)
+    .await?;
+    let channel_read_marks = sqlx::query_as::<_, (String, String, crate::timestamp::Timestamp)>(
         r#"SELECT s.name, c.name, r.last_read_at
            FROM channel_reads r
            INNER JOIN channels c ON c.id = r.channel_id
@@ -522,7 +521,7 @@ pub(super) async fn export_my_data(
     .bind(claims.sub)
     .fetch_all(&state.db)
     .await?;
-    let received_mentions = sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+    let received_mentions = sqlx::query_as::<_, (String, String, crate::timestamp::Timestamp)>(
         r#"SELECT s.name, c.name, mm.created_at
            FROM message_mentions mm
            INNER JOIN channels c ON c.id = mm.channel_id
@@ -542,8 +541,8 @@ pub(super) async fn export_my_data(
         _,
         (
             String,
-            chrono::DateTime<chrono::Utc>,
-            Option<chrono::DateTime<chrono::Utc>>,
+            crate::timestamp::Timestamp,
+            Option<crate::timestamp::Timestamp>,
         ),
     >(
         r#"SELECT endpoint, created_at, last_used_at
@@ -560,7 +559,7 @@ pub(super) async fn export_my_data(
             "format": "voxpery-user-data-v3",
             "scope": "self_service_convenience_export",
             "is_complete_data_subject_access_response": false,
-            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "generated_at": crate::timestamp::Timestamp::now().to_rfc3339(),
             "description": "A user-readable, bounded convenience archive of your Voxpery account and authored content.",
             "formal_request": {
                 "contact": "voxpery@gmail.com",
@@ -656,7 +655,13 @@ pub(super) async fn export_my_data(
     record_privacy_event(&mut tx, claims.sub, "data_export_created", None, None, None).await?;
     tx.commit().await?;
 
-    let date = chrono::Utc::now().format("%Y-%m-%d");
+    let now = crate::timestamp::Timestamp::now().inner();
+    let date = format!(
+        "{:04}-{:02}-{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day()
+    );
     let filename = format!("voxpery-data-export-{date}.zip");
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
@@ -708,7 +713,7 @@ pub(super) async fn delete_my_account(
     let is_oauth_only = user.google_id.is_some() && user.password_hash == "oauth";
     if is_oauth_only {
         // Like the data export: an old session alone must not be able to delete the account.
-        let now = chrono::Utc::now().timestamp().max(0) as usize;
+        let now = crate::timestamp::Timestamp::now().timestamp().max(0) as usize;
         if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
             return Err(AppError::ReauthenticationRequired(
                 "Sign in with Google again before deleting your account".into(),

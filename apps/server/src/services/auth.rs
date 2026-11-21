@@ -159,11 +159,11 @@ pub fn generate_token(
     secret: &str,
     expiration_secs: i64,
 ) -> Result<String, AppError> {
-    let now = chrono::Utc::now();
+    let now = crate::timestamp::Timestamp::now();
     let claims = Claims {
         sub: user_id,
         username: username.to_string(),
-        exp: (now + chrono::Duration::seconds(expiration_secs)).timestamp() as usize,
+        exp: (now + time::Duration::seconds(expiration_secs)).timestamp() as usize,
         iat: now.timestamp() as usize,
         ver: token_version,
         jti: Some(Uuid::new_v4().simple().to_string()),

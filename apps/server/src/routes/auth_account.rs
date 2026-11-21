@@ -86,7 +86,7 @@ pub(super) async fn set_password(
     }
     // A first password is a lasting second way into the account, so a stolen older session
     // must not be able to add one: like a data export, it needs a recent Google sign-in.
-    let now = chrono::Utc::now().timestamp().max(0) as usize;
+    let now = crate::timestamp::Timestamp::now().timestamp().max(0) as usize;
     if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
         return Err(AppError::ReauthenticationRequired(
             "Sign in with Google again before setting a password".into(),
@@ -257,8 +257,8 @@ pub(super) async fn update_profile(
         if username != user.username {
             // Enforce at most one username change per 7 days.
             if let Some(changed_at) = user.username_changed_at {
-                let since = chrono::Utc::now().signed_duration_since(changed_at);
-                if since.num_days() < 7 {
+                let since = crate::timestamp::Timestamp::now() - changed_at;
+                if since.whole_days() < 7 {
                     return Err(AppError::Validation(
                         "You can only change your username once every 7 days. Please try again later.".into(),
                     ));
@@ -426,7 +426,7 @@ pub(super) async fn request_email_verification(
         // A session alone must not be enough to move the account to another address: that
         // address could then reset the password and take the account over.
         if user.password_hash == "oauth" {
-            let now = chrono::Utc::now().timestamp().max(0) as usize;
+            let now = crate::timestamp::Timestamp::now().timestamp().max(0) as usize;
             if now.saturating_sub(claims.iat) > DATA_EXPORT_REAUTH_MAX_AGE_SECS {
                 return Err(AppError::ReauthenticationRequired(
                     "Sign in with Google again before changing your email address".into(),
@@ -472,7 +472,7 @@ pub(super) async fn request_email_verification(
 
     let token_plain = Uuid::new_v4().to_string();
     let token_hash = token_hash_base64(&token_plain);
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = crate::timestamp::Timestamp::now() + time::Duration::hours(1);
 
     // The new address only replaces the current one once its link is confirmed; until then
     // it waits in the verification token. Locking the row orders this against anything that
@@ -576,7 +576,7 @@ pub(super) async fn confirm_email_verification(
     struct EmailVerificationTokenRow {
         user_id: Uuid,
         email: String,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: crate::timestamp::Timestamp,
     }
 
     // Claim the link by deleting it: a concurrent request with the same link waits on the row
@@ -597,7 +597,7 @@ pub(super) async fn confirm_email_verification(
         ));
     };
 
-    if chrono::Utc::now() > row.expires_at {
+    if crate::timestamp::Timestamp::now() > row.expires_at {
         // Keep the deletion: an expired link is spent either way.
         tx.commit().await?;
         return Err(AppError::Validation(

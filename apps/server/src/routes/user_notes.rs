@@ -1,10 +1,10 @@
+use crate::timestamp::Timestamp;
 use axum::{
     extract::{Path, State},
     middleware,
     routing::get,
     Extension, Json, Router,
 };
-use chrono::{DateTime, Utc};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ const NOTE_WRITES_PER_MINUTE: usize = 30;
 #[derive(Debug, serde::Serialize, Default)]
 struct UserNoteResponse {
     note: Option<String>,
-    updated_at: Option<DateTime<Utc>>,
+    updated_at: Option<Timestamp>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -45,7 +45,7 @@ async fn get_user_note(
     Extension(claims): Extension<Claims>,
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<UserNoteResponse>, AppError> {
-    let row = sqlx::query_as::<_, (String, DateTime<Utc>)>(
+    let row = sqlx::query_as::<_, (String, Timestamp)>(
         "SELECT note, updated_at FROM user_notes WHERE author_id = $1 AND target_user_id = $2",
     )
     .bind(claims.sub)
@@ -92,7 +92,7 @@ async fn save_user_note(
         return Ok(Json(UserNoteResponse::default()));
     }
 
-    let updated_at = sqlx::query_scalar::<_, DateTime<Utc>>(
+    let updated_at = sqlx::query_scalar::<_, Timestamp>(
         r#"INSERT INTO user_notes (author_id, target_user_id, note)
            SELECT $1, u.id, $3 FROM users u WHERE u.id = $2
            ON CONFLICT (author_id, target_user_id)

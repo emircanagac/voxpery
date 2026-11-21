@@ -116,7 +116,7 @@ pub async fn store_mentions(
     tx: &mut Transaction<'_, Postgres>,
     message_id: Uuid,
     channel_id: Uuid,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_at: crate::timestamp::Timestamp,
     user_ids: &[Uuid],
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM message_mentions WHERE message_id = $1 AND user_id <> ALL($2)")

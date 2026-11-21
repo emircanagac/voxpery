@@ -17,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Database (postgres only; default-features = false avoids pulling mysql/rsa)
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "migrate", "macros"] }
 
 # Auth
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
@@ -30,7 +30,7 @@ rand = "0.9"
 
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+time = { version = "0.3.47", features = ["serde", "formatting", "parsing", "macros"] }
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

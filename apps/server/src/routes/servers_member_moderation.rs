@@ -4,7 +4,7 @@ use super::*;
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub(super) struct AuditLogEntry {
     pub(super) id: Uuid,
-    pub(super) at: chrono::DateTime<chrono::Utc>,
+    pub(super) at: crate::timestamp::Timestamp,
     pub(super) actor_id: Uuid,
     pub(super) server_id: Option<Uuid>,
     pub(super) action: String,
@@ -53,7 +53,7 @@ pub(super) struct ServerBanEntry {
     pub(super) user_id: Uuid,
     pub(super) banned_by: Uuid,
     pub(super) reason: Option<String>,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
+    pub(super) created_at: crate::timestamp::Timestamp,
     pub(super) username: String,
     pub(super) banned_by_username: String,
 }
@@ -416,7 +416,7 @@ pub(super) async fn timeout_member(
         ));
     }
     let reason = normalize_timeout_reason(body.reason.as_deref())?;
-    let until = Utc::now() + ChronoDuration::minutes(duration_minutes);
+    let until = Timestamp::now() + time::Duration::minutes(duration_minutes);
 
     // The target may have left, or become the owner, since the checks above.
     let entry = sqlx::query_as::<_, ServerTimeoutEntry>(

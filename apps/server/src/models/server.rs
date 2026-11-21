@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -11,7 +11,7 @@ pub struct Server {
     pub description: Option<String>,
     pub owner_id: Uuid,
     pub invite_code: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Server with member count — used for server list.
@@ -24,7 +24,7 @@ pub struct ServerWithMembers {
     pub description: Option<String>,
     pub owner_id: Uuid,
     pub invite_code: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub member_count: i64,
 }
 
@@ -72,8 +72,8 @@ pub struct MemberInfo {
     pub about_me: String,
     pub role: String,
     pub status: String,
-    pub account_created_at: DateTime<Utc>,
-    pub server_joined_at: DateTime<Utc>,
+    pub account_created_at: Timestamp,
+    pub server_joined_at: Timestamp,
     /// Display color derived from the highest-positioned role with a color,
     /// similar to Discord's member list behaviour.
     pub role_color: Option<String>,
@@ -84,7 +84,7 @@ pub struct MemberInfo {
     pub highest_role_position: i32,
     /// End of the member's active timeout, if any.
     #[serde(default)]
-    pub timed_out_until: Option<DateTime<Utc>>,
+    pub timed_out_until: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -93,7 +93,7 @@ pub struct ServerRule {
     pub server_id: Uuid,
     pub rule_text: String,
     pub position: i32,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -104,7 +104,7 @@ pub struct ServerOnboardingGuide {
     pub body: String,
     pub recommended_channel_ids: Vec<Uuid>,
     pub starter_tasks: Vec<String>,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Deserialize)]

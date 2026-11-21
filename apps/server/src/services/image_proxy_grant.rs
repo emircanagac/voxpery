@@ -116,13 +116,17 @@ pub fn current_user_grant(secret: &str, claims: &Claims) -> ImageProxyGrant {
     let (grant, expires_at) = user_grant(
         secret,
         &GrantSession::from_claims(claims),
-        chrono::Utc::now().timestamp(),
+        crate::timestamp::Timestamp::now().timestamp(),
     );
     ImageProxyGrant { grant, expires_at }
 }
 
 pub fn current_image_grant(secret: &str, image_url: &str) -> String {
-    image_grant(secret, image_url, chrono::Utc::now().timestamp())
+    image_grant(
+        secret,
+        image_url,
+        crate::timestamp::Timestamp::now().timestamp(),
+    )
 }
 
 /// What a correctly signed, unexpired grant allows.

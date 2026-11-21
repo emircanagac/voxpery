@@ -319,7 +319,7 @@ async fn a_first_password_needs_a_recent_google_sign_in() {
         .await
         .unwrap();
     let token_issued = |seconds_ago: i64| {
-        let now = chrono::Utc::now().timestamp();
+        let now = voxpery_server::timestamp::Timestamp::now().timestamp();
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &json!({
@@ -649,7 +649,7 @@ async fn seed_pending_links(state: &AppState, user_id: Uuid, email: &str) -> Str
     seed_password_reset_token(
         state,
         user_id,
-        chrono::Utc::now() + chrono::Duration::hours(1),
+        voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1),
     )
     .await;
     token
@@ -722,7 +722,7 @@ async fn a_password_reset_revokes_a_pending_email_change() {
     let token = seed_password_reset_token(
         &state,
         user_id,
-        chrono::Utc::now() + chrono::Duration::hours(1),
+        voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1),
     )
     .await;
     let (status, _) = oneshot(

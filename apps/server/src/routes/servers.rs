@@ -1,3 +1,4 @@
+use crate::timestamp::Timestamp;
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
     http::HeaderMap,
@@ -5,7 +6,6 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Json, Router,
 };
-use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::{Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -992,7 +992,7 @@ struct ChannelWithPermissions {
     channel_type: String,
     category: Option<String>,
     position: i32,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_at: crate::timestamp::Timestamp,
     my_permissions: i64,
 }
 

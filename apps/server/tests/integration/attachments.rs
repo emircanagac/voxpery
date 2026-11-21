@@ -647,7 +647,9 @@ async fn unused_uploads_are_released_and_their_quota_returned() {
         .unwrap();
     assert_eq!(outcome.released, 0);
     let (_, check_at) = upload_release_state(&state, draft).await.unwrap();
-    assert!(check_at.unwrap() > chrono::Utc::now() + chrono::Duration::hours(23));
+    assert!(
+        check_at.unwrap() > voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(23)
+    );
     age_upload(&state, draft, true).await;
     let outcome = release_unused_uploads(&state.db, &state.attachment_service, Some(&[draft]))
         .await
@@ -751,7 +753,8 @@ async fn image_proxy_serves_only_server_signed_grants() {
         .unwrap()
         .to_string();
     assert!(
-        session["image_proxy"]["expires_at"].as_i64().unwrap() > chrono::Utc::now().timestamp()
+        session["image_proxy"]["expires_at"].as_i64().unwrap()
+            > voxpery_server::timestamp::Timestamp::now().timestamp()
     );
     let (status, _) = oneshot(&mut app, get("/api/images/grant".into(), None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -802,7 +805,7 @@ async fn image_proxy_serves_only_server_signed_grants() {
     assert_eq!(status, StatusCode::OK);
     let preview: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let icon_grant = preview["icon_grant"].as_str().unwrap();
-    let now = chrono::Utc::now().timestamp();
+    let now = voxpery_server::timestamp::Timestamp::now().timestamp();
     assert_eq!(
         image_proxy_grant::verify(&state.jwt_secret, icon_grant, image, now),
         Some(image_proxy_grant::VerifiedGrant::Image)

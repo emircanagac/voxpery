@@ -24,6 +24,7 @@ pub mod middleware;
 pub mod models;
 pub mod routes;
 pub mod services;
+pub mod timestamp;
 pub mod ws;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

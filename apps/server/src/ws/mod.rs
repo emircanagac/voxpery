@@ -37,7 +37,7 @@ pub enum WsEvent {
     ChannelRead {
         channel_id: Uuid,
         user_id: Uuid,
-        last_read_at: chrono::DateTime<chrono::Utc>,
+        last_read_at: crate::timestamp::Timestamp,
     },
     /// A message was deleted in a server channel.
     MessageDeleted { channel_id: Uuid, message_id: Uuid },
@@ -84,7 +84,7 @@ pub enum WsEvent {
     MemberTimeoutUpdated {
         server_id: Uuid,
         user_id: Uuid,
-        timed_out_until: Option<chrono::DateTime<chrono::Utc>>,
+        timed_out_until: Option<crate::timestamp::Timestamp>,
     },
     /// Server roles (name/color/permissions/order) changed; clients should refresh derived UI.
     ServerRolesUpdated { server_id: Uuid },

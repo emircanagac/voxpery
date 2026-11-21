@@ -16,8 +16,8 @@ pub struct AutoModRule {
     pub exempt_channel_ids: Vec<Uuid>,
     pub created_by: Option<Uuid>,
     pub updated_by: Option<Uuid>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: crate::timestamp::Timestamp,
+    pub updated_at: crate::timestamp::Timestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,8 +267,8 @@ mod tests {
             exempt_channel_ids: vec![],
             created_by: None,
             updated_by: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: crate::timestamp::Timestamp::now(),
+            updated_at: crate::timestamp::Timestamp::now(),
         }
     }
 

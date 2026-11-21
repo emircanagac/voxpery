@@ -182,8 +182,8 @@ struct MessageRow {
     channel_id: Uuid,
     content: String,
     attachments: Option<serde_json::Value>,
-    edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    created_at: chrono::DateTime<chrono::Utc>,
+    edited_at: Option<crate::timestamp::Timestamp>,
+    created_at: crate::timestamp::Timestamp,
     user_id: Uuid,
     username: String,
     avatar_url: Option<String>,
@@ -350,7 +350,7 @@ async fn get_messages(
     }
 
     let rows: Vec<MessageRow> = if let Some(around) = query.around {
-        let cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)> =
+        let cursor: Option<(crate::timestamp::Timestamp, Uuid)> =
             sqlx::query_as("SELECT created_at, id FROM messages WHERE channel_id = $1 AND id = $2")
                 .bind(channel_id)
                 .bind(around)
@@ -1155,7 +1155,7 @@ async fn edit_message(
     )
     .await?;
     let mut tx = state.db.begin().await?;
-    let created_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+    let created_at: Option<crate::timestamp::Timestamp> = sqlx::query_scalar(
         r#"UPDATE messages
            SET content = $1, edited_at = NOW(), mention_everyone = $2
            WHERE id = $3

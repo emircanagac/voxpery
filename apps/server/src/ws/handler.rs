@@ -385,7 +385,7 @@ enum WsSessionCheck {
 const WS_MAX_UNKNOWN_SESSION_CHECKS: u8 = 3;
 
 async fn check_ws_session(state: &AppState, token: &str, claims: &Claims) -> WsSessionCheck {
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::timestamp::Timestamp::now().timestamp();
     if now >= claims.exp as i64 {
         return WsSessionCheck::Invalid;
     }

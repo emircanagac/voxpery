@@ -1,13 +1,13 @@
 //! Unread, mention and mute state of server channels, kept per account so every device shows
 //! the same badges.
 
+use crate::timestamp::Timestamp;
 use axum::{
     extract::{Path, State},
     middleware,
     routing::{get, post, put},
     Extension, Json, Router,
 };
-use chrono::{DateTime, Utc};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
@@ -66,7 +66,7 @@ struct MarkChannelReadRequest {
 #[derive(Debug, serde::Serialize)]
 struct ChannelReadState {
     channel_id: Uuid,
-    last_read_at: Option<DateTime<Utc>>,
+    last_read_at: Option<Timestamp>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -201,7 +201,7 @@ async fn mark_channel_read(
 
     let named = match body.message_id {
         Some(message_id) => {
-            sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
+            sqlx::query_as::<_, (Uuid, Timestamp)>(
                 "SELECT id, created_at FROM messages WHERE id = $1 AND channel_id = $2",
             )
             .bind(message_id)
@@ -215,7 +215,7 @@ async fn mark_channel_read(
     let target = match named {
         Some(target) => Some(target),
         None => {
-            sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
+            sqlx::query_as::<_, (Uuid, Timestamp)>(
                 r#"SELECT id, created_at FROM messages
                    WHERE channel_id = $1
                    ORDER BY created_at DESC
@@ -252,7 +252,7 @@ async fn mark_channel_read(
     .rows_affected()
         > 0;
 
-    let last_read_at: DateTime<Utc> = if moved {
+    let last_read_at: Timestamp = if moved {
         read_at
     } else {
         sqlx::query_scalar(
