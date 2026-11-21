@@ -52,7 +52,7 @@ Missed events: a connection that falls behind the shared event stream, or whose 
 
 Session checks: the server re-checks the session of every open connection every 30 seconds and before handling a frame. A session that ended (sign-out, expiry, deleted account, outdated legal acknowledgement) closes the connection with `4001`, and the client stops reconnecting. When the check itself cannot be answered because Redis or the database is unreachable, the connection stays open; after three unanswered checks in a row, or when a frame arrives meanwhile, it is closed without `4001` (`1013` from the periodic check) and the client reconnects as after any dropped connection. An upgrade attempted during such an outage gets `503`.
 
-Reconnecting: while signed in the client never stops retrying a dropped connection. The first retry waits a random 0-3 seconds, so clients do not all return in the same instant after a server restart; later retries back off exponentially with 25% jitter up to 30 seconds and continue at that pace. Only close code `4001` (session ended) stops it. A connection that stays down for more than 3 seconds shows a non-blocking "Connection lost. Reconnecting…" banner with a "Try now" button, and on return the client reloads its state as after any reconnect.
+Reconnecting: while signed in the client never stops retrying a dropped connection. The first retry waits a random 0-3 seconds, so clients do not all return in the same instant after a server restart (a client in a voice channel that is online retries at once instead, inside the server's 10-second voice reconnect grace); later retries back off exponentially with 25% jitter up to 30 seconds and continue at that pace. Only close code `4001` (session ended) stops it. A connection that stays down for more than 3 seconds shows a non-blocking "Connection lost. Reconnecting…" banner with a "Try now" button, and on return the client reloads its state as after any reconnect.
 
 Server restart: a server that is stopping closes every connection with code `1012` and answers new handshakes with HTTP 503. Clients treat it like any other drop: they reconnect and reload their state. Voice is left as it is during the shutdown (no `VoiceStateUpdate` departure is sent); a client that was in a call sends `JoinVoice` again after reconnecting.
 
@@ -102,7 +102,7 @@ Authorization:
 { "type": "LeaveVoice", "data": null }
 ```
 
-Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored.
+Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored. When that connection closes without `LeaveVoice`, the session survives for 10 seconds: a `JoinVoice` for the same channel from a new connection in that time continues it without any departure event; otherwise the departure is published when the grace ends.
 
 ### `SetVoiceControl`
 

@@ -1,6 +1,6 @@
 [package]
 name = "voxpery-server"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Voxpery - Privacy-first communication server"
 license = "AGPL-3.0-only"
@@ -17,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Database (postgres only; default-features = false avoids pulling mysql/rsa)
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "migrate", "macros"] }
 
 # Auth
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
@@ -30,7 +30,7 @@ rand = "0.9"
 
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+time = { version = "0.3.47", features = ["serde", "formatting", "parsing", "macros"] }
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -44,7 +44,7 @@ base64 = "0.22"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 urlencoding = "2"
 bitflags = "2"
-lettre = { version = "0.11.22", features = ["tokio1", "tokio1-native-tls", "builder"] }
+lettre = { version = "0.11.24", features = ["tokio1", "tokio1-native-tls", "builder"] }
 sha2 = "0.10"
 unicode-normalization = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

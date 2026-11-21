@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-11-21
+
+### Security
+- Security updates.
+
+### Fixed
+- Voice channels: a short connection drop no longer shows you leaving and rejoining. The server keeps your place for 10 seconds while the app reconnects, and the app retries at once while you are in voice; only a longer outage shows you as gone.
+- Phones: the "Stream available" and hidden camera tiles in a voice channel keep their button and viewers inside the tile instead of spilling over the next participant.
+- Voice settings name the system default microphone and speaker "Default" on every system; Linux and macOS no longer show "Windows Default".
+
 ## [0.6.0] - 2026-11-16
 
 ### Added

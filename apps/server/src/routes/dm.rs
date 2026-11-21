@@ -45,9 +45,9 @@ pub struct DmChannelInfo {
     pub peer_username: String,
     pub peer_avatar_url: Option<String>,
     pub peer_status: String,
-    pub last_message_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_message_at: Option<crate::timestamp::Timestamp>,
     pub unread_count: i64,
-    pub pinned_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub pinned_at: Option<crate::timestamp::Timestamp>,
     pub is_pinned: bool,
     #[sqlx(default)]
     pub is_group: bool,
@@ -60,7 +60,7 @@ pub struct DmChannelInfo {
     pub members: Vec<DmMemberInfo>,
     /// Orders conversations that have no messages yet.
     #[sqlx(default)]
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: Option<crate::timestamp::Timestamp>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -138,8 +138,8 @@ struct DmMessageRow {
     channel_id: Uuid,
     content: String,
     attachments: Option<serde_json::Value>,
-    edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    created_at: chrono::DateTime<chrono::Utc>,
+    edited_at: Option<crate::timestamp::Timestamp>,
+    created_at: crate::timestamp::Timestamp,
     user_id: Uuid,
     username: String,
     avatar_url: Option<String>,

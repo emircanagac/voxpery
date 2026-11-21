@@ -179,7 +179,16 @@ impl ObjectStore {
     ) -> Result<Response, AppError> {
         let is_read = method == Method::GET;
         let payload_hash = sha256_hex(body.as_deref().unwrap_or_default());
-        let amz_date = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+        let now = crate::timestamp::Timestamp::now().inner();
+        let amz_date = format!(
+            "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+            now.year(),
+            u8::from(now.month()),
+            now.day(),
+            now.hour(),
+            now.minute(),
+            now.second()
+        );
         let headers = [
             ("host", self.host.as_str()),
             ("x-amz-content-sha256", payload_hash.as_str()),

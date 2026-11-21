@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use redis::AsyncCommands;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -13,12 +13,12 @@ pub struct ServerTimeoutEntry {
     pub server_id: Uuid,
     pub user_id: Uuid,
     pub username: String,
-    pub timed_out_until: DateTime<Utc>,
+    pub timed_out_until: Timestamp,
     pub timeout_by: Option<Uuid>,
     pub timeout_by_username: Option<String>,
     pub reason: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -31,7 +31,7 @@ pub struct RaidEventEntry {
     pub channel_id: Option<Uuid>,
     pub channel_name: Option<String>,
     pub metadata: Option<serde_json::Value>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 fn moderation_key(key: &str) -> String {
@@ -131,8 +131,8 @@ pub async fn active_timeout_until(
     db: &PgPool,
     server_id: Uuid,
     user_id: Uuid,
-) -> Result<Option<DateTime<Utc>>, AppError> {
-    let until = sqlx::query_scalar::<_, DateTime<Utc>>(
+) -> Result<Option<Timestamp>, AppError> {
+    let until = sqlx::query_scalar::<_, Timestamp>(
         r#"SELECT timed_out_until
            FROM server_member_timeouts
            WHERE server_id = $1

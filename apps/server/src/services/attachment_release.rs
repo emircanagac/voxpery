@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -38,7 +38,7 @@ struct ReleaseCandidate {
     storage_key: String,
     size_bytes: i64,
     scan_status: String,
-    last_claimed_at: DateTime<Utc>,
+    last_claimed_at: Timestamp,
 }
 
 /// Upload ids referenced by a message's stored `attachments` value.
@@ -111,9 +111,9 @@ pub async fn release_unused_uploads(
     .fetch_all(&mut *tx)
     .await?;
 
-    let grace = chrono::Duration::from_std(UNUSED_UPLOAD_GRACE)
+    let grace = time::Duration::try_from(UNUSED_UPLOAD_GRACE)
         .map_err(|e| AppError::Internal(format!("Invalid upload grace period: {e}")))?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut outcome = ReleaseOutcome {
         checked: candidates.len(),
         released: 0,
@@ -242,7 +242,7 @@ pub async fn retry_pending_file_deletions(
     db: &PgPool,
     attachment_service: &AttachmentService,
 ) -> Result<usize, AppError> {
-    let started: DateTime<Utc> = sqlx::query_scalar("SELECT NOW()").fetch_one(db).await?;
+    let started: Timestamp = sqlx::query_scalar("SELECT NOW()").fetch_one(db).await?;
     let mut removed = 0;
     for _ in 0..RELEASE_BATCH_SIZE {
         let mut tx = db.begin().await?;

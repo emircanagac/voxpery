@@ -1126,7 +1126,7 @@ async fn google_only_user_can_recover_with_email_and_keep_google_connected() {
     let mut hasher = Sha256::new();
     hasher.update(reset_token_plain.as_bytes());
     let reset_token_hash = BASE64.encode(hasher.finalize());
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1);
     sqlx::query(
         "UPDATE password_reset_tokens SET token_hash = $1, expires_at = $2 WHERE user_id = $3",
     )
@@ -1209,7 +1209,7 @@ async fn password_reset_invalidates_old_token() {
     let mut hasher = Sha256::new();
     hasher.update(reset_token_plain.as_bytes());
     let reset_token_hash = BASE64.encode(hasher.finalize());
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1);
     sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
         .bind(user_id)
         .execute(&state.db)
@@ -1312,7 +1312,10 @@ async fn data_export_returns_user_profile_and_messages() {
     assert_eq!(profile_status, StatusCode::OK);
     let profile: serde_json::Value = serde_json::from_slice(&profile_body).unwrap();
     assert_eq!(profile["about_me"], "Building a thoughtful community.");
-    assert!(chrono::DateTime::parse_from_rfc3339(profile["created_at"].as_str().unwrap()).is_ok());
+    assert!(voxpery_server::timestamp::Timestamp::parse_rfc3339(
+        profile["created_at"].as_str().unwrap()
+    )
+    .is_ok());
 
     let req = Request::builder()
         .method("POST")
@@ -1808,7 +1811,7 @@ async fn email_verification_confirm_works_without_existing_session() {
 
     let verification_token = Uuid::new_v4().to_string();
     let token_hash = token_hash_base64(&verification_token);
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1);
 
     sqlx::query(
         "INSERT INTO email_verification_tokens (user_id, email, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
@@ -2330,7 +2333,7 @@ async fn password_reset_tokens_work_once_even_under_concurrent_use() {
     let token = seed_password_reset_token(
         &state,
         user_id,
-        chrono::Utc::now() + chrono::Duration::hours(1),
+        voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1),
     )
     .await;
     let (mut first_app, mut second_app) = (app.clone(), app.clone());
@@ -2358,7 +2361,7 @@ async fn password_reset_tokens_work_once_even_under_concurrent_use() {
     let expired = seed_password_reset_token(
         &state,
         user_id,
-        chrono::Utc::now() - chrono::Duration::minutes(1),
+        voxpery_server::timestamp::Timestamp::now() - time::Duration::minutes(1),
     )
     .await;
     let (status, _) = oneshot(
@@ -2524,7 +2527,7 @@ async fn changing_email_needs_the_password_and_waits_for_confirmation() {
         .bind(user_id)
         .bind(pending_email)
         .bind(token_hash_base64(&plain))
-        .bind(chrono::Utc::now() + chrono::Duration::hours(1))
+        .bind(voxpery_server::timestamp::Timestamp::now() + time::Duration::hours(1))
         .execute(&state.db)
         .await
         .unwrap();
@@ -2734,7 +2737,7 @@ async fn google_only_account_deletion_needs_a_recent_sign_in() {
         .await
         .unwrap();
     let token_issued = |seconds_ago: i64| {
-        let now = chrono::Utc::now().timestamp();
+        let now = voxpery_server::timestamp::Timestamp::now().timestamp();
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &json!({

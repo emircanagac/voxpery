@@ -129,7 +129,7 @@ impl WebPushConfig {
         }
         let claims = Claims {
             aud: audience,
-            exp: chrono::Utc::now().timestamp() + VAPID_TOKEN_LIFETIME_SECS,
+            exp: crate::timestamp::Timestamp::now().timestamp() + VAPID_TOKEN_LIFETIME_SECS,
             sub: &self.subject,
         };
         let token =

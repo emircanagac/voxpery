@@ -500,6 +500,7 @@ pub(super) async fn join_voice(
             let previous_holder = state
                 .voice_session_connections
                 .insert(user_id, (connection_id, client_tx.clone()));
+            state.peers.forget_voice_except(user_id, None);
             let previous_sid = state
                 .voice_participant_sids
                 .get(&user_id)

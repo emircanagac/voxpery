@@ -26,13 +26,24 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.6.0 preparation (not release sign-off)
+### v0.6.1 preparation (not release sign-off)
 
-Version metadata is prepared for `0.6.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.6.1`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.6.0` and `voxpery/voxpery-web:v0.6.0`, the embedded web badge/build tag, desktop version `0.6.0`, the `Voxpery_0.6.0_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.6.1` and `voxpery/voxpery-web:v0.6.1`, the embedded web badge/build tag, desktop version `0.6.1`, the `Voxpery_0.6.1_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.6.1 checks
+
+No migrations. A server restart is enough; take the usual backup.
+
+- [ ] voxpery.com `/version.json` reports `v0.6.1` after the deploy and the header badge shows `v0.6.1`.
+- [ ] Two users in a voice channel: cutting one user's network for about 3 seconds shows no leave and rejoin to the other, and audio comes back by itself; a cut longer than 10 seconds shows the user leaving and removes them from the call.
+- [ ] With two server instances, the reconnect after a short cut may land on the other instance: the call goes on and nobody sees a leave.
+- [ ] Phone (320 and 375 px wide): with someone sharing their screen, the "Stream available" tile keeps its viewers and "Watch stream" button inside; the same for a hidden camera tile.
+- [ ] Voice settings on Linux, macOS and in a browser show the default microphone and speaker as "Default".
+- [ ] README on GitHub shows the Sponsor badge and no AUR install line.
 
 ### v0.6.0 checks
 

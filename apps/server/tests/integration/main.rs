@@ -1000,7 +1000,7 @@ async fn send_with_attachment(
 async fn upload_release_state(
     state: &AppState,
     id: Uuid,
-) -> Option<(String, Option<chrono::DateTime<chrono::Utc>>)> {
+) -> Option<(String, Option<voxpery_server::timestamp::Timestamp>)> {
     sqlx::query_as("SELECT storage_key, release_check_at FROM uploaded_attachments WHERE id = $1")
         .bind(id)
         .fetch_optional(&state.db)
@@ -1034,7 +1034,7 @@ async fn storage_used(state: &AppState, user_id: Uuid) -> i64 {
 async fn seed_password_reset_token(
     state: &AppState,
     user_id: Uuid,
-    expires_at: chrono::DateTime<chrono::Utc>,
+    expires_at: voxpery_server::timestamp::Timestamp,
 ) -> String {
     let token = Uuid::new_v4().to_string();
     let mut hasher = Sha256::new();

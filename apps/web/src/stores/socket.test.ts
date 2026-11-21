@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { useSocketStore, websocketReconnectDelayMs } from './socket'
+import { setVoiceSessionActive, useSocketStore, websocketReconnectDelayMs } from './socket'
 import { act } from '@testing-library/react'
 
 const { reportObservabilityEvent } = vi.hoisted(() => ({
@@ -84,6 +84,7 @@ describe('WebSocket Store', () => {
   })
 
   afterEach(() => {
+    setVoiceSessionActive(false)
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
     vi.useRealTimers()
@@ -267,6 +268,38 @@ describe('WebSocket Store', () => {
       ['websocket_reconnect_succeeded'],
     ])
     unsubscribe()
+  })
+
+  it('retries at once while in voice so the server keeps the voice session', async () => {
+    act(() => {
+      useSocketStore.getState().connect('test-token')
+    })
+    await vi.runAllTimersAsync()
+    setVoiceSessionActive(true)
+
+    const timeout = vi.spyOn(globalThis, 'setTimeout')
+    act(() => {
+      useSocketStore.getState().socket?.close()
+    })
+    expect(timeout.mock.calls.at(-1)?.[1]).toBe(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('keeps the random first retry outside voice', () => {
+    act(() => {
+      useSocketStore.getState().connect('test-token')
+    })
+    return vi.runAllTimersAsync().then(async () => {
+      const timeout = vi.spyOn(globalThis, 'setTimeout')
+      act(() => {
+        useSocketStore.getState().socket?.close()
+      })
+      const delays = timeout.mock.calls.map((call) => call[1])
+      expect(delays.at(-1)).toEqual(expect.any(Number))
+      expect(delays.at(-1)).toBeLessThanOrEqual(3000)
+      expect(useSocketStore.getState().reconnectTimer).not.toBeNull()
+    })
   })
 
   it('should reconnect web cookie-auth sessions even when token is null', async () => {

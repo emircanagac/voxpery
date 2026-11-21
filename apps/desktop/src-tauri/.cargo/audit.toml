@@ -32,4 +32,8 @@ ignore = [
   "RUSTSEC-2026-0370", # zvariant unmaintained (zbus 5 chain)
   "RUSTSEC-2026-0371", # zbus_names unmaintained (zbus 5 chain)
   "RUSTSEC-2026-0372", # zvariant_derive unmaintained (zbus 5 chain)
+  # chrono is only listed in Cargo.lock as an optional dependency of serde_with (via
+  # tauri-utils); `cargo tree -i chrono -e all --target all --all-features` prints nothing, so it
+  # is never built and the app does not use it. Remove once the lock no longer lists chrono.
+  "RUSTSEC-2026-0543", # chrono unmaintained (lock-only, never built)
 ]

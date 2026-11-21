@@ -289,9 +289,10 @@ pub(crate) async fn remove_livekit_participant(
 /// Leaving normally disconnects LiveKit too; this covers a closed tab or browser whose LiveKit
 /// leave never arrived, which LiveKit would otherwise only notice after its own timeout.
 pub(crate) const DEPARTED_VOICE_LEAVE_DELAY: Duration = Duration::from_millis(1500);
-/// How long a user who lost their last WebSocket may take to rejoin voice before their LiveKit
-/// participant is removed. Long enough for a quick WebSocket reconnect to keep the call.
-pub(crate) const DEPARTED_VOICE_DISCONNECT_DELAY: Duration = Duration::from_secs(5);
+/// How long the voice session of a dropped WebSocket survives before the user is shown as gone
+/// and their LiveKit participant is removed. A client that reconnects and rejoins the same
+/// channel within it keeps the call, and nobody sees it leave and come back.
+pub(crate) const VOICE_RECONNECT_GRACE: Duration = Duration::from_secs(10);
 /// How long a LiveKit participant may exist before its client reports the join over the
 /// WebSocket. The client connects to LiveKit first and publishes the microphone before it
 /// sends `JoinVoice`.

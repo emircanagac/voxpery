@@ -31,7 +31,7 @@ pub struct FriendRequestInfo {
     pub requester_username: String,
     pub receiver_username: String,
     pub status: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: crate::timestamp::Timestamp,
 }
 
 #[derive(Debug, serde::Serialize)]

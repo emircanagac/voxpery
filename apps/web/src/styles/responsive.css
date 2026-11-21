@@ -754,7 +754,9 @@ textarea {
     top: 120px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     --stage-gap: 8px;
-    grid-auto-rows: minmax(0, 1fr);
+    /* `auto` lets a row grow to a tile that keeps its content height (the stream and hidden-camera
+       tiles below); every other tile has min-height: 0, so its row still shares the space evenly. */
+    grid-auto-rows: minmax(auto, 1fr);
     justify-items: stretch;
     align-content: stretch;
     overflow-y: auto;
@@ -816,6 +818,12 @@ textarea {
     min-height: 0;
     gap: 6px;
     padding: 12px 8px;
+  }
+
+  /* Its avatar, title, viewers and button must stay inside: the automatic minimum keeps the
+     tile (and its row) at least as tall as its content, and the stage scrolls instead. */
+  .screen-share-stage:not(.screen-share-stage--strip) .voice-stage-hidden-media-tile {
+    min-height: auto;
   }
 
   .voice-stage-avatar {
@@ -1895,7 +1903,7 @@ textarea {
     top: 112px;
     bottom: calc(var(--mobile-bottom-dock-height) + 12px + env(safe-area-inset-bottom, 0px));
     --stage-gap: 6px;
-    grid-auto-rows: minmax(0, 1fr);
+    grid-auto-rows: minmax(auto, 1fr);
     align-content: stretch;
     overflow-y: auto;
   }

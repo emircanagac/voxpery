@@ -30,8 +30,8 @@ pub(super) struct ServerReportEntry {
     pub(super) reason: String,
     pub(super) details: Option<String>,
     pub(super) status: String,
-    pub(super) created_at: chrono::DateTime<chrono::Utc>,
-    pub(super) resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) created_at: crate::timestamp::Timestamp,
+    pub(super) resolved_at: Option<crate::timestamp::Timestamp>,
     pub(super) resolved_by: Option<Uuid>,
     pub(super) resolved_by_username: Option<String>,
 }

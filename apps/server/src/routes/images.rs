@@ -79,7 +79,7 @@ async fn grant_allows(state: &AppState, grant: Option<&str>, image_url: &str) ->
         &state.jwt_secret,
         grant,
         image_url,
-        chrono::Utc::now().timestamp(),
+        crate::timestamp::Timestamp::now().timestamp(),
     ) {
         Some(image_proxy_grant::VerifiedGrant::Image) => true,
         Some(image_proxy_grant::VerifiedGrant::User(session)) => {

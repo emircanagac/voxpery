@@ -27,6 +27,19 @@ export function websocketReconnectDelayMs(
     return Math.round(rawDelay * jitter)
 }
 
+// While the user is in a voice channel the server keeps their session for a short reconnect
+// grace (10 s). The first retry then goes out at once instead of after the random spread that
+// keeps everyone from returning together after a server restart.
+let voiceSessionActive = false
+
+export function setVoiceSessionActive(active: boolean): void {
+    voiceSessionActive = active
+}
+
+function firstReconnectIsUrgent(): boolean {
+    return voiceSessionActive && (typeof navigator === 'undefined' || navigator.onLine !== false)
+}
+
 interface SocketState {
     socket: WebSocket | null
     isConnected: boolean
@@ -145,7 +158,9 @@ export const useSocketStore = create<SocketState>((set, get) => ({
                 if (nextAttempt === RECONNECT_LONG_OUTAGE_ATTEMPT + 1) {
                     reportObservabilityEvent('websocket_reconnect_exhausted')
                 }
-                const delayMs = websocketReconnectDelayMs(nextAttempt)
+                const delayMs = nextAttempt === 1 && firstReconnectIsUrgent()
+                    ? 0
+                    : websocketReconnectDelayMs(nextAttempt)
                 const reconnectTimer = setTimeout(() => {
                     const { token: latestToken, shouldReconnect: latestShouldReconnect, connectionId: latestConnectionId } = get()
                     const currentSocket = get().socket

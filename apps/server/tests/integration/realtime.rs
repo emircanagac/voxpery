@@ -416,14 +416,9 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     assert_eq!(moved["data"]["server_muted"], true);
     assert_eq!(moved["data"]["server_deafened"], true);
 
+    // A closed socket keeps voice for the reconnect grace; the rejoin below still gets the
+    // server mute and deafen back from the stored moderation.
     target_ws.close(None).await.unwrap();
-    for _ in 0..40 {
-        if !state.voice_sessions.contains_key(&target_user_id) {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-    assert!(!state.voice_sessions.contains_key(&target_user_id));
     let mut reconnect_request = format!("ws://{addr}/ws").into_client_request().unwrap();
     reconnect_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
@@ -1439,11 +1434,18 @@ async fn voice_session_belongs_to_the_connection_that_joined() {
         "a leave from a connection that no longer holds voice ended the session"
     );
 
-    // Closing the connection that holds voice ends it, although another tab stays open.
+    // Closing the connection that holds voice ends it after the reconnect grace, although
+    // another tab stays open.
     second.close(None).await.unwrap();
     drop(second);
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert_eq!(
+        state.voice_sessions.get(&user_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "voice ended before the reconnect grace was over"
+    );
     let mut ended = false;
-    for _ in 0..50 {
+    for _ in 0..150 {
         if !state.voice_sessions.contains_key(&user_id) {
             ended = true;
             break;
@@ -1626,12 +1628,63 @@ async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sess
         .insert(dropper_id.to_string(), "PA_dropper".to_string());
     drop(dropper_ws);
     assert!(
-        !was_removed(dropper_id, 2_000).await,
-        "a dropped WebSocket must get time to reconnect"
+        !was_removed(dropper_id, 8_000).await,
+        "a dropped WebSocket must get the reconnect grace"
     );
     assert!(
         was_removed(dropper_id, 8_000).await,
         "a lost WebSocket did not remove the LiveKit participant"
+    );
+}
+
+#[tokio::test]
+async fn a_quick_reconnect_keeps_voice_without_a_departure() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let addr = spawn_ws_app(&state).await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "graceowner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Grace Guild").await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let (dropper_auth, dropper_id, _) = register_named_user(&mut app, "gracedropper").await;
+    join_with_invite(&mut app, &dropper_auth, &invite_code).await;
+    let mut observer = connect_ws(addr, &owner_auth).await;
+    ws_subscribe(&mut observer, &[voice_channel_id]).await;
+    let join = json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } });
+
+    let mut first = connect_ws(addr, &dropper_auth).await;
+    ws_send(&mut first, join.clone()).await;
+    ws_barrier(&mut first).await;
+    let joined = receive_ws_event(&mut observer, "VoiceStateUpdate").await;
+    assert_eq!(joined["data"]["channel_id"], voice_channel_id.to_string());
+
+    // The network drops for a moment; the client reconnects and rejoins within the grace.
+    drop(first);
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert_eq!(
+        state.voice_sessions.get(&dropper_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "a dropped connection ended voice before the grace was over"
+    );
+    let mut second = connect_ws(addr, &dropper_auth).await;
+    ws_send(&mut second, join).await;
+    ws_barrier(&mut second).await;
+
+    // Past the grace the call goes on, and the others never saw it end.
+    assert_no_ws_event_mentioning(
+        &mut observer,
+        "VoiceStateUpdate",
+        "\"channel_id\":null",
+        std::time::Duration::from_secs(11),
+    )
+    .await;
+    assert_eq!(
+        state.voice_sessions.get(&dropper_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "a rejoin within the grace lost the voice session"
     );
 }
 
@@ -2624,8 +2677,10 @@ async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
     assert!(state_b.voice_sessions.contains_key(&target_id));
     assert!(state_b.is_online(target_id));
 
-    // Leaving reaches the other instance as usual.
+    // Leaving reaches the other instance as usual, once the dropped connection's reconnect
+    // grace is over.
     drop(reconnected_ws);
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     wait_for("B to see the target leave", || {
         !state_b.voice_sessions.contains_key(&target_id) && !state_b.is_online(target_id)
     })

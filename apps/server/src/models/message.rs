@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -24,8 +24,8 @@ pub struct MessageWithAuthor {
     pub channel_id: Uuid,
     pub content: String,
     pub attachments: Option<serde_json::Value>,
-    pub edited_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub edited_at: Option<Timestamp>,
+    pub created_at: Timestamp,
     pub author: MessageAuthor,
     #[serde(default)]
     pub reactions: Vec<MessageReactionSummary>,

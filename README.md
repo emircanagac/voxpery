@@ -11,6 +11,7 @@ Use Voxpery in your browser, download the desktop app, or host the same stack yo
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml/badge.svg)](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/emircanagac)
 
 [Use in browser](https://voxpery.com/register) · [Download desktop](https://github.com/emircanagac/voxpery/releases/latest) · [Self-host](docs/DEPLOYMENT.md)
 
@@ -36,7 +37,7 @@ Voxpery is still growing. Larger platforms have broader integrations and more ma
 
 **Use the hosted app:** [Create an account](https://voxpery.com/register) and start chatting in your browser. No server setup is required.
 
-**Desktop app:** Download it for Windows, macOS, or Linux (.deb, .rpm, Flatpak) from the [latest release](https://github.com/emircanagac/voxpery/releases/latest). On Arch Linux, install the AUR package with `yay -S voxpery-bin`.
+**Desktop app:** Download it for Windows, macOS, or Linux (.deb, .rpm, Flatpak) from the [latest release](https://github.com/emircanagac/voxpery/releases/latest).
 
 **Self-host:** Start the web app, server, LiveKit, PostgreSQL, and Redis with Docker Compose:
 

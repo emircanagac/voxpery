@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -12,5 +12,5 @@ pub struct Channel {
     pub channel_type: String, // "text" or "voice"
     pub category: Option<String>,
     pub position: i32,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }

@@ -73,7 +73,7 @@ pub(super) async fn forgot_password(
     // Generate token
     let token_plain = Uuid::new_v4().to_string();
     let token_hash = token_hash_base64(&token_plain);
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = crate::timestamp::Timestamp::now() + time::Duration::hours(1);
 
     // Delete any existing token for this user to respect UNIQUE(user_id) constraint
     sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
@@ -173,7 +173,7 @@ pub(super) async fn reset_password(
     #[derive(sqlx::FromRow)]
     struct TokenRow {
         user_id: Uuid,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: crate::timestamp::Timestamp,
     }
 
     let password_hash = hash_password_async(&body.new_password).await?;
@@ -191,7 +191,7 @@ pub(super) async fn reset_password(
     let Some(row) = token_row else {
         return Err(AppError::Validation("Invalid password reset token".into()));
     };
-    if chrono::Utc::now() > row.expires_at {
+    if crate::timestamp::Timestamp::now() > row.expires_at {
         // Keep the deletion: an expired token is spent either way.
         tx.commit().await?;
         return Err(AppError::Validation(

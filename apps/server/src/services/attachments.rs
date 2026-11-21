@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-use chrono::Datelike;
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use serde_json::Value;
@@ -398,7 +397,7 @@ impl AttachmentService {
     }
 
     pub fn signed_content_url(&self, attachment_id: Uuid, signing_secret: &str) -> String {
-        let exp = chrono::Utc::now().timestamp() + self.url_ttl_secs as i64;
+        let exp = crate::timestamp::Timestamp::now().timestamp() + self.url_ttl_secs as i64;
         let sig = compute_signature(signing_secret, attachment_id, exp);
         format!(
             "{}/api/attachments/content/{}?exp={}&sig={}",
@@ -413,7 +412,7 @@ impl AttachmentService {
         sig_hex: &str,
         signing_secret: &str,
     ) -> bool {
-        if exp < chrono::Utc::now().timestamp() {
+        if exp < crate::timestamp::Timestamp::now().timestamp() {
             return false;
         }
         verify_signature(signing_secret, attachment_id, exp, sig_hex)
@@ -865,9 +864,9 @@ impl AttachmentService {
             bytes,
         } = prepared;
 
-        let now = chrono::Utc::now();
+        let now = crate::timestamp::Timestamp::now();
         let storage_key =
-            LocalAttachmentStorageKey::new(now.year() as u16, now.month() as u8, Uuid::new_v4());
+            LocalAttachmentStorageKey::new(now.year() as u16, now.month(), Uuid::new_v4());
         let key = storage_key.storage_key(&self.key_prefix);
         if let Some(store) = &self.object_store {
             store.put(&key, bytes, &content_type).await?;

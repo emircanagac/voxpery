@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use crate::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::fmt;
@@ -23,9 +23,9 @@ pub struct User {
     pub about_me: String,
     pub status: String,
     pub dm_privacy: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub google_id: Option<String>,
-    pub username_changed_at: Option<DateTime<Utc>>,
+    pub username_changed_at: Option<Timestamp>,
 }
 
 impl fmt::Debug for User {
@@ -61,7 +61,7 @@ fn redact_email_for_debug(email: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPublic {
     pub id: Uuid,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub username: String,
     pub email: String,
     pub email_verified: bool,
@@ -74,7 +74,7 @@ pub struct UserPublic {
     /// True when this account has a local password hash (can login with email/password).
     pub has_password: bool,
     /// When the user last changed their username (for the seven-day change limit).
-    pub username_changed_at: Option<DateTime<Utc>>,
+    pub username_changed_at: Option<Timestamp>,
 }
 
 /// Minimal profile surface safe to broadcast over WebSocket to other users.
