@@ -416,14 +416,9 @@ async fn voice_moderation_is_audited_and_queryable_with_permission_and_paginatio
     assert_eq!(moved["data"]["server_muted"], true);
     assert_eq!(moved["data"]["server_deafened"], true);
 
+    // A closed socket keeps voice for the reconnect grace; the rejoin below still gets the
+    // server mute and deafen back from the stored moderation.
     target_ws.close(None).await.unwrap();
-    for _ in 0..40 {
-        if !state.voice_sessions.contains_key(&target_user_id) {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-    assert!(!state.voice_sessions.contains_key(&target_user_id));
     let mut reconnect_request = format!("ws://{addr}/ws").into_client_request().unwrap();
     reconnect_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
@@ -1657,7 +1652,7 @@ async fn a_quick_reconnect_keeps_voice_without_a_departure() {
     let (dropper_auth, dropper_id, _) = register_named_user(&mut app, "gracedropper").await;
     join_with_invite(&mut app, &dropper_auth, &invite_code).await;
     let mut observer = connect_ws(addr, &owner_auth).await;
-    ws_barrier(&mut observer).await;
+    ws_subscribe(&mut observer, &[voice_channel_id]).await;
     let join = json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } });
 
     let mut first = connect_ws(addr, &dropper_auth).await;
@@ -2682,8 +2677,10 @@ async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
     assert!(state_b.voice_sessions.contains_key(&target_id));
     assert!(state_b.is_online(target_id));
 
-    // Leaving reaches the other instance as usual.
+    // Leaving reaches the other instance as usual, once the dropped connection's reconnect
+    // grace is over.
     drop(reconnected_ws);
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     wait_for("B to see the target leave", || {
         !state_b.voice_sessions.contains_key(&target_id) && !state_b.is_online(target_id)
     })
