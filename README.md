@@ -11,6 +11,7 @@ Use Voxpery in your browser, download the desktop app, or host the same stack yo
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml/badge.svg)](https://github.com/emircanagac/voxpery/actions/workflows/ci.yml)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/emircanagac)
 
 [Use in browser](https://voxpery.com/register) · [Download desktop](https://github.com/emircanagac/voxpery/releases/latest) · [Self-host](docs/DEPLOYMENT.md)
 
