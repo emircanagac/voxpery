@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyPreferredAudioOutputDevice,
+  enumerateVoiceDevices,
   getPreferredMicrophoneStream,
   VOICE_DEVICE_PREFERENCES_CHANGED_EVENT,
   VOICE_INPUT_DEVICE_KEY,
@@ -32,6 +33,24 @@ describe('voice device preferences', () => {
     } else {
       Reflect.deleteProperty(HTMLMediaElement.prototype, 'setSinkId')
     }
+  })
+
+  it('names the system default devices without an operating system', async () => {
+    const enumerateDevices = vi.fn().mockResolvedValue([
+      { deviceId: 'default', kind: 'audioinput', label: 'Default - Built-in Audio', groupId: 'a' },
+      { deviceId: 'mic-1', kind: 'audioinput', label: 'USB Microphone', groupId: 'b' },
+      { deviceId: 'default', kind: 'audiooutput', label: 'Default - Built-in Audio', groupId: 'a' },
+      { deviceId: 'speaker-1', kind: 'audiooutput', label: 'Headphones', groupId: 'c' },
+    ])
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { enumerateDevices },
+    })
+
+    const { inputs, outputs } = await enumerateVoiceDevices()
+    expect(inputs[0]).toEqual({ id: '', label: 'Default', fullLabel: 'Default microphone' })
+    expect(outputs[0]).toEqual({ id: '', label: 'Default', fullLabel: 'Default speaker' })
+    expect(JSON.stringify([inputs, outputs])).not.toContain('Windows')
   })
 
   it('uses the system default microphone when no custom device is stored', async () => {

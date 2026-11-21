@@ -61,7 +61,9 @@ import {
   type ServerNotificationPreference,
 } from '../notificationPreferences'
 import {
+  DEFAULT_INPUT_DEVICE_FULL_LABEL,
   DEFAULT_INPUT_DEVICE_LABEL,
+  DEFAULT_OUTPUT_DEVICE_FULL_LABEL,
   DEFAULT_OUTPUT_DEVICE_LABEL,
   enumerateVoiceDevices,
   getMicrophonePermissionState,
@@ -113,12 +115,12 @@ const PTT_KEY_KEY = 'voxpery-settings-ptt-key'
 const DEFAULT_INPUT_DEVICE_OPTION: VoiceDeviceOption = {
   id: '',
   label: DEFAULT_INPUT_DEVICE_LABEL,
-  fullLabel: 'Windows default microphone',
+  fullLabel: DEFAULT_INPUT_DEVICE_FULL_LABEL,
 }
 const DEFAULT_OUTPUT_DEVICE_OPTION: VoiceDeviceOption = {
   id: '',
   label: DEFAULT_OUTPUT_DEVICE_LABEL,
-  fullLabel: 'Windows default speaker',
+  fullLabel: DEFAULT_OUTPUT_DEVICE_FULL_LABEL,
 }
 
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
