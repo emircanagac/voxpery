@@ -62,6 +62,9 @@ export default function CustomServerPanel({ variant }: Props) {
     void check()
   }
 
+  // Settings buttons match the other settings actions (such as "Check now"); sign-in keeps its own.
+  const actionClass = variant === 'settings' ? 'user-toggle account-action-btn' : 'auth-btn'
+
   if (!open) {
     return (
       <button type="button" className="auth-sign-in-code-toggle" onClick={() => setOpen(true)}>
@@ -71,7 +74,7 @@ export default function CustomServerPanel({ variant }: Props) {
   }
 
   return (
-    <div className={variant === 'login' ? 'auth-sign-in-code custom-server-panel' : 'custom-server-panel'}>
+    <div className={variant === 'login' ? 'auth-sign-in-code custom-server-panel' : 'custom-server-panel custom-server-panel--settings'}>
       <p className="custom-server-current">
         Connected to <strong>{serverLabel(active)}</strong>
         {active?.insecure && ' (not encrypted)'}
@@ -81,7 +84,9 @@ export default function CustomServerPanel({ variant }: Props) {
           Use voxpery.com instead (restarts Voxpery)
         </button>
       )}
-      <label htmlFor={`custom-server-address-${variant}`}>Self-hosted server address</label>
+      <label htmlFor={`custom-server-address-${variant}`} className={variant === 'settings' ? 'user-setting-title' : undefined}>
+        Self-hosted server address
+      </label>
       <p className="custom-server-hint" id={`custom-server-hint-${variant}`}>
         The server's website or its API address.
       </p>
@@ -101,7 +106,7 @@ export default function CustomServerPanel({ variant }: Props) {
           autoComplete="off"
           spellCheck={false}
         />
-        <button type="button" className="auth-btn" onClick={() => void check()} disabled={busy || !address.trim()}>
+        <button type="button" className={actionClass} onClick={() => void check()} disabled={busy || !address.trim()}>
           {busy && !checked ? 'Checking...' : 'Check'}
         </button>
       </div>
@@ -122,7 +127,7 @@ export default function CustomServerPanel({ variant }: Props) {
             <input type="checkbox" checked={trusted} onChange={(event) => setTrusted(event.target.checked)} />
             I trust this server
           </label>
-          <button type="button" className="auth-btn" onClick={() => void connect()} disabled={busy || !trusted}>
+          <button type="button" className={actionClass} onClick={() => void connect()} disabled={busy || !trusted}>
             {busy ? 'Connecting...' : 'Connect and restart'}
           </button>
         </div>

@@ -269,6 +269,41 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await expect(settingsModal).toContainText('Launch on startup')
     await expect(settingsModal).toContainText('Keep running in tray on close')
 
+    // The self-hosted server field matches the other settings controls, not the sign-in card.
+    for (const theme of ['dark', 'light'] as const) {
+      await page.evaluate(async (theme) => {
+        const { setThemePreference } = await import('/src/theme.ts')
+        setThemePreference({ theme, customAccent: null, customThemeColor: null, customThemeMode: theme })
+      }, theme)
+      await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme)
+      const looks = await settingsModal.evaluate((modal) => {
+        const input = modal.querySelector<HTMLInputElement>('#custom-server-address-settings')!
+        const check = [...modal.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Check')!
+        const checkNow = [...modal.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Check now')!
+        const label = modal.querySelector<HTMLLabelElement>('label[for="custom-server-address-settings"]')!
+        const style = getComputedStyle(input)
+        const probe = document.createElement('div')
+        probe.style.background = 'var(--bg-input)'
+        modal.append(probe)
+        const inputBackground = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return {
+          inputHeight: input.getBoundingClientRect().height,
+          inputBackground: style.backgroundColor,
+          expectedBackground: inputBackground,
+          checkHeight: check.getBoundingClientRect().height,
+          checkNowHeight: checkNow.getBoundingClientRect().height,
+          checkClass: check.className,
+          labelTransform: getComputedStyle(label).textTransform,
+        }
+      })
+      expect(looks.inputHeight, theme).toBeCloseTo(30, 0)
+      expect(looks.inputBackground, theme).toBe(looks.expectedBackground)
+      expect(looks.checkClass, theme).toContain('account-action-btn')
+      expect(looks.checkHeight, theme).toBeCloseTo(looks.checkNowHeight, 0)
+      expect(looks.labelTransform, theme).toBe('none')
+    }
+
     await settingsModal.getByRole('button', { name: 'About Voxpery' }).click()
     await expect.poll(() => page.evaluate(() => (
       window as Window & { __testOpenedUrls: string[] }

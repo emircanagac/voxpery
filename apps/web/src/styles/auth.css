@@ -344,6 +344,24 @@
 .auth-sign-in-code-row input {
   flex: 1;
   min-width: 0;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--input-border);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.auth-sign-in-code-row input:focus {
+  border-color: var(--accent-primary);
+}
+
+.auth-sign-in-code-row input:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .auth-sign-in-code-row .auth-btn {
@@ -370,6 +388,40 @@
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-secondary);
+}
+
+/* In Settings the panel matches the other setting rows and controls, not the sign-in card. */
+.custom-server-panel--settings > label.user-setting-title {
+  margin: 12px 0 4px;
+  text-transform: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.custom-server-panel--settings .auth-sign-in-code-row {
+  align-items: center;
+}
+
+.custom-server-panel--settings .auth-sign-in-code-row input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(var(--ui-contrast-rgb), 0.16);
+  font-size: 13px;
+}
+
+.custom-server-panel--settings .auth-sign-in-code-row input:focus {
+  border-color: var(--accent-border-strong);
+  box-shadow: var(--focus-ring);
+}
+
+.custom-server-panel--settings .account-action-btn {
+  flex: 0 0 auto;
+}
+
+.custom-server-panel--settings .custom-server-confirm .account-action-btn {
+  margin-top: 4px;
 }
 
 .custom-server-panel .auth-sign-in-code-toggle {
