@@ -3,6 +3,24 @@
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+use crate::services::permissions::Permissions;
+
+/// Permission flag names set in `bits`, for audit details a moderator can read.
+pub fn permission_names(bits: i64) -> Vec<&'static str> {
+    Permissions::from_bits_truncate(bits)
+        .iter_names()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Permission flags gained and lost between two bit sets.
+pub fn permission_diff(old_bits: i64, new_bits: i64) -> serde_json::Value {
+    serde_json::json!({
+        "added": permission_names(new_bits & !old_bits),
+        "removed": permission_names(old_bits & !new_bits),
+    })
+}
+
 pub const VOICE_MEMBER_MUTE: &str = "voice_member_mute";
 pub const VOICE_MEMBER_UNMUTE: &str = "voice_member_unmute";
 pub const VOICE_MEMBER_DEAFEN: &str = "voice_member_deafen";
@@ -205,4 +223,24 @@ pub async fn purge_stale(db: &PgPool) -> Result<(u64, u64), sqlx::Error> {
         }
     }
     Ok((cleared, deleted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permission_diff_names_added_and_removed_flags() {
+        let old = (Permissions::SEND_MESSAGES | Permissions::CONNECT_VOICE).bits();
+        let new = (Permissions::SEND_MESSAGES | Permissions::BAN_MEMBERS).bits();
+        assert_eq!(
+            permission_diff(old, new),
+            serde_json::json!({ "added": ["BAN_MEMBERS"], "removed": ["CONNECT_VOICE"] })
+        );
+        assert_eq!(permission_names(0), Vec::<&str>::new());
+        assert_eq!(
+            permission_names(Permissions::VIEW_SERVER.bits() | (1 << 62)),
+            vec!["VIEW_SERVER"]
+        );
+    }
 }

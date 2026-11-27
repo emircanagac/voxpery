@@ -60,6 +60,46 @@ describe('ServerSettingsAuditLog', () => {
         expect(screen.getByText('Moved after a moderation warning')).toBeVisible()
     })
 
+    it('explains role, permission override and reorder changes', () => {
+        const base = { ...moveEntry, resource_username: null, channel_name: null, reason: null }
+        render(<ServerSettingsAuditLog
+            entries={[
+                { ...base, id: 'role-new', action: 'role_create', resource_type: 'role', details: { name: 'Helpers', permissions: ['MANAGE_PINS'] } },
+                {
+                    ...base,
+                    id: 'role-edit',
+                    action: 'role_update',
+                    resource_type: 'role',
+                    details: { name: 'Mods', old_name: 'Helpers', new_name: 'Mods', permissions: { added: ['BAN_MEMBERS', 'MANAGE_SERVER'], removed: ['MANAGE_PINS'] } },
+                },
+                { ...base, id: 'role-gone', action: 'role_delete', resource_type: 'role', details: { name: 'Old crew' } },
+                {
+                    ...base,
+                    id: 'override',
+                    action: 'channel_override_update',
+                    resource_type: 'channel',
+                    details: { role_name: 'Everyone', channel_name: 'announcements', allow: [], deny: ['SEND_MESSAGES'] },
+                },
+                { ...base, id: 'cat-override', action: 'category_override_delete', resource_type: 'category', details: { role_name: 'Guests', category: 'Voice' } },
+                { ...base, id: 'reorder', action: 'channel_reorder', resource_type: 'server', details: { channels: [{ name: 'a' }, { name: 'b' }] } },
+            ]}
+            memberUsernameById={new Map()} actionFilter="" onActionFilterChange={vi.fn()}
+            hasMore={false} loadingMore={false} onLoadMore={vi.fn()}
+        />)
+        expect(screen.getByText('Created role')).toBeVisible()
+        expect(screen.getByText('Helpers')).toBeVisible()
+        expect(screen.getByText('Manage pins')).toBeVisible()
+        expect(screen.getByText('Edited role')).toBeVisible()
+        expect(screen.getByText('renamed from Helpers · granted Ban members, Full admin · revoked Manage pins')).toBeVisible()
+        expect(screen.getByText('Deleted role')).toBeVisible()
+        expect(screen.getByText('Changed permissions for')).toBeVisible()
+        expect(screen.getByText('in #announcements · denied: Send messages')).toBeVisible()
+        expect(screen.getByText('Removed permission override for')).toBeVisible()
+        expect(screen.getByText('in Voice')).toBeVisible()
+        expect(screen.getByText('2 channels moved')).toBeVisible()
+        expect(screen.getByRole('option', { name: 'Roles: edit' })).toBeInTheDocument()
+    })
+
     it('reports filter changes and requests the next server page', () => {
         const onActionFilterChange = vi.fn()
         const onLoadMore = vi.fn()

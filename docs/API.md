@@ -222,6 +222,7 @@ Notes:
   - Cursor pagination uses `before=<audit-entry-id>` and `limit` from 1 to 100 (default 50).
   - Returns `{ entries, next_before }`, newest first. Pass `next_before` as the next request's `before` value.
   - Voice moderation entries identify the actor, target member, channel, action, and optional reason.
+  - Permission and structure changes are recorded in the same transaction as the change, so a change whose entry cannot be written is rolled back: `role_create`, `role_update` (old and new name and color, permission flags `added`/`removed`), `role_reorder`, `role_delete`, `member_role_change`, `channel_override_update`/`channel_override_delete` and `category_override_update`/`category_override_delete` (role, old and new `allow`/`deny` flag names), `category_create`, `category_delete`, `channel_reorder` (moved channels with old and new positions) and `category_reorder`. Unchanged saves and reorders write no entry.
 - `GET /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `POST /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `PATCH /api/servers/:server_id/automod-rules/:rule_id` (requires `MANAGE_MESSAGES`)

@@ -3626,3 +3626,321 @@ async fn channel_category_and_role_creation_are_rate_limited() {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{kind}: {body}");
     }
 }
+
+/// Latest audit entry for `action` on the server, as the owner sees it.
+async fn latest_audit_entry(
+    app: &mut axum::Router,
+    auth: &str,
+    server_id: Uuid,
+    action: &str,
+) -> serde_json::Value {
+    let uri = format!("/api/servers/{server_id}/audit-log?action={action}&limit=1");
+    let (status, page) = api_json(app, "GET", &uri, auth, None).await;
+    assert_eq!(status, StatusCode::OK, "audit log failed: {page}");
+    let entry = page["entries"][0].clone();
+    assert!(entry.is_object(), "no {action} audit entry: {page}");
+    entry
+}
+
+#[tokio::test]
+async fn role_changes_are_written_to_the_audit_log() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, owner_id, _) = register_named_user(&mut app, "auditroles").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit roles").await;
+    let send_messages = 1_i64 << 7;
+    let manage_pins = 1_i64 << 9;
+    let ban_members = 1_i64 << 5;
+
+    let (status, role) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "Helpers", "permissions": send_messages | manage_pins })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{role}");
+    let role_id = role["id"].as_str().unwrap().to_string();
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_create").await;
+    assert_eq!(entry["actor_id"], json!(owner_id));
+    assert_eq!(entry["resource_id"], json!(role_id));
+    assert_eq!(entry["details"]["name"], "Helpers");
+    assert_eq!(
+        entry["details"]["permissions"],
+        json!(["SEND_MESSAGES", "MANAGE_PINS"])
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        Some(json!({ "name": "Mods", "permissions": send_messages | ban_members })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_update").await;
+    assert_eq!(entry["details"]["old_name"], "Helpers");
+    assert_eq!(entry["details"]["new_name"], "Mods");
+    assert_eq!(
+        entry["details"]["permissions"],
+        json!({ "added": ["BAN_MEMBERS"], "removed": ["MANAGE_PINS"] })
+    );
+
+    let (status, roles) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{roles}");
+    let mut role_ids: Vec<String> = roles
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|role| {
+            !role["name"]
+                .as_str()
+                .unwrap()
+                .eq_ignore_ascii_case("everyone")
+        })
+        .map(|role| role["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(role_ids.len() >= 2, "{roles}");
+    role_ids.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}/roles/reorder"),
+        &auth,
+        Some(json!({ "role_ids": role_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_reorder").await;
+    assert_ne!(entry["details"]["old_order"], entry["details"]["new_order"]);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_delete").await;
+    assert_eq!(entry["resource_id"], json!(role_id));
+    assert_eq!(entry["details"]["name"], "Mods");
+}
+
+#[tokio::test]
+async fn category_override_and_reorder_changes_are_written_to_the_audit_log() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "auditstruct").await;
+    let (server_id, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit structure").await;
+    let everyone = everyone_role_id(&state, server_id).await;
+    let send_messages = 1_i64 << 7;
+
+    for name in ["Alpha", "Beta"] {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            &format!("/api/channels/server/{server_id}/categories"),
+            &auth,
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_create").await;
+    assert_eq!(entry["details"]["name"], "Beta");
+
+    // Channel override: create, then remove.
+    let override_uri = format!("/api/channels/{channel_id}/overrides/{everyone}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &override_uri,
+        &auth,
+        Some(json!({ "allow": 0, "deny": send_messages })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_override_update").await;
+    assert_eq!(entry["resource_id"], json!(channel_id));
+    assert_eq!(entry["details"]["role_id"], json!(everyone));
+    assert!(entry["details"]["old_deny"].is_null(), "{entry}");
+    assert_eq!(entry["details"]["deny"], json!(["SEND_MESSAGES"]));
+    let (status, body) = api_json(&mut app, "DELETE", &override_uri, &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_override_delete").await;
+    assert_eq!(entry["details"]["old_deny"], json!(["SEND_MESSAGES"]));
+    assert!(entry["details"]["deny"].is_null(), "{entry}");
+
+    // Category override: create, then remove.
+    let category_override_uri =
+        format!("/api/channels/server/{server_id}/categories/Alpha/overrides/{everyone}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &category_override_uri,
+        &auth,
+        Some(json!({ "allow": send_messages, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_override_update").await;
+    assert_eq!(entry["details"]["category"], "Alpha");
+    assert_eq!(entry["details"]["allow"], json!(["SEND_MESSAGES"]));
+    let (status, body) = api_json(&mut app, "DELETE", &category_override_uri, &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_override_delete").await;
+    assert_eq!(entry["details"]["category"], "Alpha");
+
+    // Reordering categories and channels.
+    let mut category_names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 ORDER BY position, name",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    category_names.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/channels/server/{server_id}/categories/reorder"),
+        &auth,
+        Some(json!({ "category_names": category_names })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_reorder").await;
+    assert_eq!(entry["details"]["new_order"], json!(category_names));
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &auth,
+        Some(json!({ "server_id": server_id, "name": "second", "channel_type": "text" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut channel_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 ORDER BY category, position",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    channel_ids.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/channels/reorder",
+        &auth,
+        Some(json!({ "server_id": server_id, "channel_ids": channel_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_reorder").await;
+    assert!(
+        !entry["details"]["channels"].as_array().unwrap().is_empty(),
+        "{entry}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/server/{server_id}/categories/Beta"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_delete").await;
+    assert_eq!(entry["details"]["name"], "Beta");
+}
+
+#[tokio::test]
+async fn permission_change_is_rolled_back_when_its_audit_entry_fails() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "auditrollback").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit rollback").await;
+    let (status, role) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "Keepers" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{role}");
+    let role_id = Uuid::parse_str(role["id"].as_str().unwrap()).unwrap();
+
+    // Make audit writes fail for role deletions on this server only.
+    let name = format!("test_fail_role_delete_audit_{}", Uuid::new_v4().simple());
+    sqlx::query(&format!(
+        "CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN RAISE EXCEPTION 'audit write refused'; END $$"
+    ))
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "CREATE TRIGGER {name} BEFORE INSERT ON audit_log FOR EACH ROW \
+         WHEN (NEW.action = 'role_delete' AND NEW.server_id = '{server_id}'::uuid) \
+         EXECUTE FUNCTION {name}()"
+    ))
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        None,
+    )
+    .await;
+
+    sqlx::query(&format!("DROP TRIGGER {name} ON audit_log"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query(&format!("DROP FUNCTION {name}()"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let still_there: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_roles WHERE id = $1")
+        .bind(role_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        still_there, 1,
+        "role deletion must roll back with its audit entry"
+    );
+}

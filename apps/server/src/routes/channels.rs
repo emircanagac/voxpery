@@ -108,7 +108,8 @@ async fn create_channel(
         .unwrap_or("General")
         .to_string();
     ensure_category_manageable(&state.db, body.server_id, &category_input, claims.sub).await?;
-    let category = ensure_category_exists(&state.db, body.server_id, &category_input).await?;
+    let category =
+        ensure_category_exists(&state.db, body.server_id, &category_input, claims.sub).await?;
     ensure_channel_name_unique(
         &state.db,
         body.server_id,
@@ -317,7 +318,8 @@ async fn rename_channel(
             ensure_category_manageable(&state.db, channel.server_id, category_name, claims.sub)
                 .await?;
         }
-        let canonical = ensure_category_exists(&state.db, channel.server_id, category_name).await?;
+        let canonical =
+            ensure_category_exists(&state.db, channel.server_id, category_name, claims.sub).await?;
         next_category = Some(canonical);
     }
     ensure_channel_name_unique(
@@ -404,7 +406,9 @@ async fn reorder_channels(
 
     use std::collections::HashMap;
     let mut existing: HashMap<Uuid, String> = HashMap::new();
+    let mut previous: HashMap<Uuid, (String, i32)> = HashMap::new();
     for ch in channels {
+        previous.insert(ch.id, (ch.name, ch.position));
         existing.insert(ch.id, ch.category.unwrap_or_else(|| "General".to_string()));
     }
 
@@ -418,18 +422,41 @@ async fn reorder_channels(
 
     let mut tx = state.db.begin().await?;
     let mut position_map: HashMap<String, i32> = HashMap::new();
+    let mut moved = Vec::new();
     for channel_id in &body.channel_ids {
         let category = existing
             .get(channel_id)
             .cloned()
             .unwrap_or_else(|| "General".to_string());
-        let pos = position_map.entry(category).or_insert(0);
+        let pos = position_map.entry(category.clone()).or_insert(0);
         sqlx::query("UPDATE channels SET position = $1 WHERE id = $2")
             .bind(*pos)
             .bind(channel_id)
             .execute(&mut *tx)
             .await?;
+        if let Some((name, old_position)) = previous.get(channel_id) {
+            if *old_position != *pos {
+                moved.push(serde_json::json!({
+                    "name": name,
+                    "category": category,
+                    "old_position": old_position,
+                    "new_position": *pos,
+                }));
+            }
+        }
         *pos += 1;
+    }
+    if !moved.is_empty() {
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(body.server_id),
+            "channel_reorder",
+            "server",
+            None,
+            Some(serde_json::json!({ "channels": moved })),
+        )
+        .await?;
     }
     tx.commit().await?;
 
@@ -455,6 +482,47 @@ struct ChannelOverride {
 struct UpdateChannelOverrideRequest {
     allow: i64,
     deny: i64,
+}
+
+/// Name of `role_id` when it belongs to `server_id`; `404` otherwise.
+async fn role_name_in_server(
+    db: &sqlx::PgPool,
+    server_id: Uuid,
+    role_id: Uuid,
+) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT name FROM server_roles WHERE id = $1 AND server_id = $2")
+        .bind(role_id)
+        .bind(server_id)
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Role not found in this server".into()))
+}
+
+/// Audit details for a role override change: the role and the allow/deny flags before and
+/// after (`null` when the override did not exist or was removed).
+fn override_audit_details(
+    scope_key: &str,
+    scope_name: &str,
+    role_name: &str,
+    role_id: Uuid,
+    previous: Option<(i64, i64)>,
+    next: Option<(i64, i64)>,
+) -> serde_json::Value {
+    let names = |bits: Option<(i64, i64)>, allow: bool| {
+        bits.map(|(allow_bits, deny_bits)| {
+            audit::permission_names(if allow { allow_bits } else { deny_bits })
+        })
+    };
+    let mut details = serde_json::json!({
+        "role_id": role_id,
+        "role_name": role_name,
+        "old_allow": names(previous, true),
+        "old_deny": names(previous, false),
+        "allow": names(next, true),
+        "deny": names(next, false),
+    });
+    details[scope_key] = serde_json::json!(scope_name);
+    details
 }
 
 /// GET /api/channels/:channel_id/overrides — list role overrides for a channel.
@@ -498,18 +566,19 @@ async fn update_channel_override(
     permissions::ensure_server_owner(&state.db, channel.server_id, claims.sub).await?;
     permissions::validate_override_bits(body.allow, body.deny)?;
 
-    let role_exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2",
+    let role_name = role_name_in_server(&state.db, channel.server_id, role_id).await?;
+
+    let mut tx = state.db.begin().await?;
+    let previous = sqlx::query_as::<_, ChannelOverride>(
+        r#"SELECT role_id, allow, deny
+           FROM channel_role_overrides
+           WHERE channel_id = $1 AND role_id = $2
+           FOR UPDATE"#,
     )
+    .bind(channel_id)
     .bind(role_id)
-    .bind(channel.server_id)
-    .fetch_one(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
-
-    if role_exists == 0 {
-        return Err(AppError::NotFound("Role not found in this server".into()));
-    }
-
     let ov = sqlx::query_as::<_, ChannelOverride>(
         r#"INSERT INTO channel_role_overrides (channel_id, role_id, allow, deny)
            VALUES ($1, $2, $3, $4)
@@ -521,8 +590,29 @@ async fn update_channel_override(
     .bind(role_id)
     .bind(body.allow)
     .bind(body.deny)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    let previous_bits = previous.map(|row| (row.allow, row.deny));
+    if previous_bits != Some((ov.allow, ov.deny)) {
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(channel.server_id),
+            "channel_override_update",
+            "channel",
+            Some(channel_id),
+            Some(override_audit_details(
+                "channel_name",
+                &channel.name,
+                &role_name,
+                role_id,
+                previous_bits,
+                Some((ov.allow, ov.deny)),
+            )),
+        )
+        .await?;
+    }
+    tx.commit().await?;
 
     crate::ws::publish_event(
         &state,
@@ -547,25 +637,53 @@ async fn delete_channel_override(
     Extension(claims): Extension<Claims>,
     Path((channel_id, role_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let _channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
+    let channel = sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE id = $1")
         .bind(channel_id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound("Channel not found".into()))?;
 
     // Permission overrides are owner-only; channel managers can still edit the channel itself.
-    permissions::ensure_server_owner(&state.db, _channel.server_id, claims.sub).await?;
+    permissions::ensure_server_owner(&state.db, channel.server_id, claims.sub).await?;
 
-    sqlx::query("DELETE FROM channel_role_overrides WHERE channel_id = $1 AND role_id = $2")
-        .bind(channel_id)
-        .bind(role_id)
-        .execute(&state.db)
+    let server_id = channel.server_id;
+    let mut tx = state.db.begin().await?;
+    let deleted: Option<(i64, i64)> = sqlx::query_as(
+        r#"DELETE FROM channel_role_overrides
+           WHERE channel_id = $1 AND role_id = $2
+           RETURNING allow, deny"#,
+    )
+    .bind(channel_id)
+    .bind(role_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if deleted.is_some() {
+        let role_name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM server_roles WHERE id = $1 AND server_id = $2")
+                .bind(role_id)
+                .bind(server_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "channel_override_delete",
+            "channel",
+            Some(channel_id),
+            Some(override_audit_details(
+                "channel_name",
+                &channel.name,
+                role_name.as_deref().unwrap_or_default(),
+                role_id,
+                deleted,
+                None,
+            )),
+        )
         .await?;
+    }
+    tx.commit().await?;
 
-    let server_id = sqlx::query_scalar::<_, Uuid>("SELECT server_id FROM channels WHERE id = $1")
-        .bind(channel_id)
-        .fetch_one(&state.db)
-        .await?;
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
     voice_revoke::revoke_invalid_voice_sessions_for_server(
         &state,
@@ -707,7 +825,7 @@ async fn create_category(
         return Err(AppError::Validation("Category already exists".into()));
     }
 
-    let canonical = ensure_category_exists(&state.db, server_id, name).await?;
+    let canonical = ensure_category_exists(&state.db, server_id, name, claims.sub).await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
 
@@ -777,6 +895,7 @@ async fn delete_category(
         }
     }
 
+    let mut moved_to: Option<String> = None;
     if moving_channel_ids.is_empty() {
         // Deleting a category deletes its overrides, and those are owner-only.
         if !category_override_rows(&state.db, server_id, Some(category))
@@ -795,7 +914,7 @@ async fn delete_category(
         )
         .await?;
         ensure_category_manageable(&state.db, server_id, &move_to, claims.sub).await?;
-        let move_to = ensure_category_exists(&state.db, server_id, &move_to).await?;
+        let move_to = ensure_category_exists(&state.db, server_id, &move_to, claims.sub).await?;
 
         let max_target_pos = sqlx::query_scalar::<_, Option<i32>>(
             "SELECT MAX(position) FROM channels WHERE server_id = $1 AND category = $2",
@@ -823,6 +942,7 @@ async fn delete_category(
                     other => other.into(),
                 })?;
         }
+        moved_to = Some(move_to);
     }
 
     sqlx::query("DELETE FROM server_channel_categories WHERE server_id = $1 AND name = $2")
@@ -837,6 +957,20 @@ async fn delete_category(
     .bind(server_id)
     .bind(category)
     .execute(&mut *tx)
+    .await?;
+    audit::log_in_transaction(
+        &mut tx,
+        claims.sub,
+        Some(server_id),
+        "category_delete",
+        "category",
+        None,
+        Some(serde_json::json!({
+            "name": category,
+            "moved_channels": moving_channel_ids.len(),
+            "moved_to": moved_to,
+        })),
+    )
     .await?;
 
     tx.commit().await?;
@@ -1011,20 +1145,21 @@ async fn update_category_override(
     if category.is_empty() {
         return Err(AppError::Validation("Category name is required".into()));
     }
-    let category = ensure_category_exists(&state.db, server_id, category).await?;
+    let category = ensure_category_exists(&state.db, server_id, category, claims.sub).await?;
+    let role_name = role_name_in_server(&state.db, server_id, role_id).await?;
 
-    let role_exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2",
+    let mut tx = state.db.begin().await?;
+    let previous = sqlx::query_as::<_, CategoryOverride>(
+        r#"SELECT role_id, allow, deny
+           FROM channel_category_role_overrides
+           WHERE server_id = $1 AND category = $2 AND role_id = $3
+           FOR UPDATE"#,
     )
-    .bind(role_id)
     .bind(server_id)
-    .fetch_one(&state.db)
+    .bind(&category)
+    .bind(role_id)
+    .fetch_optional(&mut *tx)
     .await?;
-
-    if role_exists == 0 {
-        return Err(AppError::NotFound("Role not found in this server".into()));
-    }
-
     let ov = sqlx::query_as::<_, CategoryOverride>(
         r#"INSERT INTO channel_category_role_overrides (server_id, category, role_id, allow, deny)
            VALUES ($1, $2, $3, $4, $5)
@@ -1037,8 +1172,29 @@ async fn update_category_override(
     .bind(role_id)
     .bind(body.allow)
     .bind(body.deny)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    let previous_bits = previous.map(|row| (row.allow, row.deny));
+    if previous_bits != Some((ov.allow, ov.deny)) {
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "category_override_update",
+            "category",
+            None,
+            Some(override_audit_details(
+                "category",
+                &category,
+                &role_name,
+                role_id,
+                previous_bits,
+                Some((ov.allow, ov.deny)),
+            )),
+        )
+        .await?;
+    }
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
     voice_revoke::revoke_invalid_voice_sessions_for_server(
@@ -1064,14 +1220,43 @@ async fn delete_category_override(
         return Err(AppError::Validation("Category name is required".into()));
     }
 
-    sqlx::query(
-        "DELETE FROM channel_category_role_overrides WHERE server_id = $1 AND category = $2 AND role_id = $3"
+    let mut tx = state.db.begin().await?;
+    let deleted: Option<(String, i64, i64)> = sqlx::query_as(
+        r#"DELETE FROM channel_category_role_overrides
+           WHERE server_id = $1 AND category = $2 AND role_id = $3
+           RETURNING category, allow, deny"#,
     )
     .bind(server_id)
     .bind(category)
     .bind(role_id)
-    .execute(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
+    if let Some((deleted_category, allow, deny)) = deleted {
+        let role_name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM server_roles WHERE id = $1 AND server_id = $2")
+                .bind(role_id)
+                .bind(server_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "category_override_delete",
+            "category",
+            None,
+            Some(override_audit_details(
+                "category",
+                &deleted_category,
+                role_name.as_deref().unwrap_or_default(),
+                role_id,
+                Some((allow, deny)),
+                None,
+            )),
+        )
+        .await?;
+    }
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, WsEvent::ServerChannelsUpdated { server_id }).await;
     voice_revoke::revoke_invalid_voice_sessions_for_server(
@@ -1140,6 +1325,12 @@ async fn reorder_categories(
         ));
     }
 
+    let old_order: Vec<&str> = existing
+        .iter()
+        .filter(|name| visible.contains(name.as_str()))
+        .map(String::as_str)
+        .collect();
+    let new_order: Vec<&str> = body.category_names.iter().map(|name| name.trim()).collect();
     let mut requested = body.category_names.iter().map(|name| name.trim());
     let mut tx = state.db.begin().await?;
     for (idx, current) in existing.iter().enumerate() {
@@ -1155,6 +1346,21 @@ async fn reorder_categories(
         .bind(server_id)
         .bind(name)
         .execute(&mut *tx)
+        .await?;
+    }
+    if old_order != new_order {
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "category_reorder",
+            "server",
+            None,
+            Some(serde_json::json!({
+                "old_order": old_order,
+                "new_order": new_order,
+            })),
+        )
         .await?;
     }
     tx.commit().await?;
@@ -1289,10 +1495,13 @@ async fn ensure_category_move_allowed(
         })
 }
 
+/// Returns the stored name of `category`, creating it (and its audit entry, attributed to
+/// `actor_id`) when the server does not have it yet.
 async fn ensure_category_exists(
     db: &sqlx::PgPool,
     server_id: Uuid,
     category: &str,
+    actor_id: Uuid,
 ) -> Result<String, AppError> {
     let name = category.trim();
     validate_category_name(name)?;
@@ -1352,7 +1561,7 @@ async fn ensure_category_exists(
     .await?
     .unwrap_or(-1);
 
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"INSERT INTO server_channel_categories (server_id, name, position)
            VALUES ($1, $2, $3)
            ON CONFLICT (server_id, name) DO NOTHING"#,
@@ -1362,6 +1571,18 @@ async fn ensure_category_exists(
     .bind(max_pos + 1)
     .execute(&mut *tx)
     .await?;
+    if inserted.rows_affected() > 0 {
+        audit::log_in_transaction(
+            &mut tx,
+            actor_id,
+            Some(server_id),
+            "category_create",
+            "category",
+            None,
+            Some(serde_json::json!({ "name": name })),
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     Ok(name.to_string())
