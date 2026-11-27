@@ -73,6 +73,8 @@ Authorization:
 - User must be allowed to subscribe to the channel.
 - `is_typing: true` also needs what sending a message needs: `SEND_MESSAGES` and no active timeout in a server channel, and the peer's `dm_privacy` in a one-to-one DM.
 
+Client behavior (web and desktop): while the draft has text the composer sends a start at most every 3 seconds (the server relays one per channel and connection in that time); it sends a stop after 5 seconds without input, when the draft empties, when the message is sent and when the conversation changes. Receivers show a start for 6 seconds unless it is renewed, drop it on a stop or on that member's `NewMessage`, and never show the viewer's own typing.
+
 Note:
 
 - There is no dedicated server-side typing throttle in WS handler today; clients should debounce.

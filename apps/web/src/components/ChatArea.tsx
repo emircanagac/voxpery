@@ -29,6 +29,7 @@ import { useAppStore } from '../stores/app'
 import { cancelVoiceJoinFromNavigation, joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 import type { VoiceJoinStage } from '../webrtc/voiceJoinTiming'
 import { prewarmVoiceConnection } from '../webrtc/voiceConnectionPrewarm'
+import { useTypingIndicator } from '../typingIndicator'
 
 /** What a connecting voice join is waiting for, in the user's words. */
 const VOICE_JOIN_STAGE_TEXT: Record<VoiceJoinStage, string> = {
@@ -199,7 +200,7 @@ export default function ChatArea({
     onToggleReaction,
     canSendMessages = true,
     composerBlockedMessage = null,
-    typingIndicatorLabel = null,
+    typingIndicatorLabel: typingIndicatorLabelProp = null,
     seenMessageId = null,
     showMemberSheetButton = false,
     onOpenMemberSheet,
@@ -288,6 +289,10 @@ export default function ChatArea({
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const attachmentInputRef = useRef<HTMLInputElement>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
+    // Who else is typing here; the composer reports this user's own typing (not shown to them).
+    const typing = useTypingIndicator(activeChannel?.id ?? null, currentUserId)
+    const typingIndicatorLabel = typingIndicatorLabelProp ?? typing.label
+    const { sent: typingSent } = typing
     const [searchOpen, setSearchOpen] = useState(false)
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
     const pinnedDropdownRef = useRef<HTMLDivElement | null>(null)
@@ -1343,6 +1348,7 @@ export default function ChatArea({
         const bounded = truncateMessage(value, messageBodyLimit(replyingTo))
         setInputWasShortened(bounded.length < value.length)
         onMessageInputChange(bounded)
+        typing.draftChanged(bounded)
         syncMentionMenu(bounded, cursor)
     }
 
@@ -1356,12 +1362,13 @@ export default function ChatArea({
         olderMessagesAnchorRef.current = null
         pendingSubmitAutoScrollRef.current = true
         shouldAutoScrollRef.current = true
+        typingSent()
         onSendMessage(undefined, forceContent)
         snapToBottom()
         requestAnimationFrame(() => {
             snapToBottom()
         })
-    }, [draftAttachments.length, messageInput, onSendMessage, snapToBottom])
+    }, [draftAttachments.length, messageInput, onSendMessage, snapToBottom, typingSent])
 
     const insertEmoji = (emoji: string) => {
         if (!canSendMessages) return
@@ -2092,6 +2099,8 @@ export default function ChatArea({
                                 ))}
                             </div>
                         )}
+                        {/* An empty conversation has no message list, so its typing line goes here. */}
+                        {typingIndicatorLabel && <div className="typing-indicator">{typingIndicatorLabel}</div>}
                     </div>
                 ) : (
                     <div
