@@ -82,6 +82,11 @@ pub(super) async fn list_roles(
 }
 
 /// POST /api/servers/:server_id/roles — create a new role (owner only).
+/// Most roles one server may have, the Everyone role included.
+const MAX_ROLES_PER_SERVER: i64 = 100;
+const ROLE_CREATE_LIMIT: usize = 30;
+const ROLE_CREATE_WINDOW: Duration = Duration::from_secs(10 * 60);
+
 pub(super) async fn create_role(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -102,6 +107,36 @@ pub(super) async fn create_role(
 
     // Role management is owner-only; see permissions::ensure_server_owner.
     permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("roles:create:user:{}", claims.sub),
+        ROLE_CREATE_LIMIT,
+        ROLE_CREATE_WINDOW,
+        "Too many roles created. Please wait a few minutes and try again.",
+    )
+    .await?;
+
+    // The count and the insert run under the server row lock, so parallel requests cannot
+    // pass the cap together.
+    let mut tx = state.db.begin().await?;
+    let locked_server_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(server_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if locked_server_id.is_none() {
+        return Err(AppError::NotFound("Server not found".into()));
+    }
+    let role_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM server_roles WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if role_count >= MAX_ROLES_PER_SERVER {
+        return Err(AppError::Validation(format!(
+            "This server already has the maximum of {MAX_ROLES_PER_SERVER} roles"
+        )));
+    }
 
     // Keep custom roles above the implicit Everyone role. Existing servers use a
     // large fixed position for Everyone, so including it in MAX would create new
@@ -119,7 +154,7 @@ pub(super) async fn create_role(
              )"#,
     )
     .bind(server_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     let permissions = body.permissions.unwrap_or(0);
@@ -144,7 +179,7 @@ pub(super) async fn create_role(
     .bind(color_opt)
     .bind(next_position)
     .bind(permissions)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db_err)
@@ -155,6 +190,7 @@ pub(super) async fn create_role(
         }
         _ => AppError::from(e),
     })?;
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 

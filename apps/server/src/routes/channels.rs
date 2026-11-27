@@ -4,7 +4,7 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Extension, Json, Router,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
     models::Channel,
     services::audit,
     services::permissions::{self, Permissions},
+    services::rate_limit::enforce_rate_limit,
     services::voice_revoke,
     ws::WsEvent,
     AppState,
@@ -60,6 +61,13 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
 }
 
 /// POST /api/channels — create a channel in a server.
+/// Per-server caps; servers already above a cap keep their data, only new items are refused.
+const MAX_CHANNELS_PER_SERVER: i64 = 200;
+const MAX_CATEGORIES_PER_SERVER: i64 = 50;
+/// Channel and category creations allowed per user in each window.
+const STRUCTURE_CREATE_LIMIT: usize = 30;
+const STRUCTURE_CREATE_WINDOW: Duration = Duration::from_secs(10 * 60);
+
 async fn create_channel(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -71,6 +79,14 @@ async fn create_channel(
         body.server_id,
         claims.sub,
         Permissions::MANAGE_CHANNELS,
+    )
+    .await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("channels:create:user:{}", claims.sub),
+        STRUCTURE_CREATE_LIMIT,
+        STRUCTURE_CREATE_WINDOW,
+        "Too many channels created. Please wait a few minutes and try again.",
     )
     .await?;
 
@@ -118,10 +134,10 @@ async fn create_channel(
             .bind(body.server_id)
             .fetch_one(&mut *tx)
             .await?;
-    if channel_count >= 500 {
-        return Err(AppError::Validation(
-            "This server already has the maximum of 500 channels".into(),
-        ));
+    if channel_count >= MAX_CHANNELS_PER_SERVER {
+        return Err(AppError::Validation(format!(
+            "This server already has the maximum of {MAX_CHANNELS_PER_SERVER} channels"
+        )));
     }
 
     // Get next position under the same server row lock.
@@ -669,6 +685,14 @@ async fn create_category(
 
     let name = body.name.trim();
     validate_category_name(name)?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("categories:create:user:{}", claims.sub),
+        STRUCTURE_CREATE_LIMIT,
+        STRUCTURE_CREATE_WINDOW,
+        "Too many categories created. Please wait a few minutes and try again.",
+    )
+    .await?;
 
     backfill_category_rows(&state.db, server_id).await?;
 
@@ -1286,11 +1310,45 @@ async fn ensure_category_exists(
         return Ok(existing_name);
     }
 
+    // New categories are added under the server row lock, so parallel requests cannot pass
+    // the cap together. Every caller passes the pool, never an open transaction.
+    let mut tx = db.begin().await?;
+    let locked_server_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(server_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if locked_server_id.is_none() {
+        return Err(AppError::NotFound("Server not found".into()));
+    }
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 AND LOWER(name) = LOWER($2) ORDER BY name LIMIT 1",
+    )
+    .bind(server_id)
+    .bind(name)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(existing_name) = existing {
+        tx.commit().await?;
+        return Ok(existing_name);
+    }
+    let category_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM server_channel_categories WHERE server_id = $1",
+    )
+    .bind(server_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if category_count >= MAX_CATEGORIES_PER_SERVER {
+        return Err(AppError::Validation(format!(
+            "This server already has the maximum of {MAX_CATEGORIES_PER_SERVER} categories"
+        )));
+    }
+
     let max_pos = sqlx::query_scalar::<_, Option<i32>>(
         "SELECT MAX(position) FROM server_channel_categories WHERE server_id = $1",
     )
     .bind(server_id)
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(-1);
 
@@ -1302,8 +1360,9 @@ async fn ensure_category_exists(
     .bind(server_id)
     .bind(name)
     .bind(max_pos + 1)
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     Ok(name.to_string())
 }

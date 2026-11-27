@@ -3445,3 +3445,184 @@ async fn rotating_the_invite_code_invalidates_the_old_link() {
         .unwrap();
     assert_eq!(still, "voxpery");
 }
+
+#[tokio::test]
+async fn server_creation_respects_owned_server_cap_and_rate_limit() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    // An owner already at the cap keeps their servers but cannot create another one.
+    let (capped_auth, capped_id, _) = register_named_user(&mut app, "servercap").await;
+    sqlx::query(
+        r#"INSERT INTO servers (id, name, owner_id, invite_code, created_at)
+           SELECT uuid_generate_v4(), 'cap seed', $1, substr(md5(random()::text || g::text), 1, 20), NOW()
+           FROM generate_series(1, 50) AS g"#,
+    )
+    .bind(capped_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers",
+        &capped_auth,
+        Some(json!({ "name": "one too many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("at most 50 servers"), "{body}");
+    let (status, servers) = api_json(&mut app, "GET", "/api/servers", &capped_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{servers}");
+
+    // Five servers an hour per account; the sixth is refused with 429.
+    let (auth, _, _) = register_named_user(&mut app, "serverrate").await;
+    for n in 0..5 {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            "/api/servers",
+            &auth,
+            Some(json!({ "name": format!("rate {n}") })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "server {n}: {body}");
+    }
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers",
+        &auth,
+        Some(json!({ "name": "rate 6" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+}
+
+#[tokio::test]
+async fn server_structure_caps_refuse_new_channels_categories_and_roles() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "structcap").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "structure caps").await;
+
+    // The server starts with two channels, the General category and two roles.
+    sqlx::query(
+        r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
+           SELECT uuid_generate_v4(), $1, 'seed-' || g, 'text', 'General', 100 + g, NOW()
+           FROM generate_series(1, 198) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_channel_categories (server_id, name, position)
+           SELECT $1, 'Seed ' || g, g FROM generate_series(1, 49) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+           SELECT uuid_generate_v4(), $1, 'seed role ' || g, NULL, g, 0
+           FROM generate_series(1, 98) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &auth,
+        Some(json!({ "server_id": server_id, "name": "one-too-many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.to_string().contains("maximum of 200 channels"),
+        "{body}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/channels/server/{server_id}/categories"),
+        &auth,
+        Some(json!({ "name": "One Too Many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.to_string().contains("maximum of 50 categories"),
+        "{body}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "one too many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("maximum of 100 roles"), "{body}");
+
+    // Data already at the cap keeps working.
+    let (status, channels) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/channels"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{channels}");
+    assert_eq!(channels.as_array().map(Vec::len), Some(200));
+}
+
+#[tokio::test]
+async fn channel_category_and_role_creation_are_rate_limited() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "structrate").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "structure rate").await;
+
+    let cases = [
+        ("/api/channels".to_string(), "channel"),
+        (
+            format!("/api/channels/server/{server_id}/categories"),
+            "category",
+        ),
+        (format!("/api/servers/{server_id}/roles"), "role"),
+    ];
+    for (uri, kind) in cases {
+        let body_for = |n: u32| match kind {
+            "channel" => json!({ "server_id": server_id, "name": format!("rate-{n}") }),
+            "category" => json!({ "name": format!("Rate {n}") }),
+            _ => json!({ "name": format!("rate role {n}") }),
+        };
+        for n in 0..30 {
+            let (status, body) = api_json(&mut app, "POST", &uri, &auth, Some(body_for(n))).await;
+            assert_eq!(status, StatusCode::OK, "{kind} {n}: {body}");
+        }
+        let (status, body) = api_json(&mut app, "POST", &uri, &auth, Some(body_for(30))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{kind}: {body}");
+    }
+}

@@ -149,6 +149,7 @@ Notes:
 - `GET /api/servers`
 - `POST /api/servers`
   - Optional `client_request_id` (1-128 URL-safe characters) makes retries return the originally created server. Reusing the ID with different server data returns `409`.
+  - An account can own at most 50 servers (`400` beyond that) and create at most 5 servers per hour (`429`). A retry that returns an existing server through `client_request_id` does not count.
 - `GET /api/servers/:server_id`
 - `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
   - Members are told through the `ServerUpdated` WebSocket event.
@@ -187,6 +188,7 @@ Notes:
 - `GET /api/servers/:server_id/roles`
   - Supports query `?include_system=true` to include `Everyone`.
 - `POST /api/servers/:server_id/roles` (owner only; `permissions` must contain only known bits)
+  - A server can have at most 100 roles, `Everyone` included (`400` beyond that). At most 30 role creations per user in 10 minutes (`429`).
 - `PATCH /api/servers/:server_id/roles/:role_id` (owner only)
 - `DELETE /api/servers/:server_id/roles/:role_id` (owner only)
 - `PATCH /api/servers/:server_id/roles/reorder` (owner only)
@@ -240,6 +242,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `POST /api/channels` (requires `MANAGE_CHANNELS`)
   - If `category` is empty/missing, backend uses `General`.
   - Name uniqueness is enforced by scope: `(server, category, channel_type, case-insensitive name)`.
+  - A server can have at most 200 channels and 50 categories (`400` beyond that); a new category name given here counts toward the category cap. At most 30 channel creations per user in 10 minutes (`429`). Servers already above a cap keep their channels and categories.
 - `PATCH /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
   - Moving the channel to a category whose role overrides differ from its current category changes its permissions, so that move is owner only (`403` otherwise). Moves between categories with identical overrides, including two categories without any, stay open to channel managers.
 - `DELETE /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
@@ -252,6 +255,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 
 - `GET /api/channels/server/:server_id/categories`
 - `POST /api/channels/server/:server_id/categories`
+  - Same 50-category cap; at most 30 category creations per user in 10 minutes (`429`).
 - `PATCH /api/channels/server/:server_id/categories/:category`
 - `DELETE /api/channels/server/:server_id/categories/:category`
   - Optional `move_to` query parameter; channels default-move to `General`.

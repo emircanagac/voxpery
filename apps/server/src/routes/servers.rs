@@ -238,6 +238,11 @@ fn validate_server_icon_url(icon_url: Option<&str>) -> Result<Option<String>, Ap
 }
 
 /// POST /api/servers — create a new server.
+/// Most servers one account may own; existing owners above the cap keep their servers.
+const MAX_OWNED_SERVERS_PER_USER: i64 = 50;
+const SERVER_CREATE_LIMIT: usize = 5;
+const SERVER_CREATE_WINDOW: Duration = Duration::from_secs(60 * 60);
+
 async fn create_server(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -281,6 +286,26 @@ async fn create_server(
             tx.commit().await?;
             return Ok(Json(existing));
         }
+    }
+
+    // One owner's creations run one at a time, so parallel requests cannot pass the cap together.
+    acquire_transaction_lock(&mut tx, &format!("server-create-owner:{}", claims.sub)).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("servers:create:user:{}", claims.sub),
+        SERVER_CREATE_LIMIT,
+        SERVER_CREATE_WINDOW,
+        "Too many servers created. Please try again later.",
+    )
+    .await?;
+    let owned_servers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE owner_id = $1")
+        .bind(claims.sub)
+        .fetch_one(&mut *tx)
+        .await?;
+    if owned_servers >= MAX_OWNED_SERVERS_PER_USER {
+        return Err(AppError::Validation(format!(
+            "You can own at most {MAX_OWNED_SERVERS_PER_USER} servers. Delete one you no longer need to create a new one."
+        )));
     }
 
     let server = sqlx::query_as::<_, Server>(
