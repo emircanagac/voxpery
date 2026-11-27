@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-28
+
+Server migration `068` runs on the first start. Self-hosted servers can now run on arm64 as well as x86-64.
+
+### Security
+- Security updates.
+
+### Added
+- Typing indicator: channels and direct messages show who is typing ("kai is typing…", "kai and luna are typing…", "Several people are typing…"). Your own typing is not shown to you.
+- Voice without a microphone: when the microphone is blocked, missing or used by another app, you join the channel as a listener instead of not joining at all. You hear everyone, show as muted, and can turn the microphone on later with "Turn on microphone" or Unmute without leaving the channel.
+- Invite links opened without an account show the server's name, icon, description and member count, with "Create account" and "Sign in" buttons that bring you back to the invite. When the instance does not accept new accounts, only "Sign in" is shown.
+- Moderators can see and remove a server mute or deafen of a member who is not in voice, from the member menu and from Server Settings > Safety > Voice Restrictions. The member menu also offers "Remove timeout" for a member who is timed out.
+- Self-hosting: Docker images for arm64 servers next to x86-64; `docker compose pull` picks the right one. The optional ClamAV scanner is x86-64 only. Requirements and measured memory use are in `docs/DEPLOYMENT.md`.
+- Self-hosting: an operator can disable an account, for example one that sends spam or harassing messages. The account is signed out everywhere within 30 seconds and cannot sign in again until it is enabled; see "Disabling an Account" in `docs/DEPLOYMENT.md`.
+- Desktop: Settings > Desktop shows how long the last start took ("Last start"), and the server logs how long each step of a file upload takes, to find out where slow starts and uploads lose time.
+
+### Changed
+- A timeout now also covers voice: a timed-out member is removed from voice right away and cannot join a voice channel until the timeout ends or is removed. The timeout dialog says so.
+- The home page describes Voxpery as your group's own voice and chat server. On phones it now shows "Self-host with Docker" and a "Self-host" menu entry; the desktop downloads stay hidden there.
+
+### Fixed
+- Phones: a voice call in the browser goes on while Voxpery is in the background. The server no longer ends the call when the app's connection drops but the call itself is still running, and the microphone keeps sending while the page is hidden. Settings > Voice & Audio shows a background log of the last call to help find out why a call still drops.
+- Desktop notifications on Windows: turning them on in Settings > Communication no longer ends in "Blocked", and direct messages and mentions show as Windows notifications; a click opens the conversation. The desktop app on macOS and Linux uses the system notifications too.
+- Read messages stay read on your other devices: a channel opened from a notification or from the tray is marked read as soon as the window gets focus, and a tab or phone that was in the background for a while picks up what you read elsewhere when you come back.
+- Messages sent quickly one after another keep the order they were written in, for everyone and after a reload, in channels and direct messages.
+- Switching channels or servers no longer makes the newest messages jump while photos load: a photo you have seen before keeps its place from the first frame, also after a reload.
+- Phones: the "Stream available" and hidden camera tiles keep their avatar and "Watch stream" button inside while someone is watching, and the "Connection lost" banner no longer covers buttons; it now sits under the top bar and pushes the page down.
+- A member moved to another voice channel by a moderator now sees the new channel instead of the old one's empty view, with a short notice; someone reading a text channel stays where they are.
+- Settings > Desktop: the self-hosted server address field and its buttons match the rest of the settings, and the sign-in code and custom server fields on the sign-in screen match the sign-in form, in light and dark themes.
+- Escape closes the pinned messages panel, a role editor error clears once you change the name or save, reply previews show plain text instead of Markdown marks, and a timeout badge disappears when the timeout ends without a reload.
+- A file that fails the security scan shows "This file did not pass the security scan" instead of the scanner's output, and the error for a non-HTTPS image address no longer reads "Image image URLs".
+- The web app manifest is served as `application/manifest+json`, so browsers read it when installing Voxpery as an app.
+
 ## [0.6.1] - 2026-11-21
 
 ### Security

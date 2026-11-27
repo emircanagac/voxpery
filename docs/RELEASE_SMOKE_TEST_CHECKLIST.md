@@ -26,13 +26,35 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.6.1 preparation (not release sign-off)
+### v0.7.0 preparation (not release sign-off)
 
-Version metadata is prepared for `0.6.1`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.7.0`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Confirm that the glib 0.18 advisory (#242) still stays out of every shipped build (see `docs/DESKTOP_RELEASE_HARDENING.md`, Upstream issues tracked).
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.6.1` and `voxpery/voxpery-web:v0.6.1`, the embedded web badge/build tag, desktop version `0.6.1`, the `Voxpery_0.6.1_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.7.0` and `voxpery/voxpery-web:v0.7.0`, the embedded web badge/build tag, desktop version `0.7.0`, the `Voxpery_0.7.0_x86_64.flatpak` asset, the `aur-voxpery-bin` artifact (version and .deb SHA-256) (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.7.0 checks
+
+Server migration `068` runs on the first start (it adds `users.disabled_at`). Take a fresh database backup first. Copy every new setting from `.env.example` into the production `.env` before the deploy.
+
+- [ ] voxpery.com `/version.json` reports `v0.7.0` after the deploy, the header badge shows `v0.7.0`, and the server logs show migration `068` applied without errors.
+- [ ] `docker buildx imagetools inspect voxpery/voxpery-server:v0.7.0` and the same for `voxpery/voxpery-web:v0.7.0` list `linux/amd64` and `linux/arm64`; the `docker_arm64_smoke` job of the tag run passed.
+- [ ] Disabling a test account with the SQL in `docs/DEPLOYMENT.md` (section 9) drops its open web and desktop sessions within 30 seconds and refuses password and Google sign-in; enabling it again restores sign-in.
+- [ ] Voice without a microphone in Chrome and Firefox (permission denied, no device, device busy) and on Windows desktop (microphone access off in Windows settings): the user joins as a listener, hears the others, shows as muted, sees no "Could not connect" message, and can talk with "Turn on microphone" once access is back.
+- [ ] Two users: a timeout given to a member in voice removes them from the call; they cannot join voice until the timeout ends or is removed, then they can.
+- [ ] Windows desktop (installed build, clean profile or with the WebView2 notification permission removed): Settings > Communication > Desktop notifications turns on without a prompt; with Voxpery in the background a DM and a mention each show a Windows notification, a click opens that conversation, Do Not Disturb and a muted server suppress them. Repeat on macOS and Linux.
+- [ ] One account on desktop, a browser and a phone: reading a channel message, a DM and a mention on one clears it on the others within a few seconds, and a tab or phone back from the background shows it read.
+- [ ] Two accounts: the typing indicator shows and clears in a channel and in a DM; your own typing does not show for you.
+- [ ] Phone, signed out: an invite link shows the server preview; "Create account" and "Sign in" each return to the invite afterwards.
+- [ ] A moderator moves a member to another voice channel: the member's view follows to the new channel with a notice; a member reading a text channel stays there.
+- [ ] Real phone (320 and 375 px wide where possible): the "Stream available" tile with a "Watching" line and the hidden camera tile stay inside their row; the "Connection lost" banner after a return from the background covers no button.
+- [ ] Five messages sent quickly on a slow connection keep their order for the sender, for another user and after a reload, in a channel and a DM.
+- [ ] Desktop and phone: switching between channels and servers whose newest messages include photos keeps the newest message in place from the first frame, also after a reload; only a photo never opened in that browser may settle once.
+- [ ] `curl -I https://voxpery.com/manifest.webmanifest` shows `Content-Type: application/manifest+json`, and `curl -I https://voxpery.com` shows a single `Strict-Transport-Security` header.
+- [ ] Windows desktop Settings > Desktop shows the "Last start" timing, and the browser console shows one `[startup]` line; record both for the slow-start investigation.
+- [ ] After uploading a 150-200 KB PNG on voxpery.com, `docker compose logs server | grep "attachment upload timing"` shows the step timings; record them for the slow-upload investigation.
+- [ ] Settings > Desktop > Server on the real desktop app: the server address field and its buttons match the settings around them in light and dark themes.
 
 ### v0.6.1 checks
 
@@ -58,7 +80,6 @@ Server migrations `065`, `066` and `067` run on the first start. Take a fresh da
 - [ ] `REGISTRATION_MODE=invite` and `closed` with a real Google account: first sign-in follows the mode; existing accounts still sign in.
 - [ ] Server Settings resets the invite link: the old link shows an invalid invite, the new one joins.
 - [ ] Two devices of one account: reading a channel on one clears its badge on the other; a mention sent while the app is closed shows a badge on the next start; a muted channel is muted on both after a reconnect.
-- [ ] Windows desktop (clean installation): Settings > Communication > Desktop notifications turns on without a prompt; with Voxpery in the background a DM and a mention each show a Windows notification named Voxpery, a click opens that conversation, Do Not Disturb and a muted server suppress them. Repeat on macOS and Linux.
 - [ ] Android Chrome (real device) with notifications enabled and Voxpery in the background: a DM and a mention each show a notification, the chat still receives the message, and tapping opens that DM or channel (also listed under PWA above).
 - [ ] With VAPID keys set: Settings > Communication offers notifications while Voxpery is closed; with every tab closed, a DM arrives on Android Chrome, desktop Chrome and Firefox and opens the DM; signing out stops them. Record the iOS Home Screen result or the limit.
 - [ ] `/compare` shows the Stoat column on desktop and mobile.
