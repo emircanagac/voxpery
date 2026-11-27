@@ -2908,3 +2908,80 @@ async fn shutdown_closes_websockets_with_1012_and_keeps_the_voice_session() {
     voxpery_server::services::voice_revoke::clear_voice_claim(&state, owner_id, voice_channel_id)
         .await;
 }
+
+#[tokio::test]
+async fn unchanged_status_is_not_broadcast_and_status_changes_are_rate_limited() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (alice_auth, alice_id, _) = register_named_user(&mut app, "pstatusrate").await;
+    let (bob_auth, bob_id, _) = register_named_user(&mut app, "pstatuswatch").await;
+    befriend(&state, alice_id, bob_id).await;
+    let addr = spawn_ws_app(&state).await;
+    let mut bob_ws = connect_ws(addr, &bob_auth).await;
+    ws_barrier(&mut bob_ws).await;
+    let mut alice_ws = connect_ws(addr, &alice_auth).await;
+    ws_barrier(&mut alice_ws).await;
+
+    let set_status = |status: &'static str| json!({ "status": status });
+
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/status",
+        &alice_auth,
+        Some(set_status("dnd")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    loop {
+        let event = receive_ws_event(&mut bob_ws, "PresenceUpdate").await;
+        if event["data"]["user_id"] == json!(alice_id) && event["data"]["status"] == "dnd" {
+            break;
+        }
+    }
+
+    // Sending the same status again changes nothing and tells nobody.
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/status",
+        &alice_auth,
+        Some(set_status("dnd")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "dnd", "{body}");
+    assert_no_ws_event_mentioning(
+        &mut bob_ws,
+        "PresenceUpdate",
+        &alice_id.to_string(),
+        std::time::Duration::from_millis(500),
+    )
+    .await;
+
+    // Ten status requests a minute; the two above count, the eleventh is refused.
+    for n in 0..8 {
+        let next = if n % 2 == 0 { "online" } else { "dnd" };
+        let (status, body) = api_json(
+            &mut app,
+            "PATCH",
+            "/api/auth/status",
+            &alice_auth,
+            Some(set_status(next)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "status {n}: {body}");
+    }
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/auth/status",
+        &alice_auth,
+        Some(set_status("online")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+}

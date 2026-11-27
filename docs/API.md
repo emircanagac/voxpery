@@ -66,6 +66,7 @@ Important behavior:
   - Requires explicit acknowledgement of all three current document versions.
   - Updates the account and inserts the privacy-safe audit event in one database transaction; repeating the same current acknowledgement is idempotent.
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
+  - Limited to 10 requests per minute per account (`429`). Sending the status the account already has changes nothing and broadcasts no `PresenceUpdate`.
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`. With `friends`, a non-friend cannot start a DM, send to one, edit their messages there, add a reaction or pin, except in a one-to-one DM where the `friends` user has written themselves (writing to someone is consent to their reply); otherwise `403`. Ending a friendship resets that consent: only messages written after it ended count. Removing a reaction or a pin and deleting your own message stay possible.
   - Optional profile field: `about_me` (maximum 190 characters).
@@ -333,6 +334,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `DELETE /api/messages/item/:message_id/reactions?emoji=...`
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
+- Adding and removing reactions share one budget per account across server channels and DMs: 30 changes per 10 seconds (`429`).
 
 ## Notifications
 
@@ -343,7 +345,7 @@ Unread counts, mention counts and mutes of server channels are kept per account,
   - `mention_count` adds mentions by name and `@everyone`/`@here` messages. Mutes are returned, not applied; clients decide what a muted server or channel shows.
 - `POST /api/notifications/channels/:channel_id/read`
   - Body `{ "message_id": "..." }` (optional): moves the caller's read mark to that message, or to the newest message of the channel when it is absent or no longer exists. The mark is the creation time of the message, never the time of the request, and it only moves forward; a late request for an older message changes nothing.
-  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute.
+  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute, shared with `POST /api/dm/channels/:channel_id/read`.
 - `PUT /api/notifications/mutes`
   - Body `{ "server_ids": [...], "channel_ids": [...], "muted": true|false }`, at most 200 ids of each kind. Servers and channels the caller is not a member of are ignored. Returns the caller's full mute lists. Limited to 60 requests per minute.
   - Other open sessions pick up mute changes the next time they load the notification state (sign-in or reconnect); no event is sent.
@@ -417,6 +419,7 @@ Web Push for direct messages and mentions while the recipient has no open connec
 - `GET /api/dm/channels/:channel_id/read-state`
 - `POST /api/dm/channels/:channel_id/read`
   - Marks the current user's DM read state through the latest message in the channel and emits a `DmRead` WebSocket event for the user's other sessions.
+  - Shares the 120 requests per minute read limit with server channel read marks (`429`).
 - `GET /api/dm/channels/:channel_id/pins`
 - `POST /api/dm/channels/:channel_id/pins`
 - `DELETE /api/dm/channels/:channel_id/pins/:message_id`

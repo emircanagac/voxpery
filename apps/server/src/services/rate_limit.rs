@@ -107,6 +107,42 @@ pub async fn enforce_rate_limit(
     Ok(())
 }
 
+/// Reactions added or removed per user, shared by server channels and DMs.
+const REACTIONS_PER_WINDOW: usize = 30;
+const REACTION_WINDOW: Duration = Duration::from_secs(10);
+/// Read markers per user, shared by server channels and DMs.
+const READ_MARKS_PER_MINUTE: usize = 120;
+
+/// Each reaction change is broadcast to everyone who can see the channel, so one account may
+/// not flood it.
+pub async fn enforce_reaction_rate_limit(
+    redis: &SharedRedis,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    enforce_rate_limit(
+        redis,
+        format!("reactions:user:{user_id}"),
+        REACTIONS_PER_WINDOW,
+        REACTION_WINDOW,
+        "Too many reactions. Please slow down.",
+    )
+    .await
+}
+
+pub async fn enforce_read_mark_rate_limit(
+    redis: &SharedRedis,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    enforce_rate_limit(
+        redis,
+        format!("notifications:read:user:{user_id}"),
+        READ_MARKS_PER_MINUTE,
+        Duration::from_secs(60),
+        "Too many read updates. Please slow down.",
+    )
+    .await
+}
+
 /// Records one event in the sliding window stored at `redis_key` and returns how many events
 /// the window now holds. Like [`enforce_rate_limit`] it runs atomically with a unique member per
 /// event, so concurrent and same-millisecond events are all counted; it never refuses.

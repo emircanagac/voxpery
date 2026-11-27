@@ -29,7 +29,6 @@ use crate::{
 /// Counts stop here; the clients show larger numbers as "99+".
 const COUNT_CAP: i64 = 99;
 const MAX_MUTE_TARGETS_PER_REQUEST: usize = 200;
-const READ_MARKS_PER_MINUTE: usize = 120;
 const MUTE_CHANGES_PER_MINUTE: usize = 60;
 
 #[derive(Debug, serde::Serialize)]
@@ -184,14 +183,7 @@ async fn mark_channel_read(
     Path(channel_id): Path<Uuid>,
     Json(body): Json<MarkChannelReadRequest>,
 ) -> Result<Json<ChannelReadState>, AppError> {
-    enforce_rate_limit(
-        &state.redis,
-        format!("notifications:read:user:{}", claims.sub),
-        READ_MARKS_PER_MINUTE,
-        Duration::from_secs(60),
-        "Too many read updates. Please slow down.",
-    )
-    .await?;
+    crate::services::rate_limit::enforce_read_mark_rate_limit(&state.redis, claims.sub).await?;
 
     let channel_perms =
         permissions::get_user_channel_permissions(&state.db, channel_id, claims.sub).await?;

@@ -1490,3 +1490,85 @@ async fn unread_mentions_and_mutes_are_kept_on_the_server() {
     assert_eq!(mutes["muted_server_ids"], json!([]));
     assert_eq!(mutes["muted_channel_ids"], json!([channel_id]));
 }
+
+#[tokio::test]
+async fn reactions_share_one_rate_limit_across_channels_and_dms() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, _) = register_named_user(&mut app, "reactrate").await;
+    let (_, peer_id, _) = register_named_user(&mut app, "reactpeer").await;
+    let (_, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "reaction rate").await;
+
+    let (status, message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{channel_id}"),
+        &auth,
+        Some(json!({ "content": "react to me" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{message}");
+    let message_id = message["id"].as_str().unwrap().to_string();
+
+    befriend(&state, user_id, peer_id).await;
+    let (status, dm_channel) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/channels/{peer_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{dm_channel}");
+    let dm_channel_id = dm_channel["id"].as_str().unwrap().to_string();
+    let (status, dm_message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/{dm_channel_id}"),
+        &auth,
+        Some(json!({ "content": "react here too" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{dm_message}");
+    let dm_message_id = dm_message["id"].as_str().unwrap().to_string();
+
+    // Thirty changes in ten seconds are fine; adding and removing both count.
+    let reactions = format!("/api/messages/item/{message_id}/reactions");
+    for n in 0..30 {
+        let (status, body) = if n % 2 == 0 {
+            api_json(
+                &mut app,
+                "POST",
+                &reactions,
+                &auth,
+                Some(json!({ "emoji": "👍" })),
+            )
+            .await
+        } else {
+            api_json(
+                &mut app,
+                "DELETE",
+                &format!("{reactions}?emoji=%F0%9F%91%8D"),
+                &auth,
+                None,
+            )
+            .await
+        };
+        assert_eq!(status, StatusCode::OK, "reaction {n}: {body}");
+    }
+
+    // The DM reaction shares the same per-user budget.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/dm/messages/item/{dm_message_id}/reactions"),
+        &auth,
+        Some(json!({ "emoji": "👍" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+}
