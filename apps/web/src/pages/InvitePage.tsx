@@ -5,8 +5,10 @@ import { resolveServerIconUrl, serverApi } from '../api'
 import { listInviteRules } from '../api/inviteRules'
 import type { ServerRule } from '../api/contracts'
 import { ROUTES } from '../routes'
+import { isTauri } from '../secureStorage'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
+import { useFeatureStore } from '../stores/features'
 import type { Server, ServerInvitePreview } from '../types'
 
 function getServerInitial(name: string) {
@@ -22,6 +24,9 @@ export default function InvitePage() {
     const navigate = useNavigate()
     const user = useAuthStore((s) => s.user)
     const token = useAuthStore((s) => s.token)
+    // Signed-out web visitors see the invite first; the desktop app keeps sending them to sign-in.
+    const isDesktopApp = isTauri()
+    const registrationClosed = useFeatureStore((s) => s.features?.registration_mode === 'closed')
     const { setServers, setActiveServer } = useAppStore(
         useShallow((s) => ({
             setServers: s.setServers,
@@ -40,7 +45,7 @@ export default function InvitePage() {
     const [memberServers, setMemberServers] = useState<Server[] | null>(null)
 
     useEffect(() => {
-        if (!user) return
+        if (!user && isDesktopApp) return
         if (!trimmedCode) {
             setPreview(null)
             setPreviewError('Invalid invite code.')
@@ -61,7 +66,7 @@ export default function InvitePage() {
                 setPreviewError(err instanceof Error ? err.message : 'Could not load invite preview.')
             })
             .finally(() => setPreviewLoading(false))
-    }, [trimmedCode, user])
+    }, [trimmedCode, user, isDesktopApp])
 
     useEffect(() => {
         if (!user || !preview) return
@@ -92,6 +97,7 @@ export default function InvitePage() {
 
     const invitePath = useMemo(() => ROUTES.invite(trimmedCode || ''), [trimmedCode])
     const loginUrl = `${ROUTES.login}?redirect=${encodeURIComponent(invitePath)}`
+    const registerUrl = `${ROUTES.register}?redirect=${encodeURIComponent(invitePath)}`
 
     const canJoin = rules.length === 0 || acceptedRules
 
@@ -118,24 +124,31 @@ export default function InvitePage() {
         navigate(ROUTES.servers, { replace: true })
     }
 
-    if (!user) {
+    if (!user && isDesktopApp) {
         return <Navigate to={loginUrl} replace />
     }
+    const signedOut = !user
 
     const heading = previewLoading
         ? 'Checking invite…'
         : previewError
             ? 'Invite unavailable'
-            : alreadyMember
-                ? 'You’re already a member'
-                : 'Join server'
+            : signedOut
+                ? 'You’re invited'
+                : alreadyMember
+                    ? 'You’re already a member'
+                    : 'Join server'
     const subheading = previewLoading
         ? 'Loading server details.'
         : previewError
             ? 'This invite may have expired or been removed. Ask for a new link.'
-            : alreadyMember
-                ? 'You are already in this server.'
-                : 'Preview the server before you join.'
+            : signedOut
+                ? registrationClosed
+                    ? 'Sign in to join this server.'
+                    : 'Create a Voxpery account or sign in to join this server.'
+                : alreadyMember
+                    ? 'You are already in this server.'
+                    : 'Preview the server before you join.'
 
     return (
         <main className="auth-page">
@@ -150,9 +163,14 @@ export default function InvitePage() {
                             {previewError}
                         </div>
                         <div className="invite-preview-actions">
+                            {signedOut && (
+                                <button type="button" className="auth-btn" onClick={() => navigate(ROUTES.login)}>
+                                    Sign in
+                                </button>
+                            )}
                             <button
                                 type="button"
-                                className="auth-btn"
+                                className={signedOut ? 'btn btn-secondary' : 'auth-btn'}
                                 onClick={() => navigate(ROUTES.home, { replace: true })}
                             >
                                 Back to Voxpery
@@ -180,7 +198,7 @@ export default function InvitePage() {
                             </div>
                         </div>
 
-                        {alreadyMember ? null : rulesLoading ? (
+                        {signedOut || alreadyMember ? null : rulesLoading ? (
                             <div className="invite-rules-loading">Loading rules...</div>
                         ) : rules.length > 0 ? (
                             <div className="invite-rules-section">
@@ -213,29 +231,46 @@ export default function InvitePage() {
                             </div>
                         )}
 
-                        <div className="invite-preview-actions">
-                            {alreadyMember ? (
-                                <button type="button" className="auth-btn" onClick={() => openServer(preview.id)}>
-                                    Open server
-                                </button>
-                            ) : (
+                        {signedOut ? (
+                            <div className="invite-preview-actions">
+                                {!registrationClosed && (
+                                    <button type="button" className="auth-btn" onClick={() => navigate(registerUrl)}>
+                                        Create account
+                                    </button>
+                                )}
                                 <button
                                     type="button"
-                                    className="auth-btn"
-                                    onClick={() => void joinServer()}
-                                    disabled={joining || !canJoin}
+                                    className={registrationClosed ? 'auth-btn' : 'btn btn-secondary'}
+                                    onClick={() => navigate(loginUrl)}
                                 >
-                                    {joining ? 'Joining…' : 'Join server'}
+                                    Sign in
                                 </button>
-                            )}
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => navigate(ROUTES.home, { replace: true })}
-                            >
-                                Not now
-                            </button>
-                        </div>
+                            </div>
+                        ) : (
+                            <div className="invite-preview-actions">
+                                {alreadyMember ? (
+                                    <button type="button" className="auth-btn" onClick={() => openServer(preview.id)}>
+                                        Open server
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        className="auth-btn"
+                                        onClick={() => void joinServer()}
+                                        disabled={joining || !canJoin}
+                                    >
+                                        {joining ? 'Joining…' : 'Join server'}
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => navigate(ROUTES.home, { replace: true })}
+                                >
+                                    Not now
+                                </button>
+                            </div>
+                        )}
                     </div>
                 ) : null}
             </div>

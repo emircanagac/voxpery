@@ -84,9 +84,66 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     await aboutTab.close()
   })
 
-  test('redirects unauthenticated invite visitors to login with the invite return path', { tag: '@core' }, async ({ page }) => {
-    const state = createMockCoreState({ authenticated: false })
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 812 }, { width: 320, height: 568 }]) {
+    test(`shows signed-out invite visitors the server and both ways in at ${viewport.width}px`, { tag: viewport.width === 1280 ? '@core' : [] }, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      const inviteServer = buildCoreServer({ id: 'server-invite-core', name: 'Invite Guild', invite_code: 'core-invite' })
+      const state = createMockCoreState({ authenticated: false, servers: [], inviteServersByCode: { 'core-invite': inviteServer } })
+      await installMockCoreApi(page, state)
+
+      await page.goto('/invite/core-invite')
+      await expect(page).toHaveURL(/\/invite\/core-invite$/)
+      await expect(page.getByRole('heading', { name: 'You’re invited' })).toBeVisible()
+      await expect(page.getByText('Invite Guild')).toBeVisible()
+      await expect(page.getByText(/\d+ members?/)).toBeVisible()
+      const createAccount = page.getByRole('button', { name: 'Create account' })
+      const signIn = page.getByRole('button', { name: 'Sign in' })
+      await expect(createAccount).toBeInViewport({ ratio: 1 })
+      await expect(signIn).toBeInViewport({ ratio: 1 })
+      await expect(page.getByRole('button', { name: 'Join server' })).toHaveCount(0)
+
+      await createAccount.click()
+      await expect(page).toHaveURL(/\/register\?redirect=%2Finvite%2Fcore-invite$/)
+      await page.goBack()
+      await page.getByRole('button', { name: 'Sign in' }).click()
+      await expect(page).toHaveURL(/\/login\?redirect=%2Finvite%2Fcore-invite$/)
+      if (viewport.width !== 1280) return
+
+      // Signing in returns to the invite, now with the join button.
+      await page.route('**/api/auth/login', async (route) => {
+        state.authenticated = true
+        await route.fulfill({ json: { token: 'mock-token', user: state.user } })
+      })
+      await page.getByLabel('Email or Username').fill('member@example.com')
+      await page.getByLabel('Password', { exact: true }).fill('correct horse battery')
+      await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+      await expect(page).toHaveURL(/\/invite\/core-invite$/)
+      await expect(page.getByRole('heading', { name: 'Join server' })).toBeVisible()
+    })
+  }
+
+  test('offers only sign-in on an invite when registration is closed, and sign-in on a dead invite', async ({ page }) => {
+    const inviteServer = buildCoreServer({ id: 'server-invite-core', name: 'Invite Guild', invite_code: 'core-invite' })
+    const state = createMockCoreState({ authenticated: false, servers: [], inviteServersByCode: { 'core-invite': inviteServer } })
+    state.features = { ...state.features, registration_mode: 'closed' }
     await installMockCoreApi(page, state)
+
+    await page.goto('/invite/core-invite')
+    await expect(page.getByRole('heading', { name: 'You’re invited' })).toBeVisible()
+    await expect(page.getByText('Sign in to join this server.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create account' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+
+    await page.goto('/invite/doesnotexist')
+    await expect(page.getByRole('heading', { name: 'Invite unavailable' })).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText('Invalid invite code')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+  })
+
+  test('keeps the desktop app sending signed-out invite visitors to sign-in', { tag: '@core' }, async ({ page }) => {
+    await installMockTauriRuntime(page)
+    await installMockCoreApi(page, createMockCoreState({ authenticated: false }))
 
     await page.goto('/invite/core-invite')
 
