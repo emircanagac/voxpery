@@ -62,6 +62,9 @@ export interface AppLayoutProps {
 }
 
 
+/** A page hidden at least this long reloads the unread state when shown again. */
+const UNREAD_RELOAD_AFTER_HIDDEN_MS = 15_000
+
 export default function AppLayout({ skipServerSidebar = false, isViewActive, serverDialogTriggerRef: externalServerDialogTriggerRef }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
     const { token, user } = useAuthStore()
@@ -329,6 +332,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     useDialogFocus(serverDialogRef, showCreateServer || showJoinServer, undefined, serverDialogTriggerRef)
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
+    const isViewActiveRef = useRef(isViewActive)
+    useEffect(() => { isViewActiveRef.current = isViewActive }, [isViewActive])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
     useEffect(() => { channelServerMapRef.current = channelServerMap }, [channelServerMap])
     useEffect(() => { tokenRef.current = token }, [token])
@@ -378,6 +383,29 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         // The view state is read when the response arrives; it must not restart the load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggedIn, token])
+
+    // A page that was hidden for a while (a background tab, a phone app switched away) can miss
+    // the `ChannelRead` of another device without its connection dropping, so it reloads the
+    // unread state when it is shown again.
+    useEffect(() => {
+        if (!isLoggedIn) return
+        let hiddenAt: number | null = document.visibilityState === 'hidden' ? Date.now() : null
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                hiddenAt ??= Date.now()
+                return
+            }
+            const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt
+            hiddenAt = null
+            if (hiddenFor < UNREAD_RELOAD_AFTER_HIDDEN_MS) return
+            void loadNotificationState(
+                tokenRef.current ?? null,
+                () => (isViewActiveRef.current ? activeChannelIdRef.current : null),
+            ).catch(() => {})
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    }, [isLoggedIn])
 
     useEffect(() => {
         if (!isLoggedIn || servers.length === 0) return
@@ -886,15 +914,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
         clearServerUnread(activeChannelId)
         clearServerMention(activeChannelId)
-        if (!isAppBackgrounded()) scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
+        // A channel opened before the window has focus (a clicked system notification, a return
+        // from the tray) still owes the server its read mark: the badge here is already cleared,
+        // and without the mark the account's other devices keep showing it as unread.
+        let readMarkOwed = isAppBackgrounded()
+        if (!readMarkOwed) scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
 
         // Messages that arrived while the app was in the background stay unread until the
         // user returns; then they get the divider and are marked read.
         const syncReadOnReturn = () => {
             if (isAppBackgrounded()) return
             const pendingUnread = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
-            if (pendingUnread <= 0) return
-            setChannelUnreadDividerCount(pendingUnread)
+            if (pendingUnread <= 0 && !readMarkOwed) return
+            readMarkOwed = false
+            if (pendingUnread > 0) setChannelUnreadDividerCount(pendingUnread)
             clearServerUnread(activeChannelId)
             clearServerMention(activeChannelId)
             scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
