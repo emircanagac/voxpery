@@ -117,6 +117,8 @@ pub struct AttachmentService {
     max_files_per_request: usize,
     allowed_mime_prefixes: Vec<String>,
     scanner: ClamAvConfig,
+    user_quota_bytes: i64,
+    total_quota_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -278,7 +280,11 @@ impl AttachmentService {
             scanner,
             public_base_url,
         )
-        .await?;
+        .await?
+        .with_quotas(
+            config.attachments_user_quota_bytes,
+            config.attachments_total_quota_bytes,
+        );
         let (endpoint, bucket) = match (
             config.attachments_s3_endpoint.clone(),
             config.attachments_s3_bucket.clone(),
@@ -307,6 +313,21 @@ impl AttachmentService {
     pub fn with_object_store(mut self, store: ObjectStore) -> Self {
         self.object_store = Some(store);
         self
+    }
+
+    /// Sets the upload storage each account may use and, optionally, all accounts together.
+    pub fn with_quotas(mut self, user_quota_bytes: i64, total_quota_bytes: Option<i64>) -> Self {
+        self.user_quota_bytes = user_quota_bytes;
+        self.total_quota_bytes = total_quota_bytes;
+        self
+    }
+
+    pub fn user_quota_bytes(&self) -> i64 {
+        self.user_quota_bytes
+    }
+
+    pub fn total_quota_bytes(&self) -> Option<i64> {
+        self.total_quota_bytes
     }
 
     pub async fn new_local_for_tests(base_dir: PathBuf) -> Result<Self, AppError> {
@@ -385,6 +406,8 @@ impl AttachmentService {
             max_files_per_request,
             allowed_mime_prefixes,
             scanner,
+            user_quota_bytes: crate::config::DEFAULT_ATTACHMENTS_USER_QUOTA_BYTES,
+            total_quota_bytes: None,
         })
     }
 

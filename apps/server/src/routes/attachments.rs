@@ -23,7 +23,6 @@ use crate::{
     AppState,
 };
 
-const FREE_TIER_STORAGE_QUOTA_BYTES: i64 = 1_073_741_824; // 1 GiB
 const ATTACHMENT_CONTENT_USER_RATE_LIMIT_MAX: usize = 240;
 const ATTACHMENT_CONTENT_ITEM_RATE_LIMIT_MAX: usize = 30;
 const ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
@@ -44,6 +43,19 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         ));
 
     protected.merge(content)
+}
+
+/// A quota for people: whole gigabytes or megabytes when it is one, bytes otherwise.
+fn format_quota(bytes: i64) -> String {
+    const MB: i64 = 1024 * 1024;
+    const GB: i64 = 1024 * MB;
+    if bytes >= GB && bytes % GB == 0 {
+        format!("{} GB", bytes / GB)
+    } else if bytes >= MB && bytes % MB == 0 {
+        format!("{} MB", bytes / MB)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 fn should_force_attachment_download(content_type: &str) -> bool {
@@ -220,6 +232,27 @@ async fn process_attachment_upload(
             continue;
         }
 
+        // The shared limit protects the disk of the whole server. Uploads that count against it
+        // run one at a time, so parallel requests cannot pass it together.
+        if let Some(total_quota) = state.attachment_service.total_quota_bytes() {
+            acquire_transaction_lock(tx, "attachments:total-quota").await?;
+            let used: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users",
+            )
+            .fetch_one(&mut **tx)
+            .await?;
+            if used.saturating_add(prepared.size_bytes) > total_quota {
+                tracing::warn!(
+                    "Upload refused: the server-wide attachment quota of {} bytes is full",
+                    total_quota
+                );
+                return Err(AppError::Validation(
+                    "This server's file storage is full. Ask the server operator to free space, or try again later.".into(),
+                ));
+            }
+        }
+
+        let user_quota = state.attachment_service.user_quota_bytes();
         let reserve_result = sqlx::query_scalar::<_, Uuid>(
             r#"UPDATE users
                SET storage_used_bytes = storage_used_bytes + $1
@@ -229,14 +262,15 @@ async fn process_attachment_upload(
         )
         .bind(prepared.size_bytes)
         .bind(user_id)
-        .bind(FREE_TIER_STORAGE_QUOTA_BYTES)
+        .bind(user_quota)
         .fetch_optional(&mut **tx)
         .await?;
 
         if reserve_result.is_none() {
-            return Err(AppError::Validation(
-                "Storage quota exceeded (1 GB). Delete messages with files you no longer need; their space is freed shortly after.".into(),
-            ));
+            return Err(AppError::Validation(format!(
+                "Storage quota exceeded ({}). Delete messages with files you no longer need; their space is freed shortly after.",
+                format_quota(user_quota)
+            )));
         }
 
         let stored = state
@@ -454,7 +488,14 @@ async fn ensure_attachment_view_access(
 
 #[cfg(test)]
 mod tests {
-    use super::should_force_attachment_download;
+    use super::{format_quota, should_force_attachment_download};
+
+    #[test]
+    fn quotas_read_as_whole_gigabytes_or_megabytes() {
+        assert_eq!(format_quota(1_073_741_824), "1 GB");
+        assert_eq!(format_quota(500 * 1024 * 1024), "500 MB");
+        assert_eq!(format_quota(1_000), "1000 bytes");
+    }
 
     #[test]
     fn archives_download_while_images_remain_previewable() {

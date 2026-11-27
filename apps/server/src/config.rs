@@ -88,6 +88,11 @@ pub struct Config {
     pub attachments_max_file_bytes: usize,
     /// Max files accepted in a single upload request.
     pub attachments_max_files_per_request: usize,
+    /// Upload storage each account may use (`ATTACHMENTS_USER_QUOTA_BYTES`, default 1 GiB).
+    pub attachments_user_quota_bytes: i64,
+    /// Upload storage all accounts may use together (`ATTACHMENTS_TOTAL_QUOTA_BYTES`); unset or
+    /// empty means no shared limit.
+    pub attachments_total_quota_bytes: Option<i64>,
     /// Allowed MIME type prefixes/exact values for uploaded files.
     pub attachments_allowed_mime_prefixes: Vec<String>,
     /// Signed attachment URL lifetime in seconds.
@@ -316,6 +321,15 @@ impl Config {
                 .unwrap_or_else(|_| "4".into())
                 .parse()
                 .expect("ATTACHMENTS_MAX_FILES_PER_REQUEST must be a number"),
+            attachments_user_quota_bytes: parse_positive_bytes(
+                "ATTACHMENTS_USER_QUOTA_BYTES",
+                std::env::var("ATTACHMENTS_USER_QUOTA_BYTES").ok(),
+            )
+            .unwrap_or(DEFAULT_ATTACHMENTS_USER_QUOTA_BYTES),
+            attachments_total_quota_bytes: parse_positive_bytes(
+                "ATTACHMENTS_TOTAL_QUOTA_BYTES",
+                std::env::var("ATTACHMENTS_TOTAL_QUOTA_BYTES").ok(),
+            ),
             attachments_allowed_mime_prefixes: std::env::var(
                 "ATTACHMENTS_ALLOWED_MIME_PREFIXES",
             )
@@ -363,5 +377,43 @@ impl Config {
 
     pub fn password_reset_enabled(&self) -> bool {
         self.email_delivery_enabled()
+    }
+}
+
+/// Upload storage each account may use unless `ATTACHMENTS_USER_QUOTA_BYTES` says otherwise.
+pub const DEFAULT_ATTACHMENTS_USER_QUOTA_BYTES: i64 = 1_073_741_824;
+
+/// A byte count from the environment: unset or empty is `None`; anything else must be a positive
+/// whole number, or the server refuses to start.
+fn parse_positive_bytes(name: &str, raw: Option<String>) -> Option<i64> {
+    let raw = raw?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match trimmed.parse::<i64>() {
+        Ok(value) if value > 0 => Some(value),
+        _ => panic!("{name} must be a positive number of bytes"),
+    }
+}
+
+#[cfg(test)]
+mod byte_setting_tests {
+    use super::parse_positive_bytes;
+
+    #[test]
+    fn byte_settings_accept_positive_numbers_and_treat_empty_as_unset() {
+        assert_eq!(parse_positive_bytes("X", None), None);
+        assert_eq!(parse_positive_bytes("X", Some("  ".into())), None);
+        assert_eq!(
+            parse_positive_bytes("X", Some("524288000".into())),
+            Some(524_288_000)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "X must be a positive number of bytes")]
+    fn byte_settings_refuse_zero() {
+        parse_positive_bytes("X", Some("0".into()));
     }
 }

@@ -263,6 +263,28 @@ async fn build_test_app_with_storage(
         object_store,
         RegistrationMode::Open,
         redis_client(),
+        None,
+    )
+    .await
+}
+
+/// An app whose uploads use the given per-account and, optionally, server-wide quota.
+async fn setup_app_with_attachment_quotas(
+    user_quota_bytes: i64,
+    total_quota_bytes: Option<i64>,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "ws://localhost:7880".into(),
+        None,
+        None,
+        RegistrationMode::Open,
+        redis_client(),
+        Some((user_quota_bytes, total_quota_bytes)),
     )
     .await
 }
@@ -282,6 +304,7 @@ async fn setup_app_with_registration_mode(
         None,
         registration_mode,
         redis_client(),
+        None,
     )
     .await
 }
@@ -303,6 +326,7 @@ async fn setup_app_with_unreachable_redis() -> (axum::Router, Arc<AppState>) {
         None,
         RegistrationMode::Open,
         unreachable,
+        None,
     )
     .await
 }
@@ -319,6 +343,7 @@ async fn build_test_app_with_registration_mode(
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
     registration_mode: RegistrationMode,
     redis: SharedRedis,
+    attachment_quotas: Option<(i64, Option<i64>)>,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -340,6 +365,10 @@ async fn build_test_app_with_registration_mode(
         .expect("Failed to init test attachment service");
     let attachment_service = match object_store {
         Some(store) => attachment_service.with_object_store(store),
+        None => attachment_service,
+    };
+    let attachment_service = match attachment_quotas {
+        Some((user, total)) => attachment_service.with_quotas(user, total),
         None => attachment_service,
     };
 

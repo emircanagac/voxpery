@@ -618,6 +618,8 @@ mod tests {
             attachments_key_prefix: "attachments".into(),
             attachments_max_file_bytes: 10_485_760,
             attachments_max_files_per_request: 4,
+            attachments_user_quota_bytes: crate::config::DEFAULT_ATTACHMENTS_USER_QUOTA_BYTES,
+            attachments_total_quota_bytes: None,
             attachments_allowed_mime_prefixes: vec!["image/".into()],
             attachments_url_ttl_secs: 900,
             attachments_clamav_enabled: false,

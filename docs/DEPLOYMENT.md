@@ -130,6 +130,10 @@ Attachments note:
   - `ATTACHMENTS_KEY_PREFIX`
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
+  - `ATTACHMENTS_USER_QUOTA_BYTES` — upload storage each account may use (default `1073741824`, 1 GB).
+  - `ATTACHMENTS_TOTAL_QUOTA_BYTES` — upload storage all accounts may use together (unset by default: no shared limit). Set it below your free disk space so uploads cannot fill the disk the database also needs; when it is full, uploads are refused with a clear message and the server logs a warning. On a disk shared with the database and its backups, leave generous room for both.
+
+Deleting a message frees the files only it used: their size returns to the account's quota and counts no longer against the shared limit.
 
 `ATTACHMENTS_KEY_PREFIX` is part of the persisted storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
 
