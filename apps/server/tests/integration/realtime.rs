@@ -2985,3 +2985,57 @@ async fn unchanged_status_is_not_broadcast_and_status_changes_are_rate_limited()
     .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
 }
+
+#[tokio::test]
+async fn a_timeout_removes_the_member_from_voice_and_keeps_them_out_until_it_ends() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "voicetimeoutowner").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "voicetimeoutmember").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Timeout")
+            .await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    state.voice_sessions.insert(member_id, voice_channel_id);
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/members/{member_id}/timeout"),
+        &owner_auth,
+        Some(json!({ "duration_minutes": 10, "reason": "voice spam" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        state.voice_sessions.get(&member_id).is_none(),
+        "a timed-out member must leave voice"
+    );
+
+    let token_uri = format!("/api/webrtc/livekit-token?channel_id={voice_channel_id}");
+    let (status, body) = api_json(&mut app, "GET", &token_uri, &member_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("timed out on this server"),
+        "{body}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/members/{member_id}/timeout"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = api_json(&mut app, "GET", &token_uri, &member_auth, None).await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "{body}");
+}

@@ -208,7 +208,7 @@ Notes:
 - `POST /api/servers/:server_id/members/:user_id/ban` (requires `BAN_MEMBERS`)
 - `POST /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
   - Body: `{ "duration_minutes": 60, "reason": "optional note" }`
-  - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, and new reactions.
+  - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, new reactions and voice: the member cannot join a voice channel of the server (`GET /api/webrtc/livekit-token` returns `403` naming the timeout), and a member already in voice there is removed from the room at once. Clearing the timeout, or its end, lets them join again; nothing rejoins them automatically.
 - `DELETE /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/timeouts` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/voice-restrictions` (requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`)

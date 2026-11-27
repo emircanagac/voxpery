@@ -371,6 +371,14 @@ export function classifyVoiceError(err: unknown): VoiceErrorInfo {
   const raw = err instanceof Error ? err.message : String(err ?? '')
   const lower = raw.toLowerCase()
 
+  if (lower.includes('timed out on this server')) {
+    return {
+      level: 'info',
+      title: 'You are timed out',
+      message: 'You cannot join voice on this server until your timeout ends.',
+    }
+  }
+
   if (
     lower.includes('voice access denied') ||
     lower.includes('missing required permission') ||

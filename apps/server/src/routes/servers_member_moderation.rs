@@ -483,6 +483,20 @@ pub(super) async fn timeout_member(
         },
     )
     .await;
+    // The timeout covers voice too: a member in a voice channel of this server is removed.
+    if let Err(error) = voice_revoke::revoke_invalid_voice_sessions_for_server(
+        &state,
+        server_id,
+        "member timed out",
+    )
+    .await
+    {
+        tracing::error!(
+            "Voice removal after a timeout failed for server {}: {}",
+            server_id,
+            error
+        );
+    }
 
     Ok(Json(entry))
 }

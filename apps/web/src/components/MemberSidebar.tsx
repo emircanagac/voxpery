@@ -554,7 +554,7 @@ export default function MemberSidebar({
                 pushToast({
                     level: 'info',
                     title: 'Member timed out',
-                    message: 'They cannot send messages until the timeout expires.',
+                    message: 'They cannot send messages or join voice until the timeout expires.',
                 })
                 setTimeoutConfirm(null)
             } catch (e) {
@@ -1060,7 +1060,7 @@ export default function MemberSidebar({
                     <ModalSurface name="Timeout member" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setTimeoutConfirm(null)} returnFocusRef={menuTriggerRef}>
                         <h2>Timeout member</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                            Timeout <strong>{timeoutConfirm.username}</strong> from sending messages.
+                            Timeout <strong>{timeoutConfirm.username}</strong> from sending messages and talking in voice. If they are in a voice channel, they are disconnected.
                         </p>
                         <div className="form-group">
                             <label htmlFor="member-timeout-duration">Duration</label>
