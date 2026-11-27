@@ -40,29 +40,55 @@ test.describe('mocked mobile web smoke', () => {
     await expect(page.getByRole('textbox', { name: 'Message @Friend 01' })).toBeVisible()
   })
 
-  test('shows the reconnecting banner inside a phone viewport and clears it on return', async ({ page }) => {
-    const server = buildCoreServer()
-    await installMockCoreApi(page, createMockCoreState({
-      servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
-    }))
-    await page.goto('/servers')
-    await expect(page.locator('.shell-topbar')).toBeVisible()
-    const banner = page.getByRole('status').filter({ hasText: 'Connection lost' })
-    await expect(banner).toHaveCount(0)
+  for (const width of [320, 375, 430]) {
+    for (const path of ['/servers', '/social']) {
+      test(`shows the reconnecting banner at ${width}px on ${path} without covering a control and clears it on return`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 800 })
+        const server = buildCoreServer()
+        await installMockCoreApi(page, createMockCoreState({
+          servers: [server], channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+        }))
+        await page.goto(path)
+        await expect(page.locator('.shell-topbar')).toBeVisible()
+        const banner = page.getByRole('status').filter({ hasText: 'Connection lost' })
+        await expect(banner).toHaveCount(0)
 
-    await dropMockSocketServer(page)
-    await expect(banner).toBeVisible({ timeout: 8000 })
-    const box = (await banner.boundingBox())!
-    const viewport = page.viewportSize()!
-    expect(box.x).toBeGreaterThanOrEqual(0)
-    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-    // The banner never blocks the app: the page under it still takes clicks.
-    await page.getByRole('button', { name: 'Voxpery', exact: false }).first().click({ trial: true })
+        await dropMockSocketServer(page)
+        await expect(banner).toBeVisible({ timeout: 8000 })
+        const box = (await banner.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+        await expect(banner.getByText('Connection lost')).toBeVisible()
+        await expect(banner.getByRole('button', { name: 'Try now' })).toBeInViewport({ ratio: 1 })
 
-    await restoreMockSocketServer(page)
-    await banner.getByRole('button', { name: 'Try now' }).click()
-    await expect(banner).toHaveCount(0)
-  })
+        // It sits between the top bar and the page and overlaps no control of the app.
+        const overlap = await page.evaluate(() => {
+          const bannerElement = document.querySelector('.connection-banner')!
+          const own = bannerElement.getBoundingClientRect()
+          const content = document.querySelector('#app-content')!.getBoundingClientRect()
+          const covered = [...document.querySelectorAll('button, a[href], input, textarea, select, [role="button"]')]
+            .filter((element) => !bannerElement.contains(element))
+            .filter((element) => {
+              const rect = element.getBoundingClientRect()
+              if (rect.width === 0 || rect.height === 0) return false
+              const style = getComputedStyle(element)
+              if (style.visibility === 'hidden' || style.pointerEvents === 'none') return false
+              return rect.left < own.right - 0.5 && rect.right > own.left + 0.5
+                && rect.top < own.bottom - 0.5 && rect.bottom > own.top + 0.5
+            })
+            .map((element) => element.getAttribute('aria-label') || element.textContent?.trim().slice(0, 30) || element.tagName)
+          return { covered, contentTop: content.top, bannerBottom: own.bottom }
+        })
+        expect(overlap.covered).toEqual([])
+        expect(overlap.contentTop).toBeGreaterThanOrEqual(overlap.bannerBottom - 0.5)
+        await page.getByRole('button', { name: 'Voxpery', exact: false }).first().click({ trial: true })
+
+        await restoreMockSocketServer(page)
+        await banner.getByRole('button', { name: 'Try now' }).click()
+        await expect(banner).toHaveCount(0)
+      })
+    }
+  }
 
   test('opens Settings directly from the compact topbar and restores focus on dismissal', async ({ page }) => {
     const server = buildCoreServer()
