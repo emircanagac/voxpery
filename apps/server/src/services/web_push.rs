@@ -238,6 +238,7 @@ pub fn notify_users(state: Arc<AppState>, user_ids: Vec<Uuid>, payload: PushPayl
                INNER JOIN users u ON u.id = ps.user_id
                WHERE ps.user_id = ANY($1)
                  AND u.status <> 'dnd'
+                 AND u.disabled_at IS NULL
                  AND ($2::uuid IS NULL OR NOT EXISTS (
                      SELECT 1 FROM notification_mutes nm
                      WHERE nm.user_id = ps.user_id AND nm.server_id = $2

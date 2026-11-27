@@ -26,6 +26,9 @@ pub struct User {
     pub created_at: Timestamp,
     pub google_id: Option<String>,
     pub username_changed_at: Option<Timestamp>,
+    /// Set when an operator disabled the account; such an account cannot sign in.
+    #[sqlx(default)]
+    pub disabled_at: Option<Timestamp>,
 }
 
 impl fmt::Debug for User {
@@ -45,6 +48,7 @@ impl fmt::Debug for User {
             .field("created_at", &self.created_at)
             .field("google_id", &self.google_id.as_ref().map(|_| "<linked>"))
             .field("username_changed_at", &self.username_changed_at)
+            .field("disabled_at", &self.disabled_at)
             .finish()
     }
 }

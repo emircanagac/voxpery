@@ -495,6 +495,33 @@ For production operations, alerting and restore drill checklist, see:
 
 - `docs/OPERATIONS_RUNBOOK.md`
 
+## 9) Disabling an Account
+
+An operator can stop an abusive account. There is no admin screen yet; run the SQL in the
+database container (`docker compose exec postgres psql -U "${POSTGRES_USER:-voxpery}" -d "${POSTGRES_DB:-voxpery}"`).
+A disabled account cannot sign in with a password or Google, gets no password reset email
+and no push notifications. Its sessions end at once for API requests, and an open
+WebSocket (and with it any voice call) closes at the next session check, within 30
+seconds. Its messages, memberships and profile stay as they are.
+
+```sql
+-- Disable (bumping token_version keeps old tokens invalid after a later re-enable)
+UPDATE users SET disabled_at = NOW(), token_version = token_version + 1
+ WHERE lower(username) = lower('USERNAME') AND NOT is_system
+RETURNING id, username, disabled_at;
+
+-- Enable again; the user signs in anew
+UPDATE users SET disabled_at = NULL
+ WHERE lower(username) = lower('USERNAME')
+RETURNING id, username;
+
+-- List disabled accounts
+SELECT id, username, disabled_at FROM users
+ WHERE disabled_at IS NOT NULL ORDER BY disabled_at DESC;
+```
+
+The deleted-account placeholder (`is_system`) cannot be disabled; the database refuses it.
+
 ## Notes
 
 - LiveKit runs on bridge networking with explicit port mappings for cross-platform compatibility.

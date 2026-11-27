@@ -50,6 +50,7 @@ Important behavior:
 - `POST /api/auth/register`
   - Subject to the server's registration mode (`REGISTRATION_MODE`, reported by `GET /api/system/features`). `closed`: `403`. `invite`: the body must carry `invite_code`, the invite code of a server on this instance; a missing or unknown code (and the default community code) returns `400`, and the new account joins that server. The same rule applies to desktop registration and to a first Google sign-in, which read the invite from the `/invite/<code>` return path. Signing in to an existing account is never affected.
 - `POST /api/auth/login`
+  - A disabled account (see `docs/DEPLOYMENT.md`) returns `403` with code `ACCOUNT_DISABLED`, but only after the password matched; a wrong password still returns `401`. Google sign-in for a disabled account returns to the sign-in page with `error=account_disabled`.
 - `POST /api/auth/logout`
   - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it can no longer validate (its expiry plus the validation leeway); if revocation cannot be stored the endpoint returns `503` but still clears the session cookie, so a reload cannot restore the browser session. Desktop clients complete sign-out and sign-in regardless; a token whose revocation failed is kept only in the OS keyring revocation list and retried on later starts.
 - `GET /api/auth/me`
@@ -118,9 +119,10 @@ Important behavior:
 Notes:
 
 - Authenticated application, WebSocket, attachment, and voice endpoints return `428` with code `LEGAL_CONSENT_REQUIRED` while the account's legal-document versions are missing or stale. Session inspection, legal acknowledgement, public legal pages, and logout remain available.
+- Tokens of a disabled account are refused like signed-out ones: `401` on every authenticated endpoint, including `GET /api/auth/session`, and on the WebSocket handshake; an open WebSocket closes with code `4001` at its next 30-second session check.
 - With `EMAIL_VERIFICATION_REQUIRED=true`, the same endpoints return `403` with code `EMAIL_VERIFICATION_REQUIRED` (the WebSocket handshake `403`) until the account's email address is verified. Session inspection, legal acknowledgement, logout and the account's own `/api/auth/*` routes (verification email, password, status, profile, data export, deletion) remain available.
 - `forgot-password` always returns a generic success message to prevent account enumeration.
-- Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
+- Unknown emails and disabled accounts do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
 - `email/request-verification` issues a fresh verification token, optionally for a new address (`{ "email", "current_password" }`). A different address needs the current password, or for a Google-only account a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). The account email does not change until the link is confirmed; the pending address is kept with the token.
 - `email/confirm` returns 409 when another account took the pending address after the link was sent.

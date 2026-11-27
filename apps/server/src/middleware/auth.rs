@@ -61,10 +61,13 @@ pub(crate) async fn claims_match_current_token_version(
     user_id: Uuid,
     token_version: i64,
 ) -> Result<bool, sqlx::Error> {
-    let current = sqlx::query_scalar::<_, i64>("SELECT token_version FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?;
+    // A disabled account has no valid session, whatever its token says.
+    let current = sqlx::query_scalar::<_, i64>(
+        "SELECT token_version FROM users WHERE id = $1 AND disabled_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?;
     Ok(matches!(current, Some(v) if v == token_version))
 }
 

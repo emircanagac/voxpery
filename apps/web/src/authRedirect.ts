@@ -47,6 +47,8 @@ export function googleOAuthErrorMessage(error: string | null): string {
       return 'This server is not accepting new accounts. Sign in with an existing account.'
     case 'registration_invite_required':
       return 'This server is invite-only. Open your invite link and sign up from there.'
+    case 'account_disabled':
+      return 'This account has been disabled. Contact the server operator.'
     default:
       return ''
   }

@@ -3028,3 +3028,130 @@ async fn concurrent_registrations_for_one_email_conflict_instead_of_failing() {
         "the losing registration must be told the account exists"
     );
 }
+
+async fn login_status(
+    app: &mut axum::Router,
+    identifier: &str,
+    password: &str,
+) -> (StatusCode, serde_json::Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "identifier": identifier, "password": password })).unwrap(),
+        ))
+        .unwrap();
+    let (status, body) = oneshot(app, request).await;
+    let body = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, body)
+}
+
+#[tokio::test]
+async fn disabled_account_cannot_sign_in_and_loses_its_sessions() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, user_id, password) = register_named_user(&mut app, "disabled").await;
+    let (username, email): (String, String) =
+        sqlx::query_as("SELECT username, email FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let (status, body) = api_json(&mut app, "GET", "/api/auth/session", &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Disable without bumping token_version: the session checks must refuse on their own.
+    sqlx::query("UPDATE users SET disabled_at = NOW() WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let (status, _) = api_json(&mut app, "GET", "/api/auth/session", &auth, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = api_json(&mut app, "GET", "/api/servers", &auth, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let addr = spawn_ws_app(&state).await;
+    let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!(
+            "voxpery.auth,{}",
+            auth.trim_start_matches("Bearer ")
+        ))
+        .unwrap(),
+    );
+    request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    match connect_async(request).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED)
+        }
+        other => panic!("disabled account must not open a WebSocket, got {other:?}"),
+    }
+
+    // A wrong password still reads as wrong credentials; only the right one learns more.
+    let (status, _) = login_status(&mut app, &username, "not-the-password").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = login_status(&mut app, &username, password).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["code"], "ACCOUNT_DISABLED", "{body}");
+
+    // No reset email either.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/auth/forgot-password")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({ "email": email })).unwrap(),
+        ))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    let reset_tokens: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(reset_tokens, 0);
+
+    // Enabling the account lets the user sign in again.
+    sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let (status, body) = login_status(&mut app, &username, password).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
+async fn system_account_cannot_be_disabled() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (_, user_id, _) = register_named_user(&mut app, "systemguard").await;
+    // One statement, so the refused update leaves no system account behind.
+    let error = sqlx::query("UPDATE users SET is_system = TRUE, disabled_at = NOW() WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .expect_err("a system account must stay active");
+    let constraint = error
+        .as_database_error()
+        .and_then(|error| error.constraint())
+        .map(str::to_string);
+    assert_eq!(
+        constraint.as_deref(),
+        Some("users_system_account_not_disabled")
+    );
+}

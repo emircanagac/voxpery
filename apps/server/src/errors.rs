@@ -44,6 +44,10 @@ pub enum AppError {
     #[error("Verify your email address to continue")]
     EmailVerificationRequired,
 
+    /// The operator disabled this account; it cannot sign in.
+    #[error("This account has been disabled")]
+    AccountDisabled,
+
     /// A dependency (database, Redis) could not answer. Unlike `Unauthorized`, it says nothing
     /// about the caller's session: clients keep it and try again.
     #[error("Service temporarily unavailable")]
@@ -84,6 +88,11 @@ impl IntoResponse for AppError {
                 StatusCode::FORBIDDEN,
                 self.to_string(),
                 Some("EMAIL_VERIFICATION_REQUIRED"),
+            ),
+            AppError::AccountDisabled => (
+                StatusCode::FORBIDDEN,
+                self.to_string(),
+                Some("ACCOUNT_DISABLED"),
             ),
             AppError::ServiceUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
