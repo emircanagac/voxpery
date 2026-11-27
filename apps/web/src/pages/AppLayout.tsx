@@ -30,7 +30,7 @@ import {
     setDraftAttachmentUploading,
     type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
+import { enqueueMessageSend, mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom } from '../messageAuthors'
 import {
     clearMessageDraftIfUnchanged,
@@ -1018,7 +1018,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             return next
         })
         try {
-            const msg = await messageApi.send(channelId, content, attachments, token, clientId)
+            // Sends of one channel go out in the order they were written; see createSendQueue.
+            const msg = await enqueueMessageSend(`channel:${channelId}`, () => messageApi.send(channelId, content, attachments, token, clientId))
             const applySentMessage = (current: UiMessage[]) => {
                 return reconcileConfirmedMessage(current, clientId, msg)
             }
@@ -1073,19 +1074,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             return next
         })
         try {
-            const msg = await messageApi.send(
+            const msg = await enqueueMessageSend(`channel:${channelId}`, () => messageApi.send(
                 channelId,
                 target.content,
                 target.attachments ?? [],
                 token,
                 clientId,
-            )
-            const applyRetriedMessage = (current: UiMessage[]) => {
-                if (current.some((m) => m.id === msg.id)) {
-                    return current.filter((m) => m.clientId !== clientId)
-                }
-                return current.map((m) => (m.clientId === clientId ? msg : m))
-            }
+            ))
+            const applyRetriedMessage = (current: UiMessage[]) => reconcileConfirmedMessage(current, clientId, msg)
             if (activeChannelIdRef.current === channelId) {
                 setMessages((prev) => {
                     const next = applyRetriedMessage(prev)

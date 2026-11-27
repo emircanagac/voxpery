@@ -129,8 +129,8 @@ export function handleAppLayoutEvent(event: WsEvent, {
                     })
                 } else {
                     const cached = messagesByChannelRef.current[incomingChannelId]
-                    if (cached?.length && !cached.some((m) => m.id === incoming.id)) {
-                        messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
+                    if (cached?.length) {
+                        messagesByChannelRef.current[incomingChannelId] = applyIncomingMessage(cached, incoming, d.client_request_id, user?.id)
                     }
                 }
                 // Reading a message in the open channel moves the read mark on the server too.
