@@ -1,16 +1,16 @@
 import { useEffect } from 'react'
 
 const SITE_URL = 'https://voxpery.com'
-const DEFAULT_TITLE = 'Voxpery | Free Open-Source Discord Alternative'
-const DEFAULT_DESCRIPTION = 'Voxpery is a free, open-source Discord alternative with community chat, voice, desktop apps, hosted access, and full self-hosting.'
-const DEFAULT_PROMO_DESCRIPTION = 'Start chatting on Voxpery for free or self-host the same open-source community chat and voice stack yourself.'
+const DEFAULT_TITLE = "Voxpery | Your group's own voice and chat server"
+const DEFAULT_DESCRIPTION = 'Voice channels, screen sharing and chat for friend groups and small communities. Open source: use voxpery.com for free or run it on your own server with one command. A Discord alternative you control.'
+const DEFAULT_PROMO_DESCRIPTION = 'Voice, chat and screen sharing for your friend group, on a server you own. Try it free on voxpery.com or self-host it with Docker.'
 const DEFAULT_TAG_VALUES = [
   DEFAULT_DESCRIPTION,
   `${SITE_URL}/`,
-  'Voxpery - Free Open-Source Discord Alternative',
+  "Voxpery - Your group's own voice and chat server",
   DEFAULT_PROMO_DESCRIPTION,
   `${SITE_URL}/`,
-  'Voxpery - Free Open-Source Discord Alternative',
+  "Voxpery - Your group's own voice and chat server",
   DEFAULT_PROMO_DESCRIPTION,
 ]
 
