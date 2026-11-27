@@ -401,6 +401,8 @@ function cameraFacingModeFromTrack(
 export interface UseLiveKitVoiceState {
   joinedChannelId: string | null
   isJoining: boolean
+  /** Joined without a microphone (none, not allowed, or busy): the user only listens. */
+  microphoneUnavailable: boolean
   localStream: MediaStream | null
   screenStream: MediaStream | null
   isScreenSharing: boolean
@@ -441,6 +443,8 @@ export function useLiveKitVoice() {
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
   const unpublishedMicTrackRef = useRef<MediaStreamTrack | null>(null)
   const micPublishInFlightRef = useRef(false)
+  // Set while the user is in voice without a microphone; nothing captures one until they ask.
+  const listenOnlyRef = useRef(false)
   const localCameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const localScreenTracksRef = useRef<MediaStreamTrack[]>([])
 
@@ -505,6 +509,7 @@ export function useLiveKitVoice() {
   const [roomState, setRoomState] = useState('disconnected')
   const [participantCount, setParticipantCount] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [microphoneUnavailable, setMicrophoneUnavailable] = useState(false)
   const [lastJoinMs, setLastJoinMs] = useState<number | null>(null)
 
   const remoteMediaSubscriptionKey = useCallback((peerId: string, kind: RemoteMediaKind) => (
@@ -731,7 +736,9 @@ export function useLiveKitVoice() {
     }
   }, [])
 
-  const publishModeratedMicrophone = useCallback(async () => {
+  const publishModeratedMicrophone = useCallback(async (options?: { rethrow?: boolean }) => {
+    // A listener's microphone is captured only when they turn it on (enableMicrophone).
+    if (listenOnlyRef.current && !options?.rethrow) return
     const room = roomRef.current
     if (!room || !joinedChannelIdRef.current || !userId || micPublishInFlightRef.current) return
     const control = useAppStore.getState().voiceControls[userId]
@@ -769,6 +776,7 @@ export function useLiveKitVoice() {
       startLocalSpeakingMonitor(vadStreamRef.current)
       await setLocalMicMuted(desiredMicMutedRef.current)
     } catch (error) {
+      if (options?.rethrow) throw error
       console.warn('[useLiveKitVoice] Could not restore microphone after server unmute', error)
     } finally {
       micPublishInFlightRef.current = false
@@ -1118,6 +1126,8 @@ export function useLiveKitVoice() {
     channelId: string,
     options?: {
       preflightStream?: MediaStream
+      /** Join without capturing a microphone: the user listens and appears muted. */
+      listenOnly?: boolean
       willRetryConnectionFailure?: boolean
       onStage?: (stage: VoiceJoinStage | null) => void
     },
@@ -1137,6 +1147,10 @@ export function useLiveKitVoice() {
     }
 
     setLastError(null)
+    const listenOnly = !!options?.listenOnly && !options?.preflightStream
+    listenOnlyRef.current = listenOnly
+    setMicrophoneUnavailable(listenOnly)
+    if (listenOnly) selfMutedRef.current = true
     desiredMicMutedRef.current = selfMutedRef.current || selfDeafenedRef.current
     finalMediaDisconnectReconciledRef.current = false
     isJoiningRef.current = true
@@ -1159,15 +1173,15 @@ export function useLiveKitVoice() {
 
     try {
       if (!isBrowserSupported()) throw new Error('WebRTC voice is not supported by this app runtime.')
-      if (!preflightStream) {
+      if (!preflightStream && !listenOnly) {
         preflightStream = await getMicrophoneStream()
       }
       ensureCurrentJoin()
       activeInputDeviceIdRef.current = getStoredVoiceInputDeviceId()
       joinTiming.mark('microphoneMs')
 
-      const rawMicTrack = preflightStream.getAudioTracks()[0]
-      if (!rawMicTrack) throw new Error('No microphone track available')
+      const rawMicTrack = preflightStream?.getAudioTracks()[0] ?? null
+      if (!rawMicTrack && !listenOnly) throw new Error('No microphone track available')
 
       // The token and TURN requests do not depend on the microphone pipeline, so they run while
       // it is built instead of one after the other. They start only once the microphone is
@@ -1188,30 +1202,31 @@ export function useLiveKitVoice() {
 
       // Keep browser constraints in sync with the user's setting. RNNoise still
       // runs when enabled, and browser NS acts as a reliable fallback layer.
-      await applyLocalMicSettings(rawMicTrack)
+      if (rawMicTrack) await applyLocalMicSettings(rawMicTrack)
       ensureCurrentJoin()
 
       // Build one processed publication source for desktop browsers and webviews.
       gateCancelRef.current?.()
       gateCancelRef.current = null
-      const {
-        track: publishTrack,
-        vadStream,
-        cancelGate,
-        source: microphoneSource,
-      } = await buildMicSendTrack(
-        preflightStream,
-        getInputVolumeFactor(),
-        desiredMicMutedRef.current,
-        rawMicTrackRef,
-        inputGainNodeRef,
-        noiseSuppressionEnabled,
-        // A pipeline that finishes after this attempt ended releases itself instead of taking over.
-        () => joinAttemptRef.current === attempt,
-      )
-      attemptCancelGate = cancelGate
+      // A listener joins with nothing to publish; enableMicrophone builds the pipeline later.
+      const built = preflightStream && rawMicTrack
+        ? await buildMicSendTrack(
+          preflightStream,
+          getInputVolumeFactor(),
+          desiredMicMutedRef.current,
+          rawMicTrackRef,
+          inputGainNodeRef,
+          noiseSuppressionEnabled,
+          // A pipeline that finishes after this attempt ended releases itself instead of taking over.
+          () => joinAttemptRef.current === attempt,
+        )
+        : null
+      const publishTrack = built?.track ?? null
+      const vadStream = built?.vadStream ?? null
+      const microphoneSource = built?.source
+      attemptCancelGate = built?.cancelGate ?? null
       ensureCurrentJoin()
-      gateCancelRef.current = cancelGate
+      gateCancelRef.current = built?.cancelGate ?? null
       const activeRawMicTrack = rawMicTrackRef.current
       if (activeRawMicTrack) {
         activeRawMicTrack.onended = () => microphoneEndedHandlerRef.current(activeRawMicTrack)
@@ -1580,14 +1595,14 @@ export function useLiveKitVoice() {
 
       // Publish the track directly to LiveKit.
       unpublishedMicTrackRef.current = publishTrack
-      if (publishAllowed) {
+      if (publishAllowed && publishTrack) {
         const pub = await room.localParticipant.publishTrack(publishTrack, getMicrophonePublishOptions(mobileOptimizedVoice))
         ensureCurrentJoin()
         micPublished = true
         localAudioTrackRef.current = pub.track as LocalAudioTrack
         await setLocalMicMuted(desiredMicMutedRef.current)
         ensureCurrentJoin()
-      } else {
+      } else if (publishTrack) {
         publishTrack.enabled = false
         if (rawMicTrackRef.current) rawMicTrackRef.current.enabled = false
       }
@@ -1628,7 +1643,7 @@ export function useLiveKitVoice() {
       })
       setJoinedChannelId(channelId)
       useAppStore.getState().setJoinedVoiceChannelId(channelId)
-      if (!micPublished) void publishModeratedMicrophone()
+      if (!micPublished && !listenOnly) void publishModeratedMicrophone()
       send('SetVoiceControl', { muted: selfMutedRef.current, deafened: selfDeafenedRef.current, screen_sharing: false, camera_on: false })
       playVoiceCue('join')
       reportObservabilityEvent('voice_join_succeeded')
@@ -1705,6 +1720,8 @@ export function useLiveKitVoice() {
   // voice there, so this device neither ends the session nor removes itself from the channel.
   const leaveVoice = useCallback((options?: { skipLeaveSound?: boolean; skipRoomDisconnect?: boolean; skipServerLeave?: boolean }) => {
     joinAttemptRef.current += 1
+    listenOnlyRef.current = false
+    setMicrophoneUnavailable(false)
     isJoiningRef.current = false
     setIsJoining(false)
     // A join stuck in a step that never settles still ends for its caller now.
@@ -1778,7 +1795,7 @@ export function useLiveKitVoice() {
   // the wait at once, so a stuck attempt never keeps the next join from starting.
   const runWatchedJoinAttempt = useCallback((
     channelId: string,
-    options?: { preflightStream?: MediaStream; willRetryConnectionFailure?: boolean },
+    options?: { preflightStream?: MediaStream; listenOnly?: boolean; willRetryConnectionFailure?: boolean },
   ): Promise<void> => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let settleEarly: (error?: Error) => void = () => {}
@@ -1818,7 +1835,7 @@ export function useLiveKitVoice() {
   // A join whose connection timed out, dropped or stopped responding is retried once, quietly:
   // the failed attempt released the microphone, so the retry captures it again. Leaving or
   // starting another join in the meantime cancels the retry.
-  const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream }) => {
+  const joinVoice = useCallback(async (channelId: string, options?: { preflightStream?: MediaStream; listenOnly?: boolean }) => {
     const generation = joinAttemptRef.current
     try {
       await runWatchedJoinAttempt(channelId, { ...options, willRetryConnectionFailure: true })
@@ -1828,7 +1845,7 @@ export function useLiveKitVoice() {
       const untouched = joinAttemptRef.current === generation + (stalled ? 2 : 1)
       if (!(stalled || isRetryableVoiceJoinError(error)) || !untouched) throw error
       try {
-        await runWatchedJoinAttempt(channelId)
+        await runWatchedJoinAttempt(channelId, options?.listenOnly ? { listenOnly: true } : undefined)
       } catch (retryError) {
         // A stopped attempt reports nothing itself, so its final failure is reported here.
         if (retryError instanceof VoiceJoinStalledError) {
@@ -1851,10 +1868,13 @@ export function useLiveKitVoice() {
     // Starting a fresh getUserMedia request can be suspended by browsers when
     // a moderator moves a member whose tab is in the background.
     const preservedMicStream = cloneLiveMicrophoneStream(rawMicTrackRef.current)
+    const wasListening = listenOnlyRef.current
 
     leaveVoice({ skipLeaveSound: true })
     try {
-      await joinVoice(channelId, preservedMicStream ? { preflightStream: preservedMicStream } : undefined)
+      await joinVoice(channelId, preservedMicStream
+        ? { preflightStream: preservedMicStream }
+        : wasListening ? { listenOnly: true } : undefined)
     } catch (error) {
       preservedMicStream?.getTracks().forEach((track) => track.stop())
       throw error
@@ -2113,6 +2133,24 @@ export function useLiveKitVoice() {
     await setLocalMicMuted(muted || deafened || !!control?.serverMuted || !!control?.serverDeafened)
   }, [send, setLocalMicMuted, userId])
 
+  /**
+   * Turns the microphone on for a user who joined as a listener, without rejoining. Rejects with
+   * the capture error while the microphone is still missing, not allowed or busy.
+   */
+  const enableMicrophone = useCallback(async () => {
+    if (!listenOnlyRef.current) return
+    listenOnlyRef.current = false
+    try {
+      await publishModeratedMicrophone({ rethrow: true })
+    } catch (error) {
+      if (joinedChannelIdRef.current) listenOnlyRef.current = true
+      throw error
+    }
+    const raw = rawMicTrackRef.current
+    if (raw) raw.onended = () => microphoneEndedHandlerRef.current(raw)
+    setMicrophoneUnavailable(false)
+  }, [publishModeratedMicrophone])
+
   const setMemberVoiceControls = useCallback(
     (targetUserId: string, next: { muted?: boolean; deafened?: boolean }) => {
       const store = useAppStore.getState()
@@ -2289,6 +2327,7 @@ export function useLiveKitVoice() {
   const state: UseLiveKitVoiceState = {
     joinedChannelId,
     isJoining,
+    microphoneUnavailable,
     localStream,
     screenStream,
     isScreenSharing: !!screenStream,
@@ -2328,6 +2367,7 @@ export function useLiveKitVoice() {
     stopCamera,
     switchCamera,
     setVoiceControls,
+    enableMicrophone,
     setMemberVoiceControls,
     setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed,

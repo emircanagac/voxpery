@@ -164,6 +164,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     stopCamera,
     switchCamera,
     setVoiceControls,
+    enableMicrophone,
     setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed,
     playVoiceCue,
@@ -217,6 +218,9 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }
   const pushToast = useToastStore((s) => s.pushToast)
   const [joinFailure, setJoinFailure] = useState<{ channelId: string; message: string } | null>(null)
+  // Why the user is in voice without a microphone, while the notice is shown.
+  const [listenOnlyReason, setListenOnlyReason] = useState<string | null>(null)
+  const [enablingMicrophone, setEnablingMicrophone] = useState(false)
   const [preflightPending, setPreflightPending] = useState(false)
   const joinPendingRef = useRef(false)
   const joinGenerationRef = useRef(0)
@@ -1124,16 +1128,32 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
           await moveVoice(channelId)
           return
         }
-        if (!navigator.mediaDevices?.getUserMedia && !micStream) throw new Error('Microphone access is not supported in this browser.')
-        micStream ??= await getPreferredMicrophoneStream()
+        // Without a usable microphone (none, not allowed, or busy) the user still joins and listens.
+        let listenOnly: string | null = null
+        if (!micStream) {
+          try {
+            if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access is not supported in this browser.')
+            micStream = await getPreferredMicrophoneStream()
+          } catch (micError) {
+            listenOnly = mapMicPreflightError(micError)
+            if (!listenOnly) throw micError
+          }
+        }
         if (!isCurrentAttempt()) {
-          micStream.getTracks().forEach((track) => track.stop())
+          micStream?.getTracks().forEach((track) => track.stop())
           if (generation === joinGenerationRef.current) setJoinFailure(null)
           return
         }
         setJoinFailure(null)
-        await joinVoice(channelId, { preflightStream: micStream })
-        if (generation === joinGenerationRef.current) setJoinFailure(null)
+        setListenOnlyReason(null)
+        await joinVoice(channelId, micStream ? { preflightStream: micStream } : { listenOnly: true })
+        if (generation === joinGenerationRef.current) {
+          setJoinFailure(null)
+          if (listenOnly) {
+            setMuted(true)
+            setListenOnlyReason(listenOnly)
+          }
+        }
       } catch (err: unknown) {
         micStream?.getTracks().forEach((t) => t.stop())
         if (isCurrentAttempt()) useAppStore.getState().setVoiceJoinFailedChannelId(channelId)
@@ -1210,7 +1230,28 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
     })
   }, [pushToast, state.lastError])
 
+  // Turns the microphone on for a listener without rejoining, and unmutes once it publishes.
+  const turnOnMicrophone = useCallback(async () => {
+    if (enablingMicrophone) return
+    setEnablingMicrophone(true)
+    try {
+      await enableMicrophone()
+      setListenOnlyReason(null)
+      setMuted(false)
+      setVoiceControls(false, deafened, state.isScreenSharing)
+      playVoiceCue('unmute')
+    } catch (error) {
+      setListenOnlyReason(mapMicPreflightError(error) ?? 'The microphone is still unavailable.')
+    } finally {
+      setEnablingMicrophone(false)
+    }
+  }, [deafened, enableMicrophone, enablingMicrophone, mapMicPreflightError, playVoiceCue, setVoiceControls, state.isScreenSharing])
+
   const toggleMute = useCallback(() => {
+    if (state.microphoneUnavailable && state.joinedChannelId) {
+      void turnOnMicrophone()
+      return
+    }
     const stream = localStreamRef.current ?? state.localStream
     if (state.isJoining || deafened || (state.joinedChannelId && !stream)) return
     const next = !muted
@@ -1222,6 +1263,8 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   }, [
     deafened,
     muted,
+    turnOnMicrophone,
+    state.microphoneUnavailable,
     playVoiceCue,
     serverDeafened,
     serverMuted,
@@ -1681,6 +1724,17 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
 
   return (
     <>
+      {listenOnlyReason && state.microphoneUnavailable && <section className="voice-permission-recovery" role="status" aria-label="Joined as a listener">
+        <strong>Joined as a listener</strong>
+        <p>You can hear everyone, but your microphone is off. {listenOnlyReason}</p>
+        <div className="legal-consent-actions">
+          <button type="button" className="btn btn-primary" disabled={enablingMicrophone}
+            onClick={() => void turnOnMicrophone()}>{enablingMicrophone ? 'Turning on…' : 'Turn on microphone'}</button>
+          {canOpenDesktopMediaPermissionSettings() && <button type="button" className="btn btn-secondary"
+            onClick={() => void openDesktopMediaPermissionSettings('microphone')}>Open settings</button>}
+          <button type="button" className="btn btn-secondary" onClick={() => setListenOnlyReason(null)}>Dismiss</button>
+        </div>
+      </section>}
       {joinFailure && <section className="voice-permission-recovery" role="alert" aria-label="Microphone access required">
         <strong>Microphone access required</strong>
         <p>{joinFailure.message}</p>

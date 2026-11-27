@@ -1219,40 +1219,46 @@ test.describe('mocked core UI smoke', () => {
     await expect(modal).toBeHidden()
   })
 
-  test('keeps the voice channel view usable when microphone access is unavailable', { tag: '@core' }, async ({ page }) => {
-    const server = buildCoreServer()
-    const channels = buildCoreChannels(server.id)
-    const voice = channels.find((channel) => channel.channel_type === 'voice')
-    if (!voice) throw new Error('Core voice channel fixture is incomplete.')
+  for (const errorName of ['NotAllowedError', 'NotFoundError', 'NotReadableError']) {
+    test(`joins a voice channel as a listener when the microphone fails with ${errorName}`, { tag: errorName === 'NotAllowedError' ? '@core' : [] }, async ({ page }) => {
+      const server = buildCoreServer()
+      const channels = buildCoreChannels(server.id)
+      const voice = channels.find((channel) => channel.channel_type === 'voice')
+      if (!voice) throw new Error('Core voice channel fixture is incomplete.')
 
-    const state = createMockCoreState({
-      servers: [server],
-      channelsByServerId: { [server.id]: channels },
-      membersByServerId: { [server.id]: buildCoreMembers() },
-      messagesByChannelId: {},
+      const state = createMockCoreState({
+        servers: [server],
+        channelsByServerId: { [server.id]: channels },
+        membersByServerId: { [server.id]: buildCoreMembers() },
+        messagesByChannelId: {},
+      })
+      await installMockCoreApi(page, state)
+      // Denied, missing and busy microphones all fail the capture; the join still goes on.
+      await page.addInitScript((name) => {
+        navigator.mediaDevices.getUserMedia = async () => {
+          throw new DOMException('Mock microphone failure.', name)
+        }
+      }, errorName)
+      await page.setViewportSize({ width: 1366, height: 768 })
+
+      await page.goto('/servers')
+      const tokenRequest = page.waitForRequest((request) => request.url().includes('/api/webrtc/livekit-token'))
+      await page.locator('.channel-item', { hasText: voice.name }).click()
+
+      await expect(page.locator('.chat-header .channel-title')).toHaveText(voice.name)
+      await expect(page.locator('.voice-focus-panel-stage')).toBeVisible()
+      await expect(page.locator('.channel-item.active', { hasText: voice.name })).toBeVisible()
+      // The join goes past the microphone and asks for voice access; the mocked LiveKit server
+      // cannot be reached, so the call itself is covered by unit tests and the release smoke test.
+      await tokenRequest
+      await expect(page.getByRole('alert', { name: 'Microphone access required' })).toHaveCount(0)
+
+      const hasHorizontalOverflow = await page.locator('.app-layout').evaluate((element) => {
+        return element.scrollWidth > element.clientWidth + 1
+      })
+      expect(hasHorizontalOverflow).toBe(false)
     })
-    await installMockCoreApi(page, state)
-    await page.setViewportSize({ width: 1366, height: 768 })
-
-    await page.goto('/servers')
-    await page.locator('.channel-item', { hasText: voice.name }).click()
-
-    await expect(page.locator('.chat-header .channel-title')).toHaveText(voice.name)
-    await expect(page.locator('.voice-focus-panel-stage')).toBeVisible()
-    await expect(page.locator('.channel-item.active', { hasText: voice.name })).toBeVisible()
-    const recovery = page.getByRole('alert', { name: 'Microphone access required' })
-    await expect(recovery).toBeVisible()
-    await expect(recovery.getByRole('button', { name: 'Try again' })).toBeEnabled()
-    await recovery.getByRole('button', { name: 'Try again' }).click()
-    await expect(recovery).toBeVisible()
-    await recovery.getByRole('button', { name: 'Cancel' }).click()
-    await expect(recovery).toBeHidden()
-
-    const hasHorizontalOverflow = await page.locator('.app-layout').evaluate((element) => {
-      return element.scrollWidth > element.clientWidth + 1
-    })
-    expect(hasHorizontalOverflow).toBe(false)
-  })
+  }
 
   test('keeps the mobile member sheet usable from a server channel', async ({ page }) => {
     const server = buildCoreServer()
