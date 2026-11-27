@@ -1,4 +1,5 @@
 import { runtimeConfig } from '../runtimeConfig'
+import { noteStartupRequest } from '../startupTiming'
 import { isTauri } from '../secureStorage'
 
 declare global {
@@ -203,6 +204,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 
 async function apiFetchWithin<T>(path: string, options: FetchOptions, signal: AbortSignal): Promise<T> {
     const { method = 'GET', body, token } = options
+    noteStartupRequest(path)
     const sessionEpoch = authSessionEpoch
 
     const headers: Record<string, string> = {

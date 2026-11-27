@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { markStartup } from '../startupTiming'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { disableBrowserPush } from '../webPush'
 import { authApi, getApiBase, getAuthErrorMessage, isAuthError, markAuthSessionChanged, setImageProxyGrant, type LegalConsentStatus, type UserPublic } from '../api'
@@ -106,12 +107,14 @@ const authSlice = (set: SetState, get: GetState): AuthState => {
                         return
                     }
                     const token = desktop ? get().token ?? await getSecureToken() : null
+                    if (desktop) markStartup('keyring')
                     if (request !== generation) return
                     if (desktop && !token) {
                         set({ token: null, user: null, sessionState: 'ready' })
                         return
                     }
                     const session = await authApi.getSession(token)
+                    markStartup('session')
                     if (request !== generation) return
                     if (!session.legal_consent) throw new Error('The server did not return session document status.')
                     setImageProxyGrant(session.image_proxy?.grant)

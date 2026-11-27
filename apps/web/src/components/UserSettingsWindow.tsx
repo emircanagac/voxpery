@@ -1,4 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
+import { formatStartupReport, getLastStartupReport } from '../startupTiming'
 import {
   ChevronsUpDown,
   Download,
@@ -302,6 +303,7 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
     completePhotoLeave,
     saveAndCompletePhotoLeave,
   } = props
+  const lastStartup = activeSettingsSection === 'desktop' ? getLastStartupReport() : null
   return (
     <div className="modal-overlay" onMouseDown={requestCloseSettings}>
       <div
@@ -873,6 +875,14 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                     <CustomServerPanel variant="settings" />
                   </div>
                 </div>
+                {lastStartup && (
+                <div className="user-setting-row">
+                  <div>
+                    <div className="user-setting-title">Last start</div>
+                    <div className="user-setting-desc">{formatStartupReport(lastStartup)}</div>
+                  </div>
+                </div>
+                )}
                 {desktopAutostartSupported && (
                 <div className="user-setting-row">
                   <div>

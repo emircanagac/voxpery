@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject, type SetStateAction } from 'react'
+import { markStartup } from '../startupTiming'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { useNavigate } from 'react-router'
@@ -637,6 +638,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             }
             messagesByChannelRef.current[channelId] = merged
             setMessages(merged)
+            markStartup('firstMessages')
             setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
             setOlderMessagesReady(true)
             if (historicalChannelIdRef.current === channelId) historicalChannelIdRef.current = null
