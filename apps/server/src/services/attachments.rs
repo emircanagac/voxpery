@@ -137,7 +137,23 @@ pub struct PreparedAttachment {
     pub content_type: String,
     pub size_bytes: i64,
     pub sha256: String,
+    pub timings: UploadTimings,
     bytes: Vec<u8>,
+}
+
+/// How long the checks of one upload took, in milliseconds; logged to find slow uploads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UploadTimings {
+    /// Size limits and content signature checks.
+    pub check_ms: u64,
+    /// Image metadata removal (JPEG/PNG are decoded and written again).
+    pub metadata_ms: u64,
+    /// The optional ClamAV scan.
+    pub scan_ms: u64,
+}
+
+fn elapsed_ms(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// A local attachment key after its fixed, server-generated layout is verified.
@@ -841,23 +857,33 @@ impl AttachmentService {
         content_type: &str,
         bytes: &[u8],
     ) -> Result<PreparedAttachment, AppError> {
+        let mut timings = UploadTimings::default();
+        let started = std::time::Instant::now();
         self.validate_upload_file_meta(content_type, bytes.len())?;
         let detected_content_type =
             validate_upload_content(original_name, content_type, bytes)?.to_string();
         self.validate_upload_file_meta(&detected_content_type, bytes.len())?;
+        timings.check_ms = elapsed_ms(started);
+        let started = std::time::Instant::now();
         let prepared_bytes = self
             .strip_image_metadata_if_needed(&detected_content_type, bytes)
             .await?;
+        timings.metadata_ms = elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.validate_upload_file_meta(&detected_content_type, prepared_bytes.len())?;
         let stored_content_type =
             validate_upload_content(original_name, &detected_content_type, &prepared_bytes)?;
+        timings.check_ms += elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.scan_file_bytes(&prepared_bytes).await?;
+        timings.scan_ms = elapsed_ms(started);
 
         Ok(PreparedAttachment {
             original_name: original_name.to_string(),
             content_type: stored_content_type.to_string(),
             size_bytes: prepared_bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
+            timings,
             bytes: prepared_bytes,
         })
     }
@@ -874,6 +900,7 @@ impl AttachmentService {
             content_type: content_type.to_string(),
             size_bytes: bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(&bytes)),
+            timings: UploadTimings::default(),
             bytes,
         })
         .await
@@ -888,6 +915,7 @@ impl AttachmentService {
             content_type,
             size_bytes,
             sha256,
+            timings: _,
             bytes,
         } = prepared;
 

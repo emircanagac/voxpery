@@ -171,14 +171,17 @@ async fn process_attachment_upload(
             .content_type()
             .unwrap_or("application/octet-stream")
             .to_string();
+        let read_started = std::time::Instant::now();
         let bytes = field
             .bytes()
             .await
             .map_err(|e| AppError::Validation(format!("Failed to read uploaded file: {e}")))?;
+        let read_ms = read_started.elapsed().as_millis();
         let prepared = state
             .attachment_service
             .prepare_file_for_storage(&file_name, &content_type, &bytes)
             .await?;
+        let prepare_timings = prepared.timings;
 
         acquire_transaction_lock(
             tx,
@@ -273,11 +276,23 @@ async fn process_attachment_upload(
             )));
         }
 
+        let store_started = std::time::Instant::now();
         let stored = state
             .attachment_service
             .store_prepared_file(prepared)
             .await?;
         stored_keys.push(stored.storage_key.clone());
+        // One line per stored file, without names or users, to find where slow uploads spend time.
+        tracing::info!(
+            size_bytes = stored.size_bytes,
+            content_type = %stored.content_type,
+            read_ms,
+            check_ms = prepare_timings.check_ms,
+            metadata_ms = prepare_timings.metadata_ms,
+            scan_ms = prepare_timings.scan_ms,
+            store_ms = store_started.elapsed().as_millis(),
+            "attachment upload timing"
+        );
 
         let attachment_id = Uuid::new_v4();
         sqlx::query(
