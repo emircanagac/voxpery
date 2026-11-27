@@ -426,7 +426,9 @@ jobs:
           ls rpm/*.rpm
 
   docker_publish:
-    # GitHub appends the matrix value, e.g. "Publish / Docker (backend)"; a static name stays readable when skipped.
+    # GitHub appends the matrix values, e.g. "Publish / Docker (backend, arm64)"; a static name stays readable when skipped.
+    # Each architecture builds natively on its own runner and pushes only by digest; docker_manifest
+    # then publishes the multi-architecture tags, so no per-architecture tags pile up on Docker Hub.
     name: Publish / Docker
     needs:
       - security
@@ -438,14 +440,26 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         component:
           - backend
           - frontend
+        arch:
+          - amd64
+          - arm64
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - component: backend
+            image: voxpery/voxpery-server
+          - component: frontend
+            image: voxpery/voxpery-web
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -460,60 +474,40 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute image tags
+      - name: Compute display tag
         id: tags
         shell: bash
         run: |
-          short_sha="${GITHUB_SHA::12}"
-          sha_tag="sha-${short_sha}"
-
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            {
-              echo "display_tag=${GITHUB_REF_NAME}"
-              echo "backend_tags<<EOF"
-              echo "voxpery/voxpery-server:${GITHUB_REF_NAME}"
-              echo "voxpery/voxpery-server:${sha_tag}"
-              echo "EOF"
-              echo "frontend_tags<<EOF"
-              echo "voxpery/voxpery-web:${GITHUB_REF_NAME}"
-              echo "voxpery/voxpery-web:${sha_tag}"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
+            echo "display_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
-            {
-              echo "display_tag=${sha_tag}"
-              echo "backend_tags<<EOF"
-              echo "voxpery/voxpery-server:${sha_tag}"
-              echo "EOF"
-              echo "frontend_tags<<EOF"
-              echo "voxpery/voxpery-web:${sha_tag}"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
+            echo "display_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push backend
+      - name: Build and push backend by digest
+        id: build_backend
         if: matrix.component == 'backend'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./apps/server
           file: ./apps/server/Dockerfile
-          push: true
+          platforms: linux/${{ matrix.arch }}
           pull: true
           build-args: |
             SECURITY_UPDATES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
-          tags: ${{ steps.tags.outputs.backend_tags }}
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          outputs: type=image,name=${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ matrix.arch }}
 
-      - name: Build and push frontend
+      - name: Build and push frontend by digest
+        id: build_frontend
         if: matrix.component == 'frontend'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile
-          push: true
+          platforms: linux/${{ matrix.arch }}
           pull: true
-          tags: ${{ steps.tags.outputs.frontend_tags }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             TURNSTILE_SITE_KEY_PUBLIC=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
@@ -521,12 +515,138 @@ jobs:
             VITE_GIPHY_API_KEY=${{ vars.VITE_GIPHY_API_KEY }}
             APP_ENV=production
             SECURITY_UPDATES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
-          cache-from: type=gha,scope=${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+          outputs: type=image,name=${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ matrix.arch }}
+
+      - name: Record image digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build_backend.outputs.digest || steps.build_frontend.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Unexpected digest: $DIGEST" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-digest-${{ matrix.component }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker_manifest:
+    # Publishes the release tags as one multi-architecture image (linux/amd64 and linux/arm64).
+    name: Publish / Docker manifest
+    needs: docker_publish
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            image: voxpery/voxpery-server
+          - component: frontend
+            image: voxpery/voxpery-web
+    steps:
+      - name: Download image digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: docker-digest-${{ matrix.component }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create multi-architecture tags
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          tags=(-t "${IMAGE}:sha-${short_sha}")
+          display_tag="sha-${short_sha}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tags+=(-t "${IMAGE}:${GITHUB_REF_NAME}")
+            display_tag="${GITHUB_REF_NAME}"
+          fi
+          cd "$RUNNER_TEMP/digests"
+          sources=()
+          for digest in *; do sources+=("${IMAGE}@sha256:${digest}"); done
+          [[ "${#sources[@]}" -eq 2 ]] || { echo "Expected 2 architecture digests, found ${#sources[@]}" >&2; exit 1; }
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          platforms="$(docker buildx imagetools inspect "${IMAGE}:${display_tag}" --format '{{json .Manifest}}' | jq -r '.manifests[].platform | "\(.os)/\(.architecture)"' | sort -u | tr '\n' ' ')"
+          echo "Published ${IMAGE}:${display_tag} for: ${platforms}"
+          [[ "$platforms" == *"linux/amd64"* && "$platforms" == *"linux/arm64"* ]] || { echo "Missing an architecture" >&2; exit 1; }
+
+  docker_arm64_smoke:
+    # No ARM machine is available to the maintainer: the published images are started on an
+    # arm64 runner with the default Compose stack and must report healthy. ClamAV (optional
+    # `security` profile) has no arm64 image and is not part of it.
+    name: Publish / arm64 stack smoke
+    needs: docker_manifest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Start the stack from the published images
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then tag="${GITHUB_REF_NAME}"; else tag="sha-${GITHUB_SHA::12}"; fi
+          scripts/ops/init_env.sh
+          export VOXPERY_SERVER_IMAGE="voxpery/voxpery-server:${tag}"
+          export VOXPERY_WEB_IMAGE="voxpery/voxpery-web:${tag}"
+          docker compose pull --quiet server web
+          docker compose up -d --no-build
+          for image in "$VOXPERY_SERVER_IMAGE" "$VOXPERY_WEB_IMAGE"; do
+            arch="$(docker image inspect "$image" --format '{{.Architecture}}')"
+            echo "$image runs as $arch"
+            [[ "$arch" == "arm64" ]] || { echo "Expected an arm64 image" >&2; exit 1; }
+          done
+          # The one-shot database role service exits by design, so health is polled instead of `--wait`.
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/health && curl -fsS http://localhost:5173/healthz; then
+              docker compose ps
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose ps
+          echo "The arm64 stack did not report healthy within 5 minutes" >&2
+          exit 1
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
 
   release_deploy_gate:
     name: Release / Production Deploy Gate
-    needs: docker_publish
+    needs: docker_manifest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 5

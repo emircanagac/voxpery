@@ -20,6 +20,13 @@ const deploy = read('.github/workflows/deploy.yml')
 const releaseSmoke = read('apps/web/scripts/release-deploy-smoke.mjs')
 
 requireText('CI', ci, 'needs: docker_publish')
+// Release images are published for linux/amd64 and linux/arm64, and production deploys only
+// once both architectures are merged under the release tag.
+requireText('CI', ci, 'runs-on: ubuntu-24.04-arm')
+requireText('CI', ci, 'push-by-digest=true')
+requireText('CI', ci, 'docker buildx imagetools create')
+requireText('CI', ci, 'needs: docker_manifest')
+requireText('CI', ci, 'Publish / arm64 stack smoke')
 requireText('CI', ci, 'Verify published stable GitHub Release')
 requireText('CI', ci, "jq -r '.prerelease'")
 requireText('CI', ci, 'uses: ./.github/workflows/deploy.yml')
