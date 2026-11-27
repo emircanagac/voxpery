@@ -41,7 +41,7 @@ import {
 import { isTauri } from '../secureStorage'
 import { syncDesktopWindowFullscreen } from '../desktopFullscreen'
 import ModalSurface from './ModalSurface'
-import { THEATER_STRIP_TILE, THEATER_STRIP_TILE_MOBILE, fitMediaFrame, fitStageGrid, stripVisibleCount, useStageBox, useStageMediaAspects } from './voiceStageLayout'
+import { THEATER_STRIP_TILE, THEATER_STRIP_TILE_MOBILE, fitMediaFrame, fitStageGrid, stageGridStyle, stripVisibleCount, useStageBox, useStageMediaAspects } from './voiceStageLayout'
 import {
   getStoredGlobalMuteShortcut,
   GLOBAL_MUTE_SHORTCUT_EVENT,
@@ -1549,12 +1549,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
       } as CSSProperties
       : undefined
     : stageFit
-      ? {
-        gridTemplateColumns: `repeat(${stageFit.columns}, ${stageFit.tileWidth}px)`,
-        gridAutoRows: `${stageFit.tileHeight}px`,
-        justifyContent: 'center',
-        alignContent: 'safe center',
-      }
+      ? stageGridStyle(stageFit, isMobileViewport)
       : { gridTemplateColumns: `repeat(${stageColumns}, minmax(0, 1fr))` }
   const stageDensity = totalStageTiles > 9 ? 'dense' : totalStageTiles > 6 ? 'crowded' : 'standard'
   // Strip tiles come from several lists, so the ones past the strip's line are marked in the DOM.

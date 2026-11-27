@@ -826,6 +826,12 @@ textarea {
     min-height: auto;
   }
 
+  /* Once the stage is measured its rows are fit-content(tile height) (stageGridStyle), so
+     every other grid tile keeps the fitted 16:9 height through --stage-row-min. */
+  .screen-share-stage:not(.screen-share-stage--strip):not(.screen-share-stage--theater) > :not(.voice-stage-hidden-media-tile) {
+    min-height: var(--stage-row-min, 0px);
+  }
+
   .voice-stage-avatar {
     width: 48px;
     height: 48px;

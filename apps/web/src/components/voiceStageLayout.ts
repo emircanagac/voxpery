@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 
 export const STAGE_TILE_ASPECT = 16 / 9
 /** Participant strip tiles under a focused stream (16:9); phones use the smaller size. */
@@ -60,6 +60,28 @@ export function fitStageGrid(
     tileWidth: Math.floor(best.tileWidth),
     tileHeight: Math.floor(best.tileHeight),
   }
+}
+
+/**
+ * Inline grid style for a measured stage: columns and rows sized to the fitted 16:9 tile.
+ *
+ * On phones a row grows past that height for a tile whose content needs more room (the stream
+ * and hidden-camera tiles with their "Watching" row and button), so the content stays inside the
+ * tile instead of spilling over its neighbours; the stage then scrolls. A fixed track minimum
+ * only grows into free space, which a full stage does not have, and a fixed track maximum clamps
+ * a tile's content-based minimum, so phone rows use `fit-content(<tile height>)`: the content
+ * sets the minimum, and no row grows past the tile height for spare room. The other tiles keep
+ * the 16:9 height through `--stage-row-min` (see responsive.css). Desktop rows stay fixed.
+ */
+export function stageGridStyle(fit: StageGridFit, mobile: boolean): CSSProperties {
+  const style: CSSProperties = {
+    gridTemplateColumns: `repeat(${fit.columns}, ${fit.tileWidth}px)`,
+    gridAutoRows: mobile ? `fit-content(${fit.tileHeight}px)` : `${fit.tileHeight}px`,
+    justifyContent: 'center',
+    alignContent: 'safe center',
+  }
+  if (mobile) (style as Record<string, string>)['--stage-row-min'] = `${fit.tileHeight}px`
+  return style
 }
 
 /**
