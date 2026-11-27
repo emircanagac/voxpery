@@ -453,7 +453,9 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                     ? 'This environment does not support system notifications.'
                     : pushNotificationPermission === 'denied'
                       ? 'Notifications are blocked in your browser or desktop shell.'
-                      : `Show ${desktopRuntime ? 'desktop' : 'browser'} notifications for direct messages, friend requests, and selected server messages.`}
+                      : desktopRuntime
+                        ? 'Show system notifications for direct messages, friend requests, and selected server messages. If none appear, allow notifications for Voxpery in your system settings (Windows: Settings > System > Notifications).'
+                        : 'Show browser notifications for direct messages, friend requests, and selected server messages.'}
                 </div>
               </div>
               <button

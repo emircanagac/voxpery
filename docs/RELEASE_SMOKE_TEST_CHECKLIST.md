@@ -58,6 +58,7 @@ Server migrations `065`, `066` and `067` run on the first start. Take a fresh da
 - [ ] `REGISTRATION_MODE=invite` and `closed` with a real Google account: first sign-in follows the mode; existing accounts still sign in.
 - [ ] Server Settings resets the invite link: the old link shows an invalid invite, the new one joins.
 - [ ] Two devices of one account: reading a channel on one clears its badge on the other; a mention sent while the app is closed shows a badge on the next start; a muted channel is muted on both after a reconnect.
+- [ ] Windows desktop (clean installation): Settings > Communication > Desktop notifications turns on without a prompt; with Voxpery in the background a DM and a mention each show a Windows notification named Voxpery, a click opens that conversation, Do Not Disturb and a muted server suppress them. Repeat on macOS and Linux.
 - [ ] Android Chrome (real device) with notifications enabled and Voxpery in the background: a DM and a mention each show a notification, the chat still receives the message, and tapping opens that DM or channel (also listed under PWA above).
 - [ ] With VAPID keys set: Settings > Communication offers notifications while Voxpery is closed; with every tab closed, a DM arrives on Android Chrome, desktop Chrome and Firefox and opens the DM; signing out stops them. Record the iOS Home Screen result or the limit.
 - [ ] `/compare` shows the Stoat column on desktop and mobile.

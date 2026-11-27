@@ -22,6 +22,7 @@ fn main() {
                 "desktop_custom_server",
                 "desktop_probe_custom_server",
                 "desktop_set_custom_server",
+                "desktop_show_notification",
             ])),
     )
     .expect("failed to run tauri-build");

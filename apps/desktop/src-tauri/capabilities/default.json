@@ -50,6 +50,7 @@
                 "allow-desktop-custom-server",
                 "allow-desktop-probe-custom-server",
                 "allow-desktop-set-custom-server",
+                "allow-desktop-show-notification",
                 {
                     "identifier": "http:default",
                     "allow": [
