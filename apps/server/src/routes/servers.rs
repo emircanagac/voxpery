@@ -17,8 +17,8 @@ use crate::{
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
-        ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerWithMembers,
-        UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
+        ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerVoiceRestrictionEntry,
+        ServerWithMembers, UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
     },
     routes::auth::DEFAULT_SERVER_INVITE_CODE,
     services::{
@@ -31,7 +31,7 @@ use crate::{
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
-        server_membership, voice_revoke,
+        server_membership, voice_moderation, voice_revoke,
     },
     ws::WsEvent,
     AppState,
@@ -107,10 +107,18 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     "/{server_id}/members/{user_id}/timeout",
                     post(timeout_member).delete(clear_member_timeout),
                 )
+                .route(
+                    "/{server_id}/members/{user_id}/voice-moderation",
+                    delete(clear_member_voice_moderation),
+                )
                 .route("/{server_id}/members/{user_id}", delete(kick_member))
                 .route("/{server_id}/bans", get(list_bans))
                 .route("/{server_id}/bans/{user_id}", delete(unban_member))
                 .route("/{server_id}/timeouts", get(list_active_timeouts))
+                .route(
+                    "/{server_id}/voice-restrictions",
+                    get(list_voice_restrictions),
+                )
                 .route("/{server_id}/raid-events", get(list_raid_events))
                 .route("/{server_id}/reports", get(list_reports))
                 .route("/{server_id}/reports/user", post(report_user))
@@ -454,7 +462,9 @@ async fn get_server(
                       WHEN sm.user_id = $2 THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
                   END AS highest_role_position,
-                  tm.timed_out_until
+                  tm.timed_out_until,
+                  sm.voice_server_muted,
+                  sm.voice_server_deafened
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -1061,7 +1071,9 @@ async fn list_channel_visible_members(
                       WHEN sm.user_id = s.owner_id THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
                   END AS highest_role_position,
-                  tm.timed_out_until
+                  tm.timed_out_until,
+                  sm.voice_server_muted,
+                  sm.voice_server_deafened
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            INNER JOIN users u ON sm.user_id = u.id

@@ -200,7 +200,7 @@ Notes:
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
 - `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
-- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list.
+- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list. `voice_server_muted` and `voice_server_deafened` report a server mute or deafen stored on the membership, which stays after the member leaves voice.
 
 ### Moderation
 
@@ -211,6 +211,10 @@ Notes:
   - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, and new reactions.
 - `DELETE /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/timeouts` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
+- `GET /api/servers/:server_id/voice-restrictions` (requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`)
+  - Members with a stored server mute or deafen: `user_id`, `username`, `voice_server_muted`, `voice_server_deafened`.
+- `DELETE /api/servers/:server_id/members/:user_id/voice-moderation?muted=true&deafened=true`
+  - Lifts a stored server mute (`MUTE_MEMBERS`) and/or deafen (`DEAFEN_MEMBERS`; `MANAGE_SERVER` covers both) from a member who is not in voice; it never adds one. A member in voice returns `409`: the voice participant menu changes it there. Returns the new `voice_server_muted` and `voice_server_deafened`, and writes `voice_member_unmute`/`voice_member_undeafen` audit entries with `out_of_voice: true`.
 - `GET /api/servers/:server_id/raid-events` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
@@ -280,7 +284,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME. Markdown (`text/markdown`, `text/x-markdown`) follows the `text/plain` allowlist entry and is stored and served as `text/plain`.
   - Generic `application/octet-stream` declarations remain compatible with files whose actual type is safely detected, including ZIP uploads from browsers that do not report a specific ZIP MIME.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
+  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan (a refused file returns `400` "This file did not pass the security scan"; the signature is logged for operators only) -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
   - Multi-file uploads are all-or-nothing. If validation, quota reservation, metadata persistence, or transaction commit fails, database changes are rolled back and files already written for that request are removed.
   - Retry-equivalent files from the same user reuse the existing clean attachment record and do not consume storage quota twice.
   - Each user has 1 GB of upload storage. Files that no message uses any more (after message, channel or server deletion) are deleted and their size is returned to the quota; files that were never sent are deleted 24 hours after their last upload. See `docs/DATABASE.md`.

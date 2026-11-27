@@ -1471,8 +1471,18 @@ export default function ChatArea({
             if (pinnedDropdownRef.current?.contains(e.target as Node)) return
             setPinnedOpen(false)
         }
+        // Escape closes the panel like the search panel and returns focus to its button.
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            setPinnedOpen(false)
+            pinnedDropdownRef.current?.querySelector<HTMLButtonElement>('.chat-header-pinned-btn')?.focus()
+        }
         document.addEventListener('click', close)
-        return () => document.removeEventListener('click', close)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('click', close)
+            document.removeEventListener('keydown', onKeyDown)
+        }
     }, [pinnedOpen])
 
     const closeSearch = useCallback(() => {

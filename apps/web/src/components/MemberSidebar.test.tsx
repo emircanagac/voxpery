@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Channel, Server, User } from '../types'
 import { useAppStore } from '../stores/app'
 import { useAuthStore } from '../stores/auth'
+import { serverApi } from '../api'
 import MemberSidebar from './MemberSidebar'
 
 const localUser: User = {
@@ -167,5 +168,99 @@ describe('MemberSidebar moderation actions', () => {
     expect(kickOffered('peer')).toBe(false)
     expect(kickOffered('senior')).toBe(false)
     expect(kickOffered('founder')).toBe(false)
+  })
+
+  describe('timed-out members', () => {
+    const timedOut = (until: string) => ({
+      user_id: 'peer-1',
+      username: 'muted',
+      avatar_url: null,
+      role: 'member',
+      status: 'online',
+      role_color: null,
+      highest_role_position: 10,
+      timed_out_until: until,
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    })
+
+    it('offers Remove timeout instead of a second timeout and clears it', async () => {
+      const clear = vi.spyOn(serverApi, 'clearMemberTimeout').mockResolvedValue(undefined)
+      useAuthStore.setState({ token: 'token', user: localUser, loggingOut: false })
+      useAppStore.setState({
+        servers: [server],
+        activeServerId: server.id,
+        activeChannelId: voiceChannel.id,
+        channels: [voiceChannel],
+        friends: [],
+        members: [
+          { user_id: localUser.id, username: localUser.username, avatar_url: null, role: 'owner', status: 'online', role_color: null },
+          timedOut(new Date(Date.now() + 60 * 60_000).toISOString()),
+        ],
+      })
+      render(
+        <MemoryRouter>
+          <MemberSidebar canKickMembers={false} canBanMembers={false} canTimeoutMembers />
+        </MemoryRouter>,
+      )
+      fireEvent.contextMenu(screen.getByText('muted').closest('.member-item')!, { clientX: 10, clientY: 10 })
+      expect(screen.queryByRole('menuitem', { name: 'Timeout user' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Remove timeout' }))
+      await waitFor(() => expect(clear).toHaveBeenCalledWith(server.id, 'peer-1', 'token'))
+    })
+
+    it('lifts a stored server mute and deafen from the member menu', async () => {
+      const clear = vi.spyOn(serverApi, 'clearMemberVoiceModeration')
+        .mockResolvedValue({ voice_server_muted: false, voice_server_deafened: false })
+      useAuthStore.setState({ token: 'token', user: localUser, loggingOut: false })
+      useAppStore.setState({
+        servers: [server],
+        activeServerId: server.id,
+        activeChannelId: voiceChannel.id,
+        channels: [voiceChannel],
+        friends: [],
+        members: [
+          { user_id: localUser.id, username: localUser.username, avatar_url: null, role: 'owner', status: 'online', role_color: null },
+          { ...timedOut(''), timed_out_until: null, username: 'quiet', voice_server_muted: true, voice_server_deafened: true },
+        ],
+      })
+      render(
+        <MemoryRouter>
+          <MemberSidebar canKickMembers={false} canBanMembers={false} canTimeoutMembers={false} />
+        </MemoryRouter>,
+      )
+      fireEvent.contextMenu(screen.getByText('quiet').closest('.member-item')!, { clientX: 10, clientY: 10 })
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Remove server mute and deafen' }))
+      await waitFor(() => expect(clear).toHaveBeenCalledWith(server.id, 'peer-1', { muted: true, deafened: true }, 'token'))
+      await waitFor(() => expect(useAppStore.getState().members.find((m) => m.user_id === 'peer-1')?.voice_server_muted).toBe(false))
+    })
+
+    it('drops the timeout badge when the timeout ends without another redraw', () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      vi.setSystemTime(new Date('2026-11-28T12:00:00.000Z'))
+      useAuthStore.setState({ token: 'token', user: localUser, loggingOut: false })
+      useAppStore.setState({
+        servers: [server],
+        activeServerId: server.id,
+        activeChannelId: voiceChannel.id,
+        channels: [voiceChannel],
+        friends: [],
+        members: [
+          { user_id: localUser.id, username: localUser.username, avatar_url: null, role: 'owner', status: 'online', role_color: null },
+          timedOut('2026-11-28T12:05:00.000Z'),
+        ],
+      })
+      render(
+        <MemoryRouter>
+          <MemberSidebar canKickMembers={false} canBanMembers={false} canTimeoutMembers />
+        </MemoryRouter>,
+      )
+      expect(screen.getByRole('img', { name: /Timed out until/ })).toBeInTheDocument()
+      act(() => { vi.advanceTimersByTime(5 * 60_000 + 100) })
+      expect(screen.queryByRole('img', { name: /Timed out until/ })).not.toBeInTheDocument()
+    })
   })
 })

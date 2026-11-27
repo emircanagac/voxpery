@@ -329,6 +329,16 @@ describe('ChatArea regressions', () => {
     expect(pins).toHaveAttribute('aria-expanded', 'true')
   })
 
+  it('closes the pinned messages panel with Escape and returns focus to its button', () => {
+    renderChatArea({ onSearchChange: vi.fn() })
+    const pins = screen.getByRole('button', { name: 'Pinned messages' })
+    fireEvent.click(pins)
+    expect(pins).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(pins).toHaveAttribute('aria-expanded', 'false')
+    expect(pins).toHaveFocus()
+  })
+
   it.each(['', '   '])('disables send for an empty draft %j', (messageInput) => {
     const onSendMessage = vi.fn()
     renderChatArea({ messageInput, onSendMessage })

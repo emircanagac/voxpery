@@ -1,5 +1,6 @@
 import { Ban, Flag, ShieldAlert } from 'lucide-react'
 import ServerSettingsAutoMod from './ServerSettingsAutoMod'
+import ServerSettingsVoiceRestrictions from './ServerSettingsVoiceRestrictions'
 import type { AuthToken, RaidEventEntry, ServerBanEntry, ServerReportEntry, ServerTimeoutEntry } from '../api'
 import { raidEventLabel, raidEventSummary } from '../moderationEventText'
 import { formatDateTime } from '../dateFormat'
@@ -221,6 +222,8 @@ export default function ServerSettingsSafety({
                                     ))}
                                 </div>
                             )}
+
+                            <ServerSettingsVoiceRestrictions serverId={serverId} token={token} />
 
                             <h3 className="server-settings-card__title" style={{ marginTop: 18 }}>Raid Events</h3>
                             {raidEventEntries && raidEventEntries.length === 0 && (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { useNavigate } from 'react-router'
@@ -1814,7 +1814,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setRoleEditColor(null)
     }
 
+    // A role error belongs to the edit that caused it; typing a new name starts a new attempt.
+    const setRoleEditNameClearingError = useCallback((value: SetStateAction<string>) => {
+        setRolesError(null)
+        setRoleEditName(value)
+    }, [])
+
     const handleSelectRole = (role: ServerRole) => {
+        setRolesError(null)
         if (selectedRoleId === role.id) {
             // Toggle off: collapse editor for this role.
             setSelectedRoleId(null)
@@ -1911,6 +1918,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         const existing = selectedRoleId
             ? serverRoles.find((r) => r.id === selectedRoleId)
             : undefined
+        setRolesError(null)
         try {
             if (!existing) {
                 await serverApi.createRole(
@@ -2908,6 +2916,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
                 canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
+                canMuteMembers={canMuteMembers}
+                canDeafenMembers={canDeafenMembers}
                 onReportMember={openUserReport}
                 collapsed={!isMobileViewport && !memberPanelOpen}
             />
@@ -2944,6 +2954,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                             canBanMembers={canBanMembers}
                             canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
+                            canMuteMembers={canMuteMembers}
+                            canDeafenMembers={canDeafenMembers}
                             onReportMember={openUserReport}
                             variant="sheet"
                         />
@@ -3093,7 +3105,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                       setEditingRuleText={setEditingRuleText}
                       setNewRuleText={setNewRuleText}
                       setRoleEditColor={setRoleEditColor}
-                      setRoleEditName={setRoleEditName}
+                      setRoleEditName={setRoleEditNameClearingError}
                       setRulesError={setRulesError}
                       setSafetySettingsTab={setSafetySettingsTab}
                       setServerIconEditor={setServerIconEditor}

@@ -1,3 +1,5 @@
+import { parseMessageMarkdown, type MarkdownNode } from './messageMarkdown'
+
 const REPLY_PREFIX_RE = /^>\s*@[^:]+:\s*/s
 
 function parseReplyEnvelope(content: string): { quote: string; body: string } | null {
@@ -11,8 +13,16 @@ function parseReplyEnvelope(content: string): { quote: string; body: string } | 
   return { quote: match[2].trim(), body }
 }
 
+/** The text a reader sees, without the **bold**, *italic*, ~~strike~~ and `code` markers. */
+function plainMarkdownText(content: string): string {
+  const flatten = (nodes: MarkdownNode[]): string => nodes.map((node) => (
+    'children' in node ? flatten(node.children) : node.text
+  )).join('')
+  return flatten(parseMessageMarkdown(content))
+}
+
 export function cleanReplyQuotePreview(content: string): string {
-  let text = content.replace(/\s+/g, ' ').trim()
+  let text = plainMarkdownText(content).replace(/\s+/g, ' ').trim()
   for (let i = 0; i < 8; i += 1) {
     const next = text.replace(REPLY_PREFIX_RE, '').trim()
     if (next === text) break

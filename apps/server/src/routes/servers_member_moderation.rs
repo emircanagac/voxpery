@@ -532,6 +532,88 @@ pub(super) async fn clear_member_timeout(
     Ok(Json(serde_json::json!({ "message": "Timeout cleared" })))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct ClearVoiceModerationQuery {
+    #[serde(default)]
+    muted: bool,
+    #[serde(default)]
+    deafened: bool,
+}
+
+/// DELETE /api/servers/:server_id/members/:user_id/voice-moderation?muted=true&deafened=true
+/// Lifts a stored server mute and/or deafen from a member who is not in voice. In voice, the
+/// voice participant menu (WebSocket `SetVoiceControl`) changes it with the channel's permissions.
+pub(super) async fn clear_member_voice_moderation(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<ClearVoiceModerationQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !query.muted && !query.deafened {
+        return Err(AppError::Validation(
+            "Choose server mute, server deafen or both to remove".into(),
+        ));
+    }
+    let perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
+    let admin = perms.contains(Permissions::MANAGE_SERVER);
+    if (query.muted && !admin && !perms.contains(Permissions::MUTE_MEMBERS))
+        || (query.deafened && !admin && !perms.contains(Permissions::DEAFEN_MEMBERS))
+    {
+        return Err(AppError::Forbidden(
+            "Missing permission to change this member's voice restrictions".into(),
+        ));
+    }
+    if state.voice_sessions.contains_key(&user_id) {
+        return Err(AppError::Conflict(
+            "This member is in voice; change it from the voice participant menu".into(),
+        ));
+    }
+
+    let next = voice_moderation::clear_out_of_voice(
+        &state.db,
+        claims.sub,
+        server_id,
+        user_id,
+        query.muted,
+        query.deafened,
+    )
+    .await?
+    .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
+
+    Ok(Json(serde_json::json!({
+        "voice_server_muted": next.muted,
+        "voice_server_deafened": next.deafened,
+    })))
+}
+
+/// GET /api/servers/:server_id/voice-restrictions — members with a stored server mute or deafen.
+pub(super) async fn list_voice_restrictions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<Vec<ServerVoiceRestrictionEntry>>, AppError> {
+    let perms = permissions::get_user_server_permissions(&state.db, server_id, claims.sub).await?;
+    if !perms.intersects(
+        Permissions::MANAGE_SERVER | Permissions::MUTE_MEMBERS | Permissions::DEAFEN_MEMBERS,
+    ) {
+        return Err(AppError::Forbidden(
+            "Missing permission to view voice restrictions".into(),
+        ));
+    }
+    let rows = sqlx::query_as::<_, ServerVoiceRestrictionEntry>(
+        r#"SELECT sm.user_id, u.username, sm.voice_server_muted, sm.voice_server_deafened
+           FROM server_members sm
+           INNER JOIN users u ON u.id = sm.user_id
+           WHERE sm.server_id = $1
+             AND (sm.voice_server_muted OR sm.voice_server_deafened)
+           ORDER BY u.username ASC"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 pub(super) async fn list_active_timeouts(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,

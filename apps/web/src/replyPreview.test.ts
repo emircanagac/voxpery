@@ -14,4 +14,9 @@ describe('reply preview helpers', () => {
     const snippet = createReplyContentSnippet('line one\nline two and some extra text', 12)
     expect(snippet).toBe('line one lin...')
   })
+
+  it('shows formatted text without its markdown markers', () => {
+    expect(createReplyContentSnippet('**bold** *italic* `code` ~~gone~~ _soft_')).toBe('bold italic code gone soft')
+    expect(cleanReplyQuotePreview('see **this** at https://example.com/a_b_c')).toBe('see this at https://example.com/a_b_c')
+  })
 })

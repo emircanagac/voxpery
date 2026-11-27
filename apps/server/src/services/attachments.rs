@@ -746,9 +746,13 @@ impl AttachmentService {
 
         match self.scan_with_clamav(bytes).await {
             Ok(ScanResult::Clean) => Ok(()),
-            Ok(ScanResult::Infected(signature)) => Err(AppError::Validation(format!(
-                "Attachment blocked by malware scanner ({signature})"
-            ))),
+            Ok(ScanResult::Infected(signature)) => {
+                // The signature names the scan engine's rule; only operators see it.
+                tracing::warn!("Attachment blocked by the malware scanner: {}", signature);
+                Err(AppError::Validation(
+                    "This file did not pass the security scan".into(),
+                ))
+            }
             Err(err) => {
                 tracing::warn!("Attachment malware scan unavailable: {}", err);
                 if self.scanner.fail_closed {
@@ -1677,6 +1681,59 @@ mod tests {
                 "{key} should fail"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn infected_upload_error_does_not_name_the_scanner_signature() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake scanner");
+        let port = listener.local_addr().expect("addr").port();
+        let payload = b"not really a virus";
+        // zINSTREAM\0, one length-prefixed chunk, then the zero-length end marker.
+        let expected_len = 10 + 4 + payload.len() + 4;
+        let scanner = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut received = Vec::new();
+            let mut buffer = [0u8; 256];
+            while received.len() < expected_len {
+                let read = socket.read(&mut buffer).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                received.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(b"stream: Eicar-Test-Signature FOUND\0")
+                .await
+                .expect("write");
+            socket.shutdown().await.expect("shutdown");
+        });
+
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let mut service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+        service.scanner = ClamAvConfig {
+            enabled: true,
+            host: "127.0.0.1".to_string(),
+            port,
+            timeout_ms: 2_000,
+            fail_closed: true,
+        };
+
+        let error = service
+            .scan_file_bytes(payload)
+            .await
+            .expect_err("an infected file is refused");
+        scanner.await.expect("fake scanner");
+        match error {
+            AppError::Validation(message) => {
+                assert_eq!(message, "This file did not pass the security scan");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        let _ = fs::remove_dir_all(test_root).await;
     }
 
     #[tokio::test]

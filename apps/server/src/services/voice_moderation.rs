@@ -127,6 +127,83 @@ pub async fn set_for_member(
     Ok(Some(next))
 }
 
+/// Removes a stored server mute and/or deafen from a member who is not in voice. It only lifts
+/// restrictions; the audit entries name no channel. Returns the new state, or `None` when the
+/// member is gone or nothing changed.
+pub async fn clear_out_of_voice(
+    db: &PgPool,
+    actor_id: Uuid,
+    server_id: Uuid,
+    target_user_id: Uuid,
+    clear_muted: bool,
+    clear_deafened: bool,
+) -> Result<Option<ServerVoiceModeration>, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let current: Option<(bool, bool)> = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened
+         FROM server_members WHERE server_id = $1 AND user_id = $2 FOR UPDATE",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((muted, deafened)) = current else {
+        return Ok(None);
+    };
+    let next = ServerVoiceModeration {
+        muted: muted && !clear_muted,
+        deafened: deafened && !clear_deafened,
+    };
+    if next.muted == muted && next.deafened == deafened {
+        return Ok(Some(next));
+    }
+
+    sqlx::query(
+        "UPDATE server_members SET voice_server_muted = $3, voice_server_deafened = $4
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(target_user_id)
+    .bind(next.muted)
+    .bind(next.deafened)
+    .execute(&mut *tx)
+    .await?;
+    if muted != next.muted {
+        audit::log_in_transaction(
+            &mut tx,
+            actor_id,
+            Some(server_id),
+            audit::VOICE_MEMBER_UNMUTE,
+            "member",
+            Some(target_user_id),
+            Some(serde_json::json!({
+                "previous_server_muted": true,
+                "server_muted": false,
+                "out_of_voice": true,
+            })),
+        )
+        .await?;
+    }
+    if deafened != next.deafened {
+        audit::log_in_transaction(
+            &mut tx,
+            actor_id,
+            Some(server_id),
+            audit::VOICE_MEMBER_UNDEAFEN,
+            "member",
+            Some(target_user_id),
+            Some(serde_json::json!({
+                "previous_server_deafened": true,
+                "server_deafened": false,
+                "out_of_voice": true,
+            })),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(Some(next))
+}
+
 #[cfg(test)]
 mod tests {
     use super::ServerVoiceModeration;

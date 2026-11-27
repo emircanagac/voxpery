@@ -99,7 +99,7 @@ pub fn validate_external_image_url(raw: &str, label: &str) -> Result<Url, AppErr
         .map_err(|_| AppError::Validation(format!("{label} must be a valid HTTPS image URL")))?;
     if parsed.scheme() != "https" {
         return Err(AppError::Validation(format!(
-            "{label} image URLs must use https://"
+            "{label} URLs must use https://"
         )));
     }
 

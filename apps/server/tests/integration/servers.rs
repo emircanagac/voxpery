@@ -3944,3 +3944,111 @@ async fn permission_change_is_rolled_back_when_its_audit_entry_fails() {
         "role deletion must roll back with its audit entry"
     );
 }
+
+#[tokio::test]
+async fn moderators_lift_a_stored_voice_restriction_while_the_member_is_out_of_voice() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "voicelift").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "voicelifted").await;
+    let (server_id, _, invite) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "voice lift").await;
+    join_with_invite(&mut app, &member_auth, &invite).await;
+
+    // The member was server-muted and deafened in voice, then left voice.
+    sqlx::query(
+        "UPDATE server_members SET voice_server_muted = TRUE, voice_server_deafened = TRUE
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let restrictions = format!("/api/servers/{server_id}/voice-restrictions");
+    let (status, rows) = api_json(&mut app, "GET", &restrictions, &owner_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{rows}");
+    assert_eq!(rows[0]["user_id"], json!(member_id));
+    assert_eq!(rows[0]["voice_server_muted"], true);
+
+    let (status, detail) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    let listed = detail["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == json!(member_id))
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["voice_server_deafened"], true);
+
+    let lift = format!("/api/servers/{server_id}/members/{member_id}/voice-moderation");
+    let (status, _) = api_json(&mut app, "GET", &restrictions, &member_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &member_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["voice_server_muted"], false);
+    assert_eq!(body["voice_server_deafened"], true);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?deafened=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let stored: (bool, bool) = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened FROM server_members
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(stored, (false, false));
+    let (_, rows) = api_json(&mut app, "GET", &restrictions, &owner_auth, None).await;
+    assert_eq!(rows, json!([]));
+
+    let (status, page) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/audit-log?action=voice_member_unmute&limit=1"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["entries"][0]["resource_id"], json!(member_id));
+    assert_eq!(page["entries"][0]["details"]["out_of_voice"], true);
+}

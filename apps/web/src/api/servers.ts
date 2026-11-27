@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { AuditLogPage, AuditLogQuery, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerOnboardingGuide, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry, UpdateServerOnboardingGuideRequest } from './contracts'
+import type { AuditLogPage, AuditLogQuery, AuthToken, AutoModRule, AutoModTriggerType, Channel, MemberInfo, RaidEventEntry, Server, ServerBanEntry, ServerDetail, ServerInvitePreview, ServerOnboardingGuide, ServerReportEntry, ServerRole, ServerRule, ServerTimeoutEntry, ServerVoiceRestrictionEntry, UpdateServerOnboardingGuideRequest } from './contracts'
 
 export const serverApi = {
     getInvitePreview: (inviteCode: string) =>
@@ -57,6 +57,25 @@ export const serverApi = {
 
     listBans: (serverId: string, token: AuthToken) =>
         apiFetch<ServerBanEntry[]>(`/api/servers/${serverId}/bans`, { token }),
+
+    listVoiceRestrictions: (serverId: string, token: AuthToken) =>
+        apiFetch<ServerVoiceRestrictionEntry[]>(`/api/servers/${serverId}/voice-restrictions`, { token }),
+
+    /** Lifts a stored server mute and/or deafen from a member who is not in voice. */
+    clearMemberVoiceModeration: (
+        serverId: string,
+        userId: string,
+        clear: { muted: boolean; deafened: boolean },
+        token: AuthToken,
+    ) => {
+        const query = new URLSearchParams()
+        if (clear.muted) query.set('muted', 'true')
+        if (clear.deafened) query.set('deafened', 'true')
+        return apiFetch<{ voice_server_muted: boolean; voice_server_deafened: boolean }>(
+            `/api/servers/${serverId}/members/${userId}/voice-moderation?${query.toString()}`,
+            { method: 'DELETE', token },
+        )
+    },
 
     listTimeouts: (serverId: string, token: AuthToken) =>
         apiFetch<ServerTimeoutEntry[]>(`/api/servers/${serverId}/timeouts`, { token }),
