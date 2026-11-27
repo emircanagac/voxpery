@@ -454,6 +454,21 @@ export function handleAppLayoutEvent(event: WsEvent, {
                             title: 'Voice move failed',
                             message,
                         }),
+                        // A member looking at the voice channel they were moved out of follows the
+                        // move; one reading a text channel stays where they are.
+                        onMoved: ({ sourceChannelId: from, destinationChannelId: to }) => {
+                            const destination = useAppStore.getState().channels.find((channel) => channel.id === to)
+                            if (activeChannelIdRef.current === from && destination) {
+                                useAppStore.getState().setActiveChannel(to)
+                            }
+                            pushToast({
+                                level: 'info',
+                                title: 'Moved to another voice channel',
+                                message: destination
+                                    ? `A moderator moved you to ${destination.name}.`
+                                    : 'A moderator moved you to another voice channel.',
+                            })
+                        },
                     },
                 )
                 break
