@@ -577,13 +577,17 @@ pub(super) async fn clear_member_voice_moderation(
             "Missing permission to change this member's voice restrictions".into(),
         ));
     }
-    if state.voice_sessions.contains_key(&user_id) {
+    // Voice in another server does not count: this server's restrictions apply only here.
+    if crate::ws::voice_channel_in_server(&state, user_id, server_id)
+        .await?
+        .is_some()
+    {
         return Err(AppError::Conflict(
             "This member is in voice; change it from the voice participant menu".into(),
         ));
     }
 
-    let next = voice_moderation::clear_out_of_voice(
+    let (next, changed) = voice_moderation::clear_out_of_voice(
         &state.db,
         claims.sub,
         server_id,
@@ -593,6 +597,11 @@ pub(super) async fn clear_member_voice_moderation(
     )
     .await?
     .ok_or_else(|| AppError::NotFound("Member not found".into()))?;
+    if changed {
+        // A join that was under way read the previous state.
+        crate::ws::sync_voice_moderation_after_out_of_voice_change(&state, server_id, user_id)
+            .await;
+    }
 
     Ok(Json(serde_json::json!({
         "voice_server_muted": next.muted,

@@ -128,8 +128,8 @@ pub async fn set_for_member(
 }
 
 /// Removes a stored server mute and/or deafen from a member who is not in voice. It only lifts
-/// restrictions; the audit entries name no channel. Returns the new state, or `None` when the
-/// member is gone or nothing changed.
+/// restrictions; the audit entries name no channel. Returns the new state and whether it
+/// changed, or `None` when the member is gone.
 pub async fn clear_out_of_voice(
     db: &PgPool,
     actor_id: Uuid,
@@ -137,7 +137,7 @@ pub async fn clear_out_of_voice(
     target_user_id: Uuid,
     clear_muted: bool,
     clear_deafened: bool,
-) -> Result<Option<ServerVoiceModeration>, sqlx::Error> {
+) -> Result<Option<(ServerVoiceModeration, bool)>, sqlx::Error> {
     let mut tx = db.begin().await?;
     let current: Option<(bool, bool)> = sqlx::query_as(
         "SELECT voice_server_muted, voice_server_deafened
@@ -155,7 +155,7 @@ pub async fn clear_out_of_voice(
         deafened: deafened && !clear_deafened,
     };
     if next.muted == muted && next.deafened == deafened {
-        return Ok(Some(next));
+        return Ok(Some((next, false)));
     }
 
     sqlx::query(
@@ -201,7 +201,7 @@ pub async fn clear_out_of_voice(
         .await?;
     }
     tx.commit().await?;
-    Ok(Some(next))
+    Ok(Some((next, true)))
 }
 
 #[cfg(test)]

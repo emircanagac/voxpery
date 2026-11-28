@@ -214,7 +214,7 @@ Notes:
 - `GET /api/servers/:server_id/voice-restrictions` (requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`)
   - Members with a stored server mute or deafen: `user_id`, `username`, `voice_server_muted`, `voice_server_deafened`.
 - `DELETE /api/servers/:server_id/members/:user_id/voice-moderation?muted=true&deafened=true`
-  - Lifts a stored server mute (`MUTE_MEMBERS`) and/or deafen (`DEAFEN_MEMBERS`; `MANAGE_SERVER` covers both) from a member who is not in voice; it never adds one. A member in voice returns `409`: the voice participant menu changes it there. Returns the new `voice_server_muted` and `voice_server_deafened`, and writes `voice_member_unmute`/`voice_member_undeafen` audit entries with `out_of_voice: true`.
+  - Lifts a stored server mute (`MUTE_MEMBERS`) and/or deafen (`DEAFEN_MEMBERS`; `MANAGE_SERVER` covers both) from a member who is not in voice in this server; it never adds one. A member in voice in this server returns `409`: the voice participant menu changes it there (voice in another server does not count). A member who joined this server's voice while the change was made gets the new state on their voice session too. Returns the new `voice_server_muted` and `voice_server_deafened`, and writes `voice_member_unmute`/`voice_member_undeafen` audit entries with `out_of_voice: true`.
 - `GET /api/servers/:server_id/raid-events` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)

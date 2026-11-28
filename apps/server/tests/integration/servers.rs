@@ -4051,4 +4051,46 @@ async fn moderators_lift_a_stored_voice_restriction_while_the_member_is_out_of_v
     assert_eq!(status, StatusCode::OK, "{page}");
     assert_eq!(page["entries"][0]["resource_id"], json!(member_id));
     assert_eq!(page["entries"][0]["details"]["out_of_voice"], true);
+
+    // Voice in another server does not block it; voice in this server does.
+    sqlx::query(
+        "UPDATE server_members SET voice_server_muted = TRUE
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (other_server_id, _, other_invite) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "voice elsewhere")
+            .await;
+    join_with_invite(&mut app, &member_auth, &other_invite).await;
+    state
+        .voice_sessions
+        .insert(member_id, voice_channel_of(&state, other_server_id).await);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["voice_server_muted"], false);
+
+    state
+        .voice_sessions
+        .insert(member_id, voice_channel_of(&state, server_id).await);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    state.voice_sessions.remove(&member_id);
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }

@@ -945,6 +945,125 @@ pub(super) async fn move_voice_member(
     });
 }
 
+/// Puts a server mute and deafen on a member's live voice session: the voice list, every client
+/// and the LiveKit permissions. Moderators change only the server-enforced flags.
+async fn apply_voice_moderation_to_session(
+    state: &Arc<AppState>,
+    target_id: Uuid,
+    server_id: Uuid,
+    channel_id: Uuid,
+    moderation: ServerVoiceModeration,
+) {
+    let current = state
+        .voice_controls
+        .get(&target_id)
+        .map(|s| *s)
+        .unwrap_or((false, false, false, false, false, false));
+    let can_publish = moderation.can_publish();
+    let next_state = (
+        current.0,
+        current.1,
+        moderation.muted,
+        moderation.deafened,
+        current.4 && can_publish,
+        current.5 && can_publish,
+    );
+    let _ = state.voice_controls.insert(target_id, next_state);
+    super::publish_event(
+        state,
+        voice_control_event_from_state(target_id, Some(server_id), channel_id, next_state),
+    )
+    .await;
+    if let Err(error) =
+        voice_revoke::update_livekit_voice_permissions(state, channel_id, target_id, moderation)
+            .await
+    {
+        tracing::warn!(
+            "Voice moderation LiveKit permission update failed: {}",
+            error
+        );
+        if moderation.muted || moderation.deafened {
+            // Retried in the background if LiveKit is unreachable.
+            voice_revoke::remove_livekit_participant(
+                state,
+                channel_id,
+                target_id,
+                "voice moderation permission update failed",
+            )
+            .await;
+        }
+    }
+}
+
+/// The voice channel the member is in, when that channel belongs to `server_id`.
+pub(crate) async fn voice_channel_in_server(
+    state: &AppState,
+    user_id: Uuid,
+    server_id: Uuid,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let Some(channel_id) = state.voice_sessions.get(&user_id).map(|entry| *entry) else {
+        return Ok(None);
+    };
+    let in_server: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM channels WHERE id = $1 AND server_id = $2)",
+    )
+    .bind(channel_id)
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(in_server.then_some(channel_id))
+}
+
+/// How long after an out-of-voice change the member's voice session is checked once more: a
+/// join that was under way, and read the previous state, has registered and synced by then.
+const OUT_OF_VOICE_MODERATION_RECHECK_DELAY: Duration = Duration::from_secs(5);
+
+/// Puts the stored server mute and deafen on the member's voice session in this server, if any.
+/// Applies, then reads again, so a moderation change made meanwhile ends up applied as well.
+async fn sync_voice_session_moderation(state: &Arc<AppState>, server_id: Uuid, user_id: Uuid) {
+    let mut applied = None;
+    for _ in 0..3 {
+        let channel_id = match voice_channel_in_server(state, user_id, server_id).await {
+            Ok(Some(channel_id)) => channel_id,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!("Voice moderation session lookup failed: {}", error);
+                return;
+            }
+        };
+        let moderation = match voice_moderation::for_channel(&state.db, user_id, channel_id).await {
+            Ok(Some(moderation)) => moderation,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!("Voice moderation lookup failed: {}", error);
+                return;
+            }
+        };
+        if applied == Some((channel_id, moderation)) {
+            return;
+        }
+        apply_voice_moderation_to_session(state, user_id, server_id, channel_id, moderation).await;
+        applied = Some((channel_id, moderation));
+    }
+}
+
+/// After a server mute or deafen changed while the member was out of voice: a member who joined
+/// voice in this server meanwhile may have joined with the previous state, in the voice list and
+/// in the LiveKit token. Their session gets the stored state now and once more after a join
+/// under way has settled.
+pub(crate) async fn sync_voice_moderation_after_out_of_voice_change(
+    state: &Arc<AppState>,
+    server_id: Uuid,
+    user_id: Uuid,
+) {
+    sync_voice_session_moderation(state, server_id, user_id).await;
+    let state = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(OUT_OF_VOICE_MODERATION_RECHECK_DELAY).await;
+        sync_voice_session_moderation(&state, server_id, user_id).await;
+    });
+}
+
 pub(super) async fn set_voice_control(
     connection: &VoiceConnection,
     target_user_id: Option<Uuid>,
@@ -1003,55 +1122,14 @@ pub(super) async fn set_voice_control(
             }
         }
 
-        // Moderators can only change server-enforced mute/deafen.
-        let current = state
-            .voice_controls
-            .get(&target_id)
-            .map(|s| *s)
-            .unwrap_or((false, false, false, false, false, false));
-        let can_publish = ServerVoiceModeration { muted, deafened }.can_publish();
-        let next_state = (
-            current.0,
-            current.1,
-            muted,
-            deafened,
-            current.4 && can_publish,
-            current.5 && can_publish,
-        );
-        let _ = state.voice_controls.insert(target_id, next_state);
-        super::publish_event(
+        apply_voice_moderation_to_session(
             state,
-            voice_control_event_from_state(
-                target_id,
-                Some(target_server_id),
-                target_channel_id,
-                next_state,
-            ),
-        )
-        .await;
-        if let Err(error) = voice_revoke::update_livekit_voice_permissions(
-            state,
-            target_channel_id,
             target_id,
+            target_server_id,
+            target_channel_id,
             ServerVoiceModeration { muted, deafened },
         )
-        .await
-        {
-            tracing::warn!(
-                "SetVoiceControl LiveKit permission update failed: {}",
-                error
-            );
-            if muted || deafened {
-                // Retried in the background if LiveKit is unreachable.
-                voice_revoke::remove_livekit_participant(
-                    state,
-                    target_channel_id,
-                    target_id,
-                    "voice moderation permission update failed",
-                )
-                .await;
-            }
-        }
+        .await;
         return;
     }
 
