@@ -13,7 +13,7 @@ This repository now supports a **full Docker Compose deployment**:
 - Docker Engine + Docker Compose v2
 - A copied `.env` file from `.env.example`
 - A 64-bit Linux server, x86-64 (amd64) or ARM (arm64): release images are published for both. The optional ClamAV scanner (`security` profile) has no ARM image and runs only on x86-64.
-- Memory, measured on voxpery.com with `docker stats`: about 250 MB for the whole stack while idle and about 350 MB with five people in voice calls, without ClamAV. ClamAV adds about 1 GB. Leave room for the operating system, so 1 GB of RAM is a comfortable minimum without ClamAV and 2 GB with it.
+- Memory, measured on voxpery.com with `docker stats`: about 250 MB for the whole stack while idle and about 350 MB with five people in voice calls, without ClamAV. ClamAV adds about 1 GB. Leave room for the operating system, so 1 GB of RAM is a comfortable minimum without ClamAV and 2 GB with it. The method and numbers per container are in [Resource Usage](RESOURCE_USAGE.md).
 
 ## Public server with HTTPS
 

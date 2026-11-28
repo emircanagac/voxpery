@@ -2,98 +2,82 @@
 
 ## Product Direction
 
-Voxpery is open-source community chat and voice for groups that want hosted access, self-hosting, and ownership of their data.
+Voxpery is a small group's own voice and chat server: voice channels, screen sharing and chat for a friend group, a gaming group or a small community of about 5 to 50 people, on a server they own and can run for about the price of a chat subscription.
 
-The project is not trying to beat every communication product in every category at once. The near-term goal is to become the best choice for communities that want real-time voice and text, strong moderation foundations, and ownership of their data without giving up a polished daily experience.
+The near-term goal is not to match every feature of larger platforms. It is to be the easiest way for such a group to have reliable voice, screen sharing and chat that they control: one command to install, low running costs, a familiar layout, and no telemetry.
 
 ## Product Pillars
 
-### 1. Voice Quality
+### 1. Voice and Screen Sharing
 
-Voice should feel reliable enough for daily community use:
+Voice should feel reliable enough for every evening:
 
-- Low-latency voice rooms backed by LiveKit.
-- Noise suppression and voice activity behavior that avoids keyboard, mouse, fan, and breath noise.
-- Screen sharing and media controls that recover cleanly from device/network failures.
-- Clear diagnostics for packet loss, reconnects, permission denial, and token errors.
+- Low-latency voice rooms backed by LiveKit, with noise suppression that avoids keyboard, fan and breath noise.
+- Calls that survive short network drops, phones in the background, and people without a microphone.
+- Screen sharing that stays light on the computer sharing it.
+- Clear diagnostics for permission denial, reconnects and token errors.
 
-### 2. Community Safety
+### 2. Easy and Cheap Self-Hosting
 
-Communities need moderation tools before they grow:
+Running Voxpery should not need a sysadmin:
 
-- Reports, bans, moderation surfaces, and audit logs.
-- AutoMod basics for blocked keywords, invite/link filtering, mention spam, and exempt roles/channels.
-- Temporary timeouts/mutes and simple raid protection for join/message spikes.
-- Moderator workflows that explain what happened and why.
+- One-command Docker Compose setup with HTTPS, on x86-64 and arm64 servers.
+- Measured resource use (see [Resource Usage](RESOURCE_USAGE.md)), backups, health checks and runbooks.
+- Operator tools for the server: health of the database, Redis, LiveKit, storage and email, account controls and storage quotas.
 
-### 3. Onboarding
+### 3. Group Safety
 
-Joining a server should be understandable without prior context:
+A group should be able to keep bad actors out without effort:
 
-- Invite landing pages with server identity, preview, and a clear join CTA.
-- Optional rules screen for community servers.
-- Welcome guide and suggested channels for first-time members.
-- Sensible defaults for new server owners.
+- Reports, bans, timeouts that also cover voice, and an audit log of permission changes.
+- AutoMod basics and raid protection for join and message spikes.
+- Blocking a user and sensible defaults for new server owners.
 
 ### 4. Daily UX Polish
 
 The app should feel calm and dependable during normal use:
 
-- Accurate unread, mention, and notification behavior across web, PWA, and desktop.
-- Per-channel mute, persistent read state, and clear notification preferences.
-- Search filters for author, channel, date, attachments, pins, and mentions.
-- Threads or forum-style channels for larger communities.
-
-### 5. Self-Host Excellence
-
-Self-hosters should be able to operate Voxpery with confidence:
-
-- One-command Docker Compose setup and documented production deployment.
-- Backup/restore guidance, health checks, release smoke tests, and operational runbooks.
-- Clear admin visibility into database, Redis, LiveKit, storage, email/OAuth, CAPTCHA, and security header health.
-- Release and CI gates that stay fast for PRs while keeping manual release checks explicit.
+- Accurate unread, mention and notification behavior across web, phone and desktop.
+- Smooth switching between channels and servers, and messages that keep their order.
+- A familiar layout that works the same in Chrome, Firefox, Brave, Opera and the desktop apps.
 
 ## Recently Completed
 
-- Core text, server, channel, DM, role, permission, and attachment flows.
-- Community safety: reports, bans, timeouts, AutoMod (blocked keywords, invite and link filters, mention spam, exempt roles and channels), raid protection for join, message, and invite bursts, and a filterable audit log.
-- Onboarding: invite previews for visitors, server rules, and an onboarding guide for new members.
-- Daily UX: unread and mention badges, per-channel mute, direct-message read state shared across your sessions, a message search panel with author and attachment filters, and "New messages" dividers.
-- Voice: LiveKit voice with noise suppression, screen shares at their real aspect ratio, a Discord-style focus view, and one voice session per device with "Join here" to move a call.
-- Desktop: Tauri 3 apps for Windows, macOS, and Linux (including Flatpak), signed updates, OAuth deep links, keyring sessions, and voice on Linux through Chromium.
+- 0.7.0: listening in voice without a microphone, phone calls that go on in the background, a typing indicator, invite previews for visitors, timeouts that cover voice, account disabling for operators, arm64 server images, system notifications on Windows, and steadier chat switching.
+- 0.6.0 and 0.6.1: notifications while Voxpery is closed, unread badges kept by the server across devices, one-command setup with HTTPS, invite link reset, registration modes for self-hosters, and short network drops that keep the call.
+- Community safety: reports, bans, timeouts, AutoMod (blocked keywords, invite and link filters, mention spam, exempt roles and channels), raid protection for join, message and invite bursts, and a filterable audit log.
+- Desktop: Tauri 3 apps for Windows, macOS and Linux (including Flatpak), signed updates, OAuth deep links, keyring sessions, and voice on Linux through Chromium.
 - Hosted service: legal notices checked against the code, a self-service data export, and 14-day retention for logs and backups.
-- Quality gates: lint, unit tests, core UI smoke in Chromium and Firefox, mobile smoke, server integration tests, desktop checks, CodeQL, and dependency audits on every PR.
+- Quality gates: lint, unit tests, core UI smoke in Chromium and Firefox, mobile smoke, server integration tests, desktop checks, CodeQL and dependency audits on every PR.
 
 ## Current Priorities
 
-1. **Voice stage and focus view**
-   - Show a clear joining state, keep the focus view inside one screen, and finish its improvements: focusing a camera, remembering the participant strip, leaving with Esc, speaking rings, and a scrollable strip for large calls.
+1. **Getting to the first groups**
+   - Clear README and home page, a short demo, a tested install guide, and the first public announcement.
 
-2. **Desktop reliability**
-   - Make fullscreen from a maximized window cover the whole screen on Windows, and reopen the window in front after an in-app update.
+2. **Blocking users**
+   - Let anyone block someone who bothers them: no direct messages or friend requests in either direction.
 
-3. **Browser coverage**
-   - Keep Chrome, Firefox, Brave, Opera, and the desktop apps working equally well, with Firefox in CI and a manual browser pass before each release.
+3. **Calls in direct messages**
+   - Voice, camera and screen sharing in one-to-one and group direct messages, after blocking is in place.
 
-4. **Self-host admin visibility**
-   - Expose health and configuration status for the database, Redis, LiveKit, storage, optional integrations, CAPTCHA, and release-critical settings.
+4. **Operator tools**
+   - A small admin screen for health, accounts and storage quotas on self-hosted servers.
 
-5. **Large-community UX**
-   - Decide between lightweight threads and forum-style channels.
+5. **Lighter screen sharing and faster starts**
+   - Measure CPU use while sharing and how long the desktop app takes to start, then fix what the numbers show.
 
 ## Later Exploration
 
-- Native mobile apps, or a store-packaged version of the installable web app.
-- Server-backed push notifications for offline and mobile clients.
+- Native mobile apps, mainly for calls that keep going with a locked screen.
 - Incoming webhooks, scoped bot tokens, and a future extension or plugin ecosystem.
 - End-to-end encryption, revisited once direct-message calls exist.
-- Recording, transcription, and larger video meetings.
-- A marketplace for themes, bots, templates, and extensions.
+- Threads or forum-style channels for larger communities.
+- Recording, transcription and larger video meetings.
 
 ## Non-Goals for the Near Term
 
-- Enterprise omnichannel support.
-- Full Slack replacement workflows.
+- Enterprise omnichannel support or full Slack replacement workflows.
 - Running the full visual E2E matrix on every PR; PRs run the core smoke in Chromium and Firefox and the detailed suites run before releases.
 - Speculative large rewrites before measurement shows a bottleneck.
 
@@ -107,6 +91,6 @@ We value community feedback:
 
 ---
 
-Last updated: October 23, 2026.
+Last updated: November 28, 2026.
 
 This roadmap is directional and may change based on user reports, security priorities, maintainer capacity, and production feedback.
