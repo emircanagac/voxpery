@@ -97,8 +97,9 @@ const MAX_FRAMES = 400
 
 /**
  * Samples every frame after `open` until the conversation's last message has been on screen for
- * FRAMES_AFTER_SHOWN frames. A sample runs in a resize observer created after the page's own ones,
- * so it sees the frame as it is painted: after the list has applied its measurements.
+ * FRAMES_AFTER_SHOWN frames. Each frame's sample runs in a resize observer created in that frame,
+ * the newest one, so it runs after the page's own observers (the list may create its observer
+ * again when a conversation opens) and sees the frame as it is painted.
  */
 async function recordFrames(page: Page, lastId: string, open: () => Promise<void>): Promise<Frame[]> {
   await page.evaluate(({ lastId, framesAfterShown, maxFrames }) => {
@@ -133,23 +134,21 @@ async function recordFrames(page: Page, lastId: string, open: () => Promise<void
     const probe = document.createElement('div')
     probe.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none'
     document.body.appendChild(probe)
-    const observer = new ResizeObserver(() => {
-      if (state.done) return
-      sample()
+    let observer: ResizeObserver | null = null
+    const nextFrame = () => {
+      observer?.disconnect()
       if (state.done) {
-        observer.disconnect()
         probe.remove()
+        return
       }
-    })
-    observer.observe(probe)
-    let wide = false
-    const resizeProbe = () => {
-      if (state.done) return
-      wide = !wide
-      probe.style.width = wide ? '2px' : '1px'
-      requestAnimationFrame(resizeProbe)
+      // A new observation is reported once, in this frame's resize observer step.
+      observer = new ResizeObserver(() => {
+        if (!state.done) sample()
+      })
+      observer.observe(probe)
+      requestAnimationFrame(nextFrame)
     }
-    requestAnimationFrame(resizeProbe)
+    requestAnimationFrame(nextFrame)
   }, { lastId, framesAfterShown: FRAMES_AFTER_SHOWN, maxFrames: MAX_FRAMES })
   await open()
   type Recording = { frames: Frame[]; done: boolean }
