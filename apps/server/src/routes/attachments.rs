@@ -145,7 +145,9 @@ async fn process_attachment_upload(
 ) -> Result<Vec<AttachmentResponseItem>, AppError> {
     let mut uploaded = Vec::<AttachmentResponseItem>::new();
     let mut file_count = 0usize;
+    let mut reserved_bytes = 0i64;
     let max_files = state.attachment_service.max_files_per_request();
+    let total_quota = state.attachment_service.total_quota_bytes();
 
     while let Some(field) = multipart
         .next_field()
@@ -235,23 +237,12 @@ async fn process_attachment_upload(
             continue;
         }
 
-        // The shared limit protects the disk of the whole server. Uploads that count against it
-        // run one at a time, so parallel requests cannot pass it together.
-        if let Some(total_quota) = state.attachment_service.total_quota_bytes() {
-            acquire_transaction_lock(tx, "attachments:total-quota").await?;
-            let used: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users",
-            )
-            .fetch_one(&mut **tx)
-            .await?;
+        // The shared limit protects the disk of the whole server. This early look takes no lock and
+        // only spares writing a file that cannot fit; the locked check after the loop decides.
+        if let Some(total_quota) = total_quota {
+            let used = total_storage_used(tx).await?;
             if used.saturating_add(prepared.size_bytes) > total_quota {
-                tracing::warn!(
-                    "Upload refused: the server-wide attachment quota of {} bytes is full",
-                    total_quota
-                );
-                return Err(AppError::Validation(
-                    "This server's file storage is full. Ask the server operator to free space, or try again later.".into(),
-                ));
+                return Err(server_storage_full(total_quota));
             }
         }
 
@@ -275,6 +266,7 @@ async fn process_attachment_upload(
                 format_quota(user_quota)
             )));
         }
+        reserved_bytes = reserved_bytes.saturating_add(prepared.size_bytes);
 
         let store_started = std::time::Instant::now();
         let stored = state
@@ -339,7 +331,40 @@ async fn process_attachment_upload(
         ));
     }
 
+    // Requests that add storage take this lock one at a time, only for the check and the commit
+    // that follows it: reading, scanning and storing the files above run in parallel. Every
+    // request reserves its bytes before it gets here, and the sum read under the lock counts
+    // those of this request and of every request that passed before, so parallel requests
+    // cannot pass the limit together.
+    if let Some(total_quota) = total_quota.filter(|_| reserved_bytes > 0) {
+        acquire_transaction_lock(tx, "attachments:total-quota").await?;
+        if total_storage_used(tx).await? > total_quota {
+            return Err(server_storage_full(total_quota));
+        }
+    }
+
     Ok(uploaded)
+}
+
+/// Storage used by all accounts, including what this transaction reserved so far.
+async fn total_storage_used(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<i64, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users")
+            .fetch_one(&mut **tx)
+            .await?,
+    )
+}
+
+fn server_storage_full(total_quota: i64) -> AppError {
+    tracing::warn!(
+        "Upload refused: the server-wide attachment quota of {} bytes is full",
+        total_quota
+    );
+    AppError::Validation(
+        "This server's file storage is full. Ask the server operator to free space, or try again later.".into(),
+    )
 }
 
 async fn cleanup_failed_upload_files(state: &Arc<AppState>, stored_keys: &[String]) {
