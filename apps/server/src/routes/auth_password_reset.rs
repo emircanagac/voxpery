@@ -59,11 +59,13 @@ pub(super) async fn forgot_password(
         email: String,
     }
 
-    let user =
-        sqlx::query_as::<_, ResetCandidate>("SELECT id, email FROM users WHERE lower(email) = $1")
-            .bind(&email)
-            .fetch_optional(&state.db)
-            .await?;
+    // A disabled account gets no reset email: it could not sign in with a new password anyway.
+    let user = sqlx::query_as::<_, ResetCandidate>(
+        "SELECT id, email FROM users WHERE lower(email) = $1 AND disabled_at IS NULL",
+    )
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await?;
 
     // Always return generic success to prevent account enumeration.
     let Some(user) = user else {

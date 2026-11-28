@@ -129,8 +129,8 @@ export function handleAppLayoutEvent(event: WsEvent, {
                     })
                 } else {
                     const cached = messagesByChannelRef.current[incomingChannelId]
-                    if (cached?.length && !cached.some((m) => m.id === incoming.id)) {
-                        messagesByChannelRef.current[incomingChannelId] = [...cached, incoming]
+                    if (cached?.length) {
+                        messagesByChannelRef.current[incomingChannelId] = applyIncomingMessage(cached, incoming, d.client_request_id, user?.id)
                     }
                 }
                 // Reading a message in the open channel moves the read mark on the server too.
@@ -454,6 +454,21 @@ export function handleAppLayoutEvent(event: WsEvent, {
                             title: 'Voice move failed',
                             message,
                         }),
+                        // A member looking at the voice channel they were moved out of follows the
+                        // move; one reading a text channel stays where they are.
+                        onMoved: ({ sourceChannelId: from, destinationChannelId: to }) => {
+                            const destination = useAppStore.getState().channels.find((channel) => channel.id === to)
+                            if (activeChannelIdRef.current === from && destination) {
+                                useAppStore.getState().setActiveChannel(to)
+                            }
+                            pushToast({
+                                level: 'info',
+                                title: 'Moved to another voice channel',
+                                message: destination
+                                    ? `A moderator moved you to ${destination.name}.`
+                                    : 'A moderator moved you to another voice channel.',
+                            })
+                        },
                     },
                 )
                 break

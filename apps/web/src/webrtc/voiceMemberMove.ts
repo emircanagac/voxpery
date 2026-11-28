@@ -9,6 +9,8 @@ interface VoiceMemberMoveDependencies {
   joinVoice?: (channelId: string) => Promise<void>
   send: (type: string, data: unknown) => void
   onError?: (message: string) => void
+  /** Runs after a move this client completed, so the page can follow the member there. */
+  onMoved?: (move: { sourceChannelId: string; destinationChannelId: string }) => void
 }
 
 function acknowledge(
@@ -56,6 +58,10 @@ export async function handleVoiceMemberMoveRequested(
       throw new Error('The destination voice connection was not established.')
     }
     acknowledge(dependencies.send, request.requestId, true)
+    dependencies.onMoved?.({
+      sourceChannelId: request.sourceChannelId,
+      destinationChannelId: request.destinationChannelId,
+    })
   } catch (error) {
     const message = error instanceof Error && error.message
       ? error.message

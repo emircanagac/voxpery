@@ -72,6 +72,7 @@ describe('auth feature gating', () => {
     ['oauth_failed_csrf', 'could not be verified'],
     ['oauth_unverified_email', 'Google did not verify your email'],
     ['oauth_failed', 'Sign in with Google failed.'],
+    ['account_disabled', 'This account has been disabled.'],
   ])('shows %s and preserves the retry destination', (error, message) => {
     useFeatureStore.setState({ features: enabledGoogleFeatures, loading: false, error: null })
     render(<MemoryRouter initialEntries={[`/login?error=${error}&redirect=%2Fsocial%2Fdm%3Froom%3D1%23latest`]}><LoginPage /></MemoryRouter>)

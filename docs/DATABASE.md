@@ -52,6 +52,7 @@ Key columns:
 - `privacy_notice_version`, `privacy_notice_acknowledged_at`
 - `kvkk_notice_version`, `kvkk_notice_acknowledged_at`
 - `is_system` (`BOOLEAN`): marks the single deleted-account placeholder that keeps the servers, moderation records and pins of deleted users (unique partial index, migration `059`). The placeholder is found by this flag only; its `system.local` address is reserved for registration.
+- `disabled_at` (`TIMESTAMPTZ`, nullable): set when an operator disabled the account; such an account cannot sign in and every session check refuses its tokens (see `docs/DEPLOYMENT.md`). A check constraint keeps the `is_system` placeholder enabled. Added in migration `068`.
 - `created_at`
 
 ### `pending_google_registrations`

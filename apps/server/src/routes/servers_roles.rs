@@ -82,6 +82,11 @@ pub(super) async fn list_roles(
 }
 
 /// POST /api/servers/:server_id/roles — create a new role (owner only).
+/// Most roles one server may have, the Everyone role included.
+const MAX_ROLES_PER_SERVER: i64 = 100;
+const ROLE_CREATE_LIMIT: usize = 30;
+const ROLE_CREATE_WINDOW: Duration = Duration::from_secs(10 * 60);
+
 pub(super) async fn create_role(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -102,6 +107,36 @@ pub(super) async fn create_role(
 
     // Role management is owner-only; see permissions::ensure_server_owner.
     permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("roles:create:user:{}", claims.sub),
+        ROLE_CREATE_LIMIT,
+        ROLE_CREATE_WINDOW,
+        "Too many roles created. Please wait a few minutes and try again.",
+    )
+    .await?;
+
+    // The count and the insert run under the server row lock, so parallel requests cannot
+    // pass the cap together.
+    let mut tx = state.db.begin().await?;
+    let locked_server_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM servers WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(server_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if locked_server_id.is_none() {
+        return Err(AppError::NotFound("Server not found".into()));
+    }
+    let role_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM server_roles WHERE server_id = $1")
+            .bind(server_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if role_count >= MAX_ROLES_PER_SERVER {
+        return Err(AppError::Validation(format!(
+            "This server already has the maximum of {MAX_ROLES_PER_SERVER} roles"
+        )));
+    }
 
     // Keep custom roles above the implicit Everyone role. Existing servers use a
     // large fixed position for Everyone, so including it in MAX would create new
@@ -119,7 +154,7 @@ pub(super) async fn create_role(
              )"#,
     )
     .bind(server_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     let permissions = body.permissions.unwrap_or(0);
@@ -144,7 +179,7 @@ pub(super) async fn create_role(
     .bind(color_opt)
     .bind(next_position)
     .bind(permissions)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db_err)
@@ -155,6 +190,21 @@ pub(super) async fn create_role(
         }
         _ => AppError::from(e),
     })?;
+    audit::log_in_transaction(
+        &mut tx,
+        claims.sub,
+        Some(server_id),
+        "role_create",
+        "role",
+        Some(role.id),
+        Some(serde_json::json!({
+            "name": role.name,
+            "color": role.color,
+            "permissions": audit::permission_names(role.permissions),
+        })),
+    )
+    .await?;
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
@@ -189,23 +239,29 @@ pub(super) async fn reorder_roles(
     }
 
     // "Everyone" is implicit and not reorderable.
-    let expected_ids: Vec<Uuid> = sqlx::query_scalar(
-        r#"SELECT id
+    let current_roles: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"SELECT id, name
            FROM server_roles
            WHERE server_id = $1
-             AND LOWER(name) <> 'everyone'"#,
+             AND LOWER(name) <> 'everyone'
+           ORDER BY position, id"#,
     )
     .bind(server_id)
     .fetch_all(&state.db)
     .await?;
-    if expected_ids.len() != parsed_ids.len() {
+    if current_roles.len() != parsed_ids.len() {
         return Err(AppError::Validation(
             "role_ids must include all non-system roles exactly once".into(),
         ));
     }
-    let expected_set: std::collections::HashSet<Uuid> = expected_ids.into_iter().collect();
+    let role_names: std::collections::HashMap<Uuid, String> =
+        current_roles.iter().cloned().collect();
     let parsed_set: std::collections::HashSet<Uuid> = parsed_ids.iter().copied().collect();
-    if expected_set != parsed_set {
+    if parsed_set.len() != parsed_ids.len()
+        || parsed_set
+            .iter()
+            .any(|role_id| !role_names.contains_key(role_id))
+    {
         return Err(AppError::Validation(
             "role_ids contains unknown or missing roles".into(),
         ));
@@ -220,6 +276,30 @@ pub(super) async fn reorder_roles(
             .bind(server_id)
             .execute(&mut *tx)
             .await?;
+    }
+
+    let old_order: Vec<&str> = current_roles
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect();
+    let new_order: Vec<&str> = parsed_ids
+        .iter()
+        .filter_map(|role_id| role_names.get(role_id).map(String::as_str))
+        .collect();
+    if old_order != new_order {
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "role_reorder",
+            "server",
+            None,
+            Some(serde_json::json!({
+                "old_order": old_order,
+                "new_order": new_order,
+            })),
+        )
+        .await?;
     }
 
     tx.commit().await?;
@@ -299,6 +379,19 @@ pub(super) async fn update_role(
         Some(s) => (true, Some(s.trim().to_string())),
     };
 
+    let mut tx = state.db.begin().await?;
+    let previous = sqlx::query_as::<_, ServerRole>(
+        r#"SELECT id, name, color, position, permissions
+           FROM server_roles
+           WHERE id = $1 AND server_id = $2
+           FOR UPDATE"#,
+    )
+    .bind(role_id)
+    .bind(server_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Role not found".into()))?;
+
     let role = sqlx::query_as::<_, ServerRole>(
         r#"UPDATE server_roles
            SET name = COALESCE($3, name),
@@ -313,7 +406,7 @@ pub(super) async fn update_role(
     .bind(permissions_opt)
     .bind(update_color)
     .bind(color_val)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db_err)
@@ -324,6 +417,36 @@ pub(super) async fn update_role(
         }
         _ => AppError::from(e),
     })?;
+
+    let mut changes = serde_json::Map::new();
+    if previous.name != role.name {
+        changes.insert("old_name".into(), serde_json::json!(previous.name));
+        changes.insert("new_name".into(), serde_json::json!(role.name));
+    }
+    if previous.color != role.color {
+        changes.insert("old_color".into(), serde_json::json!(previous.color));
+        changes.insert("new_color".into(), serde_json::json!(role.color));
+    }
+    if previous.permissions != role.permissions {
+        changes.insert(
+            "permissions".into(),
+            audit::permission_diff(previous.permissions, role.permissions),
+        );
+    }
+    if !changes.is_empty() {
+        changes.insert("name".into(), serde_json::json!(role.name));
+        audit::log_in_transaction(
+            &mut tx,
+            claims.sub,
+            Some(server_id),
+            "role_update",
+            "role",
+            Some(role_id),
+            Some(serde_json::Value::Object(changes)),
+        )
+        .await?;
+    }
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 
@@ -374,17 +497,34 @@ pub(super) async fn delete_role(
         ));
     }
 
-    let result = sqlx::query(
-        "DELETE FROM server_roles WHERE id = $1 AND server_id = $2 AND LOWER(name) <> 'everyone'",
+    let mut tx = state.db.begin().await?;
+    let deleted: Option<(String, Option<String>, i64)> = sqlx::query_as(
+        r#"DELETE FROM server_roles
+           WHERE id = $1 AND server_id = $2 AND LOWER(name) <> 'everyone'
+           RETURNING name, color, permissions"#,
     )
     .bind(role_id)
     .bind(server_id)
-    .execute(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
-
-    if result.rows_affected() == 0 {
+    let Some((deleted_name, deleted_color, deleted_permissions)) = deleted else {
         return Err(AppError::NotFound("Role not found".into()));
-    }
+    };
+    audit::log_in_transaction(
+        &mut tx,
+        claims.sub,
+        Some(server_id),
+        "role_delete",
+        "role",
+        Some(role_id),
+        Some(serde_json::json!({
+            "name": deleted_name,
+            "color": deleted_color,
+            "permissions": audit::permission_names(deleted_permissions),
+        })),
+    )
+    .await?;
+    tx.commit().await?;
 
     crate::ws::publish_event(&state, crate::ws::WsEvent::ServerRolesUpdated { server_id }).await;
 

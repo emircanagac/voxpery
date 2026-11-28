@@ -14,6 +14,19 @@ type ServerSettingsAuditLogProps = {
 
 const ACTION_OPTIONS = [
     { value: '', label: 'All actions' },
+    { value: 'role_create', label: 'Roles: create' },
+    { value: 'role_update', label: 'Roles: edit' },
+    { value: 'role_reorder', label: 'Roles: reorder' },
+    { value: 'role_delete', label: 'Roles: delete' },
+    { value: 'member_role_change', label: 'Roles: member roles' },
+    { value: 'channel_override_update', label: 'Permissions: channel override' },
+    { value: 'channel_override_delete', label: 'Permissions: remove channel override' },
+    { value: 'category_override_update', label: 'Permissions: category override' },
+    { value: 'category_override_delete', label: 'Permissions: remove category override' },
+    { value: 'category_create', label: 'Categories: create' },
+    { value: 'category_delete', label: 'Categories: delete' },
+    { value: 'channel_reorder', label: 'Channels: reorder' },
+    { value: 'category_reorder', label: 'Categories: reorder' },
     { value: 'voice_member_mute', label: 'Voice: server mute' },
     { value: 'voice_member_unmute', label: 'Voice: server unmute' },
     { value: 'voice_member_deafen', label: 'Voice: server deafen' },
@@ -25,6 +38,48 @@ const ACTION_OPTIONS = [
 function textDetail(details: Record<string, unknown> | null | undefined, key: string) {
     const value = details?.[key]
     return typeof value === 'string' && value.trim() ? value : null
+}
+
+const PERMISSION_LABELS: Record<string, string> = {
+    MANAGE_SERVER: 'Full admin',
+}
+
+function permissionLabel(name: string) {
+    const known = PERMISSION_LABELS[name]
+    if (known) return known
+    const words = name.toLowerCase().replace(/_/g, ' ')
+    return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+function permissionList(value: unknown) {
+    if (!Array.isArray(value)) return []
+    return value.filter((item): item is string => typeof item === 'string').map(permissionLabel)
+}
+
+/** "allowed: A, B · denied: C" for an override change, or null when nothing is set. */
+function overrideSummary(details: Record<string, unknown> | null | undefined) {
+    const allow = permissionList(details?.allow)
+    const deny = permissionList(details?.deny)
+    const parts = [
+        allow.length ? `allowed: ${allow.join(', ')}` : null,
+        deny.length ? `denied: ${deny.join(', ')}` : null,
+    ].filter(Boolean)
+    return parts.length ? parts.join(' · ') : null
+}
+
+/** What changed in a role edit: rename, color and permissions gained or lost. */
+function roleUpdateSummary(details: Record<string, unknown> | null | undefined) {
+    const parts: string[] = []
+    const oldName = textDetail(details, 'old_name')
+    const newName = textDetail(details, 'new_name')
+    if (oldName && newName) parts.push(`renamed from ${oldName}`)
+    if (details && 'new_color' in details) parts.push('color changed')
+    const permissions = details?.permissions as Record<string, unknown> | undefined
+    const added = permissionList(permissions?.added)
+    const removed = permissionList(permissions?.removed)
+    if (added.length) parts.push(`granted ${added.join(', ')}`)
+    if (removed.length) parts.push(`revoked ${removed.join(', ')}`)
+    return parts.length ? parts.join(' · ') : null
 }
 
 function toAuditText(
@@ -78,6 +133,52 @@ function toAuditText(
         case 'category_delete':
             actionText = entry.action === 'category_create' ? 'Created category' : 'Deleted category'
             targetDesc = textDetail(details, 'name') ?? 'Unknown category'
+            contextText = null
+            break
+        case 'role_create':
+            actionText = 'Created role'
+            targetDesc = textDetail(details, 'name') ?? 'Unknown role'
+            contextText = permissionList(details?.permissions).join(', ') || null
+            break
+        case 'role_update':
+            actionText = 'Edited role'
+            targetDesc = textDetail(details, 'name') ?? 'Unknown role'
+            contextText = roleUpdateSummary(details)
+            break
+        case 'role_delete':
+            actionText = 'Deleted role'
+            targetDesc = textDetail(details, 'name') ?? 'Unknown role'
+            contextText = null
+            break
+        case 'role_reorder':
+            actionText = 'Reordered roles'
+            targetDesc = null
+            contextText = null
+            break
+        case 'channel_override_update':
+        case 'category_override_update':
+        case 'channel_override_delete':
+        case 'category_override_delete': {
+            const removed = entry.action.endsWith('_delete')
+            actionText = removed ? 'Removed permission override for' : 'Changed permissions for'
+            targetDesc = textDetail(details, 'role_name') ?? 'Unknown role'
+            const place = entry.action.startsWith('channel_')
+                ? (channelName ? `#${channelName}` : 'a channel')
+                : (textDetail(details, 'category') ?? 'a category')
+            const summary = removed ? null : overrideSummary(details)
+            contextText = [`in ${place}`, summary].filter(Boolean).join(' · ')
+            break
+        }
+        case 'channel_reorder': {
+            actionText = 'Reordered channels'
+            targetDesc = null
+            const moved = Array.isArray(details?.channels) ? details.channels.length : 0
+            contextText = moved ? `${moved} ${moved === 1 ? 'channel' : 'channels'} moved` : null
+            break
+        }
+        case 'category_reorder':
+            actionText = 'Reordered categories'
+            targetDesc = null
             contextText = null
             break
         case 'member_ban':

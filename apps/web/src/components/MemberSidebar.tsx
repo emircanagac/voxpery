@@ -15,11 +15,16 @@ import useViewportMenu from '../useViewportMenu'
 import { handleMenuKeyboardNavigation } from '../menuKeyboardNavigation'
 import ModalSurface from './ModalSurface'
 import { Clock } from 'lucide-react'
-import { timeoutLabel } from '../timeouts'
+import { activeTimeoutUntil, timeoutLabel, useTimeoutExpiryRerender } from '../timeouts'
 import { useReadableTextColor } from '../hooks/useReadableTextColor'
 
 interface MemberItemProps {
-    member: MemberProfileMember & { highest_role_position?: number; timed_out_until?: string | null }
+    member: MemberProfileMember & {
+        highest_role_position?: number
+        timed_out_until?: string | null
+        voice_server_muted?: boolean
+        voice_server_deafened?: boolean
+    }
     isOwner: boolean
     isServerOwner: boolean
     currentUserId?: string
@@ -55,6 +60,8 @@ const MemberItem = memo(function MemberItem({
     const statusLabel = (s: string) => ({ online: 'Online', dnd: 'Do not disturb', offline: 'Offline' })[s] ?? s
     const getInitial = (name: string) => name.charAt(0).toUpperCase()
     const readableTextColor = useReadableTextColor()
+    // The row is memoized, so it redraws itself when the timeout ends instead of keeping the badge.
+    useTimeoutExpiryRerender(member.timed_out_until)
     const timedOutLabel = timeoutLabel(member.timed_out_until)
     const roleColor = member.role_color ?? (isServerOwner ? '#f97316' : undefined) // fox-like orange for owner when no role color
     const hasColor = !!roleColor
@@ -144,6 +151,8 @@ export default function MemberSidebar({
     canKickMembers,
     canBanMembers,
     canTimeoutMembers,
+    canMuteMembers = false,
+    canDeafenMembers = false,
     onReportMember,
     variant = 'sidebar',
     interactive = true,
@@ -152,6 +161,9 @@ export default function MemberSidebar({
     canKickMembers: boolean
     canBanMembers: boolean
     canTimeoutMembers: boolean
+    /** Server-level voice moderation, used to lift a stored server mute or deafen. */
+    canMuteMembers?: boolean
+    canDeafenMembers?: boolean
     onReportMember?: (member: { user_id: string; username: string }) => void
     variant?: 'sidebar' | 'sheet'
     interactive?: boolean
@@ -243,6 +255,8 @@ export default function MemberSidebar({
     const canKickAsRole = isOwner || canKickMembers
     const canBanAsRole = isOwner || canBanMembers
     const canTimeoutAsRole = isOwner || canTimeoutMembers
+    const canMuteAsRole = isOwner || canMuteMembers
+    const canDeafenAsRole = isOwner || canDeafenMembers
 
     useEffect(() => {
         return subscribeWs((payload: unknown) => {
@@ -540,7 +554,7 @@ export default function MemberSidebar({
                 pushToast({
                     level: 'info',
                     title: 'Member timed out',
-                    message: 'They cannot send messages until the timeout expires.',
+                    message: 'They cannot send messages or join voice until the timeout expires.',
                 })
                 setTimeoutConfirm(null)
             } catch (e) {
@@ -552,6 +566,49 @@ export default function MemberSidebar({
             }
         },
         [activeServerId, pushToast, token],
+    )
+
+    // Members already timed out get "Remove timeout" in their menu instead of a second timeout.
+    const handleClearTimeout = useCallback(
+        async (userId: string) => {
+            if (!activeServerId) return
+            try {
+                await serverApi.clearMemberTimeout(activeServerId, userId, token)
+                pushToast({
+                    level: 'info',
+                    title: 'Timeout removed',
+                    message: 'They can send messages again.',
+                })
+            } catch (e) {
+                pushToast({
+                    level: 'error',
+                    title: 'Could not remove timeout',
+                    message: e instanceof Error ? e.message : 'Could not remove the timeout.',
+                })
+            }
+        },
+        [activeServerId, pushToast, token],
+    )
+
+    // A server mute or deafen stays on the membership after the member leaves voice; this lifts it.
+    const handleClearVoiceRestriction = useCallback(
+        async (userId: string, clear: { muted: boolean; deafened: boolean }) => {
+            if (!activeServerId) return
+            try {
+                const next = await serverApi.clearMemberVoiceModeration(activeServerId, userId, clear, token)
+                setMembers(useAppStore.getState().members.map((member) => (
+                    member.user_id === userId ? { ...member, ...next } : member
+                )))
+                pushToast({ level: 'info', title: 'Voice restriction removed', message: 'They can speak and hear in voice again.' })
+            } catch (e) {
+                pushToast({
+                    level: 'error',
+                    title: 'Could not remove the voice restriction',
+                    message: e instanceof Error ? e.message : 'Try again.',
+                })
+            }
+        },
+        [activeServerId, pushToast, setMembers, token],
     )
 
     const handleContextMenu = useCallback((
@@ -745,7 +802,21 @@ export default function MemberSidebar({
                             Report user
                         </button>
                     )}
-                    {contextMenu.canTimeout && (
+                    {contextMenu.canTimeout && activeTimeoutUntil(contextMenu.member.timed_out_until) && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                                const userId = contextMenu.userId
+                                setContextMenu(null)
+                                void handleClearTimeout(userId)
+                            }}
+                        >
+                            Remove timeout
+                        </button>
+                    )}
+                    {contextMenu.canTimeout && !activeTimeoutUntil(contextMenu.member.timed_out_until) && (
                         <button
                             type="button"
                             className="server-context-menu-item danger"
@@ -763,6 +834,28 @@ export default function MemberSidebar({
                             Timeout user
                         </button>
                     )}
+                    {(() => {
+                        const clearMuted = canMuteAsRole && !!contextMenu.member.voice_server_muted
+                        const clearDeafened = canDeafenAsRole && !!contextMenu.member.voice_server_deafened
+                        if (!clearMuted && !clearDeafened) return null
+                        const label = clearMuted && clearDeafened
+                            ? 'Remove server mute and deafen'
+                            : clearMuted ? 'Remove server mute' : 'Remove server deafen'
+                        return (
+                            <button
+                                type="button"
+                                className="server-context-menu-item"
+                                role="menuitem"
+                                onClick={() => {
+                                    const userId = contextMenu.userId
+                                    setContextMenu(null)
+                                    void handleClearVoiceRestriction(userId, { muted: clearMuted, deafened: clearDeafened })
+                                }}
+                            >
+                                {label}
+                            </button>
+                        )
+                    })()}
                     {contextMenu.canKick && (
                         <button
                             type="button"
@@ -967,7 +1060,7 @@ export default function MemberSidebar({
                     <ModalSurface name="Timeout member" className="modal confirm-modal" onClick={(e) => e.stopPropagation()} onEscape={() => setTimeoutConfirm(null)} returnFocusRef={menuTriggerRef}>
                         <h2>Timeout member</h2>
                         <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                            Timeout <strong>{timeoutConfirm.username}</strong> from sending messages.
+                            Timeout <strong>{timeoutConfirm.username}</strong> from sending messages and talking in voice. If they are in a voice channel, they are disconnected.
                         </p>
                         <div className="form-group">
                             <label htmlFor="member-timeout-duration">Duration</label>

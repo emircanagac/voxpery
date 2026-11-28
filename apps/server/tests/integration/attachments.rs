@@ -1199,3 +1199,104 @@ async fn avatars_live_in_file_storage_and_older_ones_move_there() {
     assert_eq!(status, StatusCode::OK, "delete failed: {body}");
     assert!(!has_file(), "the file goes with the account");
 }
+
+/// A multipart upload of one text file; returns the status and body.
+async fn try_upload(
+    app: &mut axum::Router,
+    auth: &str,
+    bytes: &[u8],
+) -> (StatusCode, serde_json::Value) {
+    let boundary = format!("----voxperyquota{}", Uuid::new_v4());
+    let body = [
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"quota.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .into_bytes(),
+        bytes.to_vec(),
+        format!("\r\n--{boundary}--\r\n").into_bytes(),
+    ]
+    .concat();
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/attachments/upload")
+        .header("Authorization", auth)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    let (status, body) = oneshot(app, request).await;
+    (
+        status,
+        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn uploads_respect_the_configured_account_quota() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, _state) = setup_app_with_attachment_quotas(500 * 1024 * 1024, None).await;
+    let (auth, user_id, _) = register_named_user(&mut app, "quotauser").await;
+    let db = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&test_db_url().unwrap())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET storage_used_bytes = $1 WHERE id = $2")
+        .bind(500_i64 * 1024 * 1024 - 8)
+        .bind(user_id)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let (status, body) = try_upload(&mut app, &auth, b"more than eight bytes").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("(500 MB)"),
+        "{body}"
+    );
+    let (status, body) = try_upload(&mut app, &auth, b"tiny").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
+async fn uploads_stop_when_the_server_wide_quota_is_full() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let db = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&test_db_url().unwrap())
+        .await
+        .unwrap();
+    run_migrations(&db).await.unwrap();
+    let used: i64 =
+        sqlx::query_scalar("SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    // 64 bytes of room left on the whole server.
+    let (mut app, _state) =
+        setup_app_with_attachment_quotas(1024 * 1024 * 1024, Some(used + 64)).await;
+    let (auth, _, _) = register_named_user(&mut app, "quotatotal").await;
+
+    let (status, body) = try_upload(&mut app, &auth, &[b'x'; 200]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("file storage is full"),
+        "{body}"
+    );
+    let (status, body) = try_upload(&mut app, &auth, b"fits in the room").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}

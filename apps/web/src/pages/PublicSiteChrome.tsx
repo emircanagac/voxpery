@@ -51,7 +51,7 @@ export function PublicSiteHeader({ releaseUrl = RELEASE_URL, page }: { releaseUr
           Compare
         </Link>
         <a href={REPO_URL} target="_blank" rel="noreferrer" className="about-topbar-link">Source</a>
-        {!isCompact && <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-topbar-link">Self-host</a>}
+        <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-topbar-link">Self-host</a>
         {!isCompact && <a href={releaseUrl} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">Releases</a>}
         <a href={CONTRIBUTE_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">Contribute</a>
         <a href={SECURITY_URL} target="_blank" rel="noreferrer" className="about-topbar-link about-topbar-link--secondary">Security</a>

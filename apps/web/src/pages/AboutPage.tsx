@@ -47,8 +47,8 @@ function formatReleaseDate(value: string | undefined): string | null {
 export default function AboutPage() {
   usePublicPageMetadata(
     '/',
-    'Voxpery | Free Open-Source Discord Alternative',
-    'Voxpery is a free, open-source Discord alternative with community chat, voice, desktop apps, hosted access, and full self-hosting.',
+    "Voxpery | Your group's own voice and chat server",
+    'Voice channels, screen sharing and chat for friend groups and small communities. Open source: use voxpery.com for free or run it on your own server with one command. A Discord alternative you control.',
   )
   const isAuthenticated = useAuthStore((state) => Boolean(state.user))
   const isCompact = useCompactLayout()
@@ -101,8 +101,8 @@ export default function AboutPage() {
             <p className="about-kicker">Free and open source</p>
             <h1>Voxpery</h1>
             <p className="about-subtitle">
-              Text chat, voice channels, screen sharing, and moderation for your community.
-              Free, open source, and available in your browser or on your own server.
+              Voice, chat and screen sharing for your friend group, on a server you own.
+              Install it with one command and run it on a server that costs about €8 a month, or try it here first with nothing to set up.
             </p>
           </div>
 
@@ -118,10 +118,10 @@ export default function AboutPage() {
               </a>}
             </div>
             <div className="about-secondary-actions">
-            {!isCompact && <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-self-host-link">
+            <a href={DEPLOY_URL} target="_blank" rel="noreferrer" className="about-self-host-link">
               <Server size={16} />
               <span>Self-host with Docker</span>
-            </a>}
+            </a>
             {!isCompact && <p className="about-release-meta about-release-meta--center">
               <ShieldCheck size={16} />
               <span>{releaseMeta ? `Latest release: ${releaseMeta}` : 'Latest release available on GitHub'}</span>

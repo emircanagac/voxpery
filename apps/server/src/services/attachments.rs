@@ -117,6 +117,8 @@ pub struct AttachmentService {
     max_files_per_request: usize,
     allowed_mime_prefixes: Vec<String>,
     scanner: ClamAvConfig,
+    user_quota_bytes: i64,
+    total_quota_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +137,23 @@ pub struct PreparedAttachment {
     pub content_type: String,
     pub size_bytes: i64,
     pub sha256: String,
+    pub timings: UploadTimings,
     bytes: Vec<u8>,
+}
+
+/// How long the checks of one upload took, in milliseconds; logged to find slow uploads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UploadTimings {
+    /// Size limits and content signature checks.
+    pub check_ms: u64,
+    /// Image metadata removal (JPEG/PNG are decoded and written again).
+    pub metadata_ms: u64,
+    /// The optional ClamAV scan.
+    pub scan_ms: u64,
+}
+
+fn elapsed_ms(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// A local attachment key after its fixed, server-generated layout is verified.
@@ -278,7 +296,11 @@ impl AttachmentService {
             scanner,
             public_base_url,
         )
-        .await?;
+        .await?
+        .with_quotas(
+            config.attachments_user_quota_bytes,
+            config.attachments_total_quota_bytes,
+        );
         let (endpoint, bucket) = match (
             config.attachments_s3_endpoint.clone(),
             config.attachments_s3_bucket.clone(),
@@ -307,6 +329,21 @@ impl AttachmentService {
     pub fn with_object_store(mut self, store: ObjectStore) -> Self {
         self.object_store = Some(store);
         self
+    }
+
+    /// Sets the upload storage each account may use and, optionally, all accounts together.
+    pub fn with_quotas(mut self, user_quota_bytes: i64, total_quota_bytes: Option<i64>) -> Self {
+        self.user_quota_bytes = user_quota_bytes;
+        self.total_quota_bytes = total_quota_bytes;
+        self
+    }
+
+    pub fn user_quota_bytes(&self) -> i64 {
+        self.user_quota_bytes
+    }
+
+    pub fn total_quota_bytes(&self) -> Option<i64> {
+        self.total_quota_bytes
     }
 
     pub async fn new_local_for_tests(base_dir: PathBuf) -> Result<Self, AppError> {
@@ -385,6 +422,8 @@ impl AttachmentService {
             max_files_per_request,
             allowed_mime_prefixes,
             scanner,
+            user_quota_bytes: crate::config::DEFAULT_ATTACHMENTS_USER_QUOTA_BYTES,
+            total_quota_bytes: None,
         })
     }
 
@@ -746,9 +785,13 @@ impl AttachmentService {
 
         match self.scan_with_clamav(bytes).await {
             Ok(ScanResult::Clean) => Ok(()),
-            Ok(ScanResult::Infected(signature)) => Err(AppError::Validation(format!(
-                "Attachment blocked by malware scanner ({signature})"
-            ))),
+            Ok(ScanResult::Infected(signature)) => {
+                // The signature names the scan engine's rule; only operators see it.
+                tracing::warn!("Attachment blocked by the malware scanner: {}", signature);
+                Err(AppError::Validation(
+                    "This file did not pass the security scan".into(),
+                ))
+            }
             Err(err) => {
                 tracing::warn!("Attachment malware scan unavailable: {}", err);
                 if self.scanner.fail_closed {
@@ -814,23 +857,33 @@ impl AttachmentService {
         content_type: &str,
         bytes: &[u8],
     ) -> Result<PreparedAttachment, AppError> {
+        let mut timings = UploadTimings::default();
+        let started = std::time::Instant::now();
         self.validate_upload_file_meta(content_type, bytes.len())?;
         let detected_content_type =
             validate_upload_content(original_name, content_type, bytes)?.to_string();
         self.validate_upload_file_meta(&detected_content_type, bytes.len())?;
+        timings.check_ms = elapsed_ms(started);
+        let started = std::time::Instant::now();
         let prepared_bytes = self
             .strip_image_metadata_if_needed(&detected_content_type, bytes)
             .await?;
+        timings.metadata_ms = elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.validate_upload_file_meta(&detected_content_type, prepared_bytes.len())?;
         let stored_content_type =
             validate_upload_content(original_name, &detected_content_type, &prepared_bytes)?;
+        timings.check_ms += elapsed_ms(started);
+        let started = std::time::Instant::now();
         self.scan_file_bytes(&prepared_bytes).await?;
+        timings.scan_ms = elapsed_ms(started);
 
         Ok(PreparedAttachment {
             original_name: original_name.to_string(),
             content_type: stored_content_type.to_string(),
             size_bytes: prepared_bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(&prepared_bytes)),
+            timings,
             bytes: prepared_bytes,
         })
     }
@@ -847,6 +900,7 @@ impl AttachmentService {
             content_type: content_type.to_string(),
             size_bytes: bytes.len() as i64,
             sha256: hex_encode(&Sha256::digest(&bytes)),
+            timings: UploadTimings::default(),
             bytes,
         })
         .await
@@ -861,6 +915,7 @@ impl AttachmentService {
             content_type,
             size_bytes,
             sha256,
+            timings: _,
             bytes,
         } = prepared;
 
@@ -1677,6 +1732,59 @@ mod tests {
                 "{key} should fail"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn infected_upload_error_does_not_name_the_scanner_signature() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake scanner");
+        let port = listener.local_addr().expect("addr").port();
+        let payload = b"not really a virus";
+        // zINSTREAM\0, one length-prefixed chunk, then the zero-length end marker.
+        let expected_len = 10 + 4 + payload.len() + 4;
+        let scanner = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut received = Vec::new();
+            let mut buffer = [0u8; 256];
+            while received.len() < expected_len {
+                let read = socket.read(&mut buffer).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                received.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(b"stream: Eicar-Test-Signature FOUND\0")
+                .await
+                .expect("write");
+            socket.shutdown().await.expect("shutdown");
+        });
+
+        let test_root = std::env::temp_dir().join(format!("voxpery-att-test-{}", Uuid::new_v4()));
+        let mut service = AttachmentService::new_local_for_tests(test_root.clone())
+            .await
+            .expect("service");
+        service.scanner = ClamAvConfig {
+            enabled: true,
+            host: "127.0.0.1".to_string(),
+            port,
+            timeout_ms: 2_000,
+            fail_closed: true,
+        };
+
+        let error = service
+            .scan_file_bytes(payload)
+            .await
+            .expect_err("an infected file is refused");
+        scanner.await.expect("fake scanner");
+        match error {
+            AppError::Validation(message) => {
+                assert_eq!(message, "This file did not pass the security scan");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        let _ = fs::remove_dir_all(test_root).await;
     }
 
     #[tokio::test]

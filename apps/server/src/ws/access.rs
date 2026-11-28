@@ -144,9 +144,34 @@ pub async fn can_join_voice_channel(
     if channel_type.as_deref() != Some("voice") {
         return Ok(false);
     }
+    // A timed-out member can neither join voice nor stay in it: voice_revoke rechecks this.
+    if voice_timeout_active(db, user_id, channel_id).await? {
+        return Ok(false);
+    }
 
     let perms = permissions::get_user_channel_permissions(db, channel_id, user_id).await?;
     Ok(perms.contains(Permissions::VIEW_SERVER) && perms.contains(Permissions::CONNECT_VOICE))
+}
+
+/// Whether the member has an active timeout on the server that owns `channel_id`.
+pub async fn voice_timeout_active(
+    db: &PgPool,
+    user_id: Uuid,
+    channel_id: Uuid,
+) -> Result<bool, AppError> {
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1
+             FROM server_member_timeouts t
+             JOIN channels c ON c.server_id = t.server_id
+             WHERE c.id = $1 AND t.user_id = $2 AND t.timed_out_until > NOW()
+         )",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_one(db)
+    .await?;
+    Ok(active)
 }
 
 #[cfg(test)]

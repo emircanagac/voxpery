@@ -123,6 +123,7 @@ async fn main() {
         peers: Default::default(),
         voice_sessions: dashmap::DashMap::new(),
         voice_session_connections: dashmap::DashMap::new(),
+        voice_detached_sessions: dashmap::DashMap::new(),
         voice_participant_sids: dashmap::DashMap::new(),
         pending_voice_moves: dashmap::DashMap::new(),
         voice_channel_active_since_ms: dashmap::DashMap::new(),

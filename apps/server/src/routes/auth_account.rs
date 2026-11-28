@@ -175,6 +175,8 @@ pub(super) async fn check_username(
     Ok(Json(serde_json::json!({ "available": taken == 0 })))
 }
 
+const STATUS_UPDATES_PER_MINUTE: usize = 10;
+
 /// PATCH /api/auth/status
 pub(super) async fn update_status(
     State(state): State<Arc<AppState>>,
@@ -198,16 +200,34 @@ pub(super) async fn update_status(
         ));
     }
 
-    let user = sqlx::query_as::<_, User>(
+    enforce_rate_limit(
+        &state.redis,
+        format!("auth:status:user:{}", claims.sub),
+        STATUS_UPDATES_PER_MINUTE,
+        Duration::from_secs(60),
+        "Too many status changes. Please wait a moment and try again.",
+    )
+    .await?;
+
+    // Every change is broadcast to everyone the user shares a server with, so an unchanged
+    // status is neither written nor broadcast.
+    let updated = sqlx::query_as::<_, User>(
         r#"UPDATE users
            SET status = $1
-           WHERE id = $2
+           WHERE id = $2 AND status IS DISTINCT FROM $1
            RETURNING *"#,
     )
     .bind(status)
     .bind(claims.sub)
-    .fetch_one(&state.db)
+    .fetch_optional(&state.db)
     .await?;
+    let Some(user) = updated else {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(claims.sub)
+            .fetch_one(&state.db)
+            .await?;
+        return Ok(Json(UserPublic::from(user)));
+    };
 
     // Without an open connection the user stays offline to everyone else; the saved preference
     // applies when they next connect.

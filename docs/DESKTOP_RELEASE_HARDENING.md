@@ -142,6 +142,13 @@ Design (the security model, enforced in Rust):
   - messages, WebSocket, voice and screen sharing, and attachments work;
   - the updater works and keeps the setting.
 
+## 2.1.4) System Notifications
+
+- The desktop app shows message notifications through the operating system (`tauri-plugin-notification`: Windows toasts, the macOS notification center, Linux `org.freedesktop.Notifications`), not through the webview's `Notification`, which WebView2 refuses for the app's own origin without asking. The page calls the app command `desktop_show_notification` (title and body are capped, the click target is a small JSON object); no notification plugin command is exposed to the page.
+- Turning notifications on needs no webview permission: the in-app setting and the system's notification settings decide. A click brings the window forward and opens the conversation; on Windows a click is reported only while the toast is on screen, not from the Action Center.
+- Windows sends toasts with the app id `com.voxpery`, which the installer registers on the Start menu shortcut; development builds show them as Windows PowerShell.
+- Verify on a clean installation of each platform: turning the setting on shows no prompt, a DM and a mention while the app is in the background each show a system notification, a click opens that conversation, Do Not Disturb and a muted server suppress them.
+
 ## 2.2) Microphone Shortcut Validation
 
 - Toggle microphone mute accepts bare physical letter/digit keys and F1-F24; supported space/arrow/punctuation codes require a modifier. Modifier-only keys, Escape, mouse buttons, numpad and unsupported special keys are not assigned. Escape cancels recording. Keyboard layout labels may differ from the stored physical key code.

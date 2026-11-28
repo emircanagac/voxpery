@@ -28,6 +28,47 @@ function toTimestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+/**
+ * Runs the sends queued under one key (a conversation) one after another, in queue order, so the
+ * server stores messages in the order the user wrote them. A failed send does not hold back the
+ * next one; every request has its own timeout, so none waits forever.
+ */
+export function createSendQueue() {
+  const tails = new Map<string, Promise<void>>()
+  return function enqueue<R>(key: string, task: () => Promise<R>): Promise<R> {
+    const previous = tails.get(key) ?? Promise.resolve()
+    const run = previous.then(task)
+    const tail = run.then(() => undefined, () => undefined)
+    tails.set(key, tail)
+    void tail.then(() => {
+      if (tails.get(key) === tail) tails.delete(key)
+    })
+    return run
+  }
+}
+
+/** One queue for every conversation of this tab: keys are `channel:<id>` and `dm:<id>`. */
+export const enqueueMessageSend = createSendQueue()
+
+/**
+ * Moves the message at `index` to its place by `created_at` among the stored messages. Copies
+ * still sending stay after it, so the conversation reads in server order while unsent messages
+ * wait at the end.
+ */
+function placeByCreatedAt<T extends RetryableMessage>(messages: T[], index: number): T[] {
+  const message = messages[index]
+  const rest = messages.filter((_, i) => i !== index)
+  const time = toTimestamp(message.created_at)
+  const isLocal = (other: T) => other.clientStatus === 'sending' || other.clientStatus === 'failed'
+  let position = rest.findIndex((other) => !isLocal(other) && toTimestamp(other.created_at) > time)
+  if (position < 0) {
+    position = rest.length
+    while (position > 0 && isLocal(rest[position - 1])) position -= 1
+  }
+  while (position > 0 && rest[position - 1].clientStatus === 'sending') position -= 1
+  return [...rest.slice(0, position), message, ...rest.slice(position)]
+}
+
 export function mergeRemoteWithRetryableLocals<T extends RetryableMessage>(remote: T[], local: T[]): T[] {
   const retryableLocals = local
     .filter((message) => message.clientId && (message.clientStatus === 'sending' || message.clientStatus === 'failed'))
@@ -103,11 +144,11 @@ export function applyIncomingMessage<T extends IncomingMessage>(
     if (optimisticIdx >= 0) {
       const next = [...current]
       next[optimisticIdx] = incoming
-      return next
+      return placeByCreatedAt(next, optimisticIdx)
     }
   }
 
-  return [...current, incoming]
+  return placeByCreatedAt([...current, incoming], current.length)
 }
 
 export function reconcileConfirmedMessage<T extends RetryableMessage>(
@@ -131,8 +172,8 @@ export function reconcileConfirmedMessage<T extends RetryableMessage>(
   if (optimisticIdx >= 0) {
     const next = [...current]
     next[optimisticIdx] = confirmed
-    return next
+    return placeByCreatedAt(next, optimisticIdx)
   }
 
-  return [...current, confirmed]
+  return placeByCreatedAt([...current, confirmed], current.length)
 }

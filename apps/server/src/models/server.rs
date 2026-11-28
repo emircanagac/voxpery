@@ -85,6 +85,22 @@ pub struct MemberInfo {
     /// End of the member's active timeout, if any.
     #[serde(default)]
     pub timed_out_until: Option<Timestamp>,
+    /// Server mute and deafen stored on the membership; they stay while the member is out of voice.
+    #[serde(default)]
+    #[sqlx(default)]
+    pub voice_server_muted: bool,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub voice_server_deafened: bool,
+}
+
+/// A member with a stored server mute or deafen, for the Safety tab.
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct ServerVoiceRestrictionEntry {
+    pub user_id: Uuid,
+    pub username: String,
+    pub voice_server_muted: bool,
+    pub voice_server_deafened: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

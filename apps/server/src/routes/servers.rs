@@ -17,8 +17,8 @@ use crate::{
     middleware::auth::{require_auth_and_current_legal_consent, Claims},
     models::{
         Channel, CreateServerRequest, JoinServerRequest, MemberInfo, Server, ServerDetail,
-        ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerWithMembers,
-        UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
+        ServerInvitePreview, ServerOnboardingGuide, ServerRule, ServerVoiceRestrictionEntry,
+        ServerWithMembers, UpdateServerOnboardingGuideRequest, UpdateServerRuleRequest,
     },
     routes::auth::DEFAULT_SERVER_INVITE_CODE,
     services::{
@@ -31,7 +31,7 @@ use crate::{
         moderation::{self, RaidEventEntry, ServerTimeoutEntry},
         permissions::{self, Permissions},
         rate_limit::enforce_rate_limit,
-        server_membership, voice_revoke,
+        server_membership, voice_moderation, voice_revoke,
     },
     ws::WsEvent,
     AppState,
@@ -107,10 +107,18 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
                     "/{server_id}/members/{user_id}/timeout",
                     post(timeout_member).delete(clear_member_timeout),
                 )
+                .route(
+                    "/{server_id}/members/{user_id}/voice-moderation",
+                    delete(clear_member_voice_moderation),
+                )
                 .route("/{server_id}/members/{user_id}", delete(kick_member))
                 .route("/{server_id}/bans", get(list_bans))
                 .route("/{server_id}/bans/{user_id}", delete(unban_member))
                 .route("/{server_id}/timeouts", get(list_active_timeouts))
+                .route(
+                    "/{server_id}/voice-restrictions",
+                    get(list_voice_restrictions),
+                )
                 .route("/{server_id}/raid-events", get(list_raid_events))
                 .route("/{server_id}/reports", get(list_reports))
                 .route("/{server_id}/reports/user", post(report_user))
@@ -238,6 +246,11 @@ fn validate_server_icon_url(icon_url: Option<&str>) -> Result<Option<String>, Ap
 }
 
 /// POST /api/servers — create a new server.
+/// Most servers one account may own; existing owners above the cap keep their servers.
+const MAX_OWNED_SERVERS_PER_USER: i64 = 50;
+const SERVER_CREATE_LIMIT: usize = 5;
+const SERVER_CREATE_WINDOW: Duration = Duration::from_secs(60 * 60);
+
 async fn create_server(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -281,6 +294,26 @@ async fn create_server(
             tx.commit().await?;
             return Ok(Json(existing));
         }
+    }
+
+    // One owner's creations run one at a time, so parallel requests cannot pass the cap together.
+    acquire_transaction_lock(&mut tx, &format!("server-create-owner:{}", claims.sub)).await?;
+    enforce_rate_limit(
+        &state.redis,
+        format!("servers:create:user:{}", claims.sub),
+        SERVER_CREATE_LIMIT,
+        SERVER_CREATE_WINDOW,
+        "Too many servers created. Please try again later.",
+    )
+    .await?;
+    let owned_servers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE owner_id = $1")
+        .bind(claims.sub)
+        .fetch_one(&mut *tx)
+        .await?;
+    if owned_servers >= MAX_OWNED_SERVERS_PER_USER {
+        return Err(AppError::Validation(format!(
+            "You can own at most {MAX_OWNED_SERVERS_PER_USER} servers. Delete one you no longer need to create a new one."
+        )));
     }
 
     let server = sqlx::query_as::<_, Server>(
@@ -429,7 +462,9 @@ async fn get_server(
                       WHEN sm.user_id = $2 THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
                   END AS highest_role_position,
-                  tm.timed_out_until
+                  tm.timed_out_until,
+                  sm.voice_server_muted,
+                  sm.voice_server_deafened
            FROM server_members sm
            INNER JOIN users u ON sm.user_id = u.id
            LEFT JOIN LATERAL (
@@ -1036,7 +1071,9 @@ async fn list_channel_visible_members(
                       WHEN sm.user_id = s.owner_id THEN -1
                       ELSE COALESCE(rp.highest_role_position, 2147483647)
                   END AS highest_role_position,
-                  tm.timed_out_until
+                  tm.timed_out_until,
+                  sm.voice_server_muted,
+                  sm.voice_server_deafened
            FROM server_members sm
            INNER JOIN servers s ON s.id = sm.server_id
            INNER JOIN users u ON sm.user_id = u.id

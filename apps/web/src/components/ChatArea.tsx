@@ -29,6 +29,7 @@ import { useAppStore } from '../stores/app'
 import { cancelVoiceJoinFromNavigation, joinVoiceChannelFromNavigation } from './voiceChannelNavigation'
 import type { VoiceJoinStage } from '../webrtc/voiceJoinTiming'
 import { prewarmVoiceConnection } from '../webrtc/voiceConnectionPrewarm'
+import { useTypingIndicator } from '../typingIndicator'
 
 /** What a connecting voice join is waiting for, in the user's words. */
 const VOICE_JOIN_STAGE_TEXT: Record<VoiceJoinStage, string> = {
@@ -199,7 +200,7 @@ export default function ChatArea({
     onToggleReaction,
     canSendMessages = true,
     composerBlockedMessage = null,
-    typingIndicatorLabel = null,
+    typingIndicatorLabel: typingIndicatorLabelProp = null,
     seenMessageId = null,
     showMemberSheetButton = false,
     onOpenMemberSheet,
@@ -288,6 +289,10 @@ export default function ChatArea({
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const attachmentInputRef = useRef<HTMLInputElement>(null)
     const [pinnedOpen, setPinnedOpen] = useState(false)
+    // Who else is typing here; the composer reports this user's own typing (not shown to them).
+    const typing = useTypingIndicator(activeChannel?.id ?? null, currentUserId)
+    const typingIndicatorLabel = typingIndicatorLabelProp ?? typing.label
+    const { sent: typingSent } = typing
     const [searchOpen, setSearchOpen] = useState(false)
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
     const pinnedDropdownRef = useRef<HTMLDivElement | null>(null)
@@ -597,6 +602,24 @@ export default function ChatArea({
         syncJumpToLatestVisibility()
     }, [cancelLatestAnchor, noteUserScrollIntent, syncJumpToLatestVisibility])
 
+    const lastVirtualTotalSizeRef = useRef<number | null>(null)
+    /* A row that changed size while the conversation shows its newest message (a photo that
+       decoded, a conversation measuring its rows) keeps that message at the bottom in the same
+       frame. The virtualizer calls this once it has written the new sizes, before the paint;
+       the resize observer further down would only catch up a frame later. */
+    const keepNewestAtBottomAfterResize = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el || el.clientHeight <= 0) return
+        if (!shouldAutoScrollRef.current || userReadingHistoryRef.current) return
+        if (preservingOlderMessagesRef.current || pendingReadingRestoreRef.current) return
+        if (Date.now() <= userScrollIntentUntilRef.current) return
+        const bottom = Math.max(0, el.scrollHeight - el.clientHeight)
+        if (Math.abs(el.scrollTop - bottom) <= 1) return
+        runProgrammaticScroll(() => {
+            el.scrollTop = bottom
+        })
+    }, [runProgrammaticScroll])
+
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
         getScrollElement: () => messagesScrollRef.current,
@@ -614,6 +637,19 @@ export default function ChatArea({
         overscan: 8,
         anchorTo: 'end',
         scrollEndThreshold: 4,
+        // Row positions and the list height are written straight to the DOM when a row is
+        // measured or resized, before the browser paints. Through a React re-render they
+        // landed a frame later, so a row that settled (an image decoding, a new conversation
+        // measuring its rows) was first painted overlapping or away from the bottom.
+        directDomUpdates: true,
+        directDomUpdatesMode: 'position',
+        onChange: (instance) => {
+            // Scrolling alone leaves the size as it is; only a size change pins the bottom.
+            const totalSize = instance.getTotalSize()
+            if (totalSize === lastVirtualTotalSizeRef.current) return
+            lastVirtualTotalSizeRef.current = totalSize
+            keepNewestAtBottomAfterResize()
+        },
     })
 
     const armReactionBottomAnchor = useCallback(() => {
@@ -632,6 +668,11 @@ export default function ChatArea({
             reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
         }
     }, [isAtBottom])
+
+    const setVirtualListSpacer = useCallback((node: HTMLDivElement | null) => {
+        virtualListSpacerRef.current = node
+        rowVirtualizer.containerRef(node)
+    }, [rowVirtualizer])
 
     const toggleReactionPreservingBottomAnchor = useCallback((messageId: string, emoji: string, reacted: boolean) => {
         if (!onToggleReaction) return
@@ -1343,6 +1384,7 @@ export default function ChatArea({
         const bounded = truncateMessage(value, messageBodyLimit(replyingTo))
         setInputWasShortened(bounded.length < value.length)
         onMessageInputChange(bounded)
+        typing.draftChanged(bounded)
         syncMentionMenu(bounded, cursor)
     }
 
@@ -1356,12 +1398,13 @@ export default function ChatArea({
         olderMessagesAnchorRef.current = null
         pendingSubmitAutoScrollRef.current = true
         shouldAutoScrollRef.current = true
+        typingSent()
         onSendMessage(undefined, forceContent)
         snapToBottom()
         requestAnimationFrame(() => {
             snapToBottom()
         })
-    }, [draftAttachments.length, messageInput, onSendMessage, snapToBottom])
+    }, [draftAttachments.length, messageInput, onSendMessage, snapToBottom, typingSent])
 
     const insertEmoji = (emoji: string) => {
         if (!canSendMessages) return
@@ -1471,8 +1514,18 @@ export default function ChatArea({
             if (pinnedDropdownRef.current?.contains(e.target as Node)) return
             setPinnedOpen(false)
         }
+        // Escape closes the panel like the search panel and returns focus to its button.
+        const onKeyDown = (e: globalThis.KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            setPinnedOpen(false)
+            pinnedDropdownRef.current?.querySelector<HTMLButtonElement>('.chat-header-pinned-btn')?.focus()
+        }
         document.addEventListener('click', close)
-        return () => document.removeEventListener('click', close)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('click', close)
+            document.removeEventListener('keydown', onKeyDown)
+        }
     }, [pinnedOpen])
 
     const closeSearch = useCallback(() => {
@@ -2082,12 +2135,13 @@ export default function ChatArea({
                                 ))}
                             </div>
                         )}
+                        {/* An empty conversation has no message list, so its typing line goes here. */}
+                        {typingIndicatorLabel && <div className="typing-indicator">{typingIndicatorLabel}</div>}
                     </div>
                 ) : (
                     <div
-                        ref={virtualListSpacerRef}
+                        ref={setVirtualListSpacer}
                         className="virtual-list-spacer"
-                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                     >
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const isTypingRow = typingIndicatorLabel && virtualRow.index === messages.length
@@ -2098,7 +2152,6 @@ export default function ChatArea({
                                         data-index={virtualRow.index}
                                         ref={rowVirtualizer.measureElement}
                                         className="virtual-list-item"
-                                        style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                     >
                                         <div className="typing-indicator">{typingIndicatorLabel}</div>
                                     </div>
@@ -2152,7 +2205,6 @@ export default function ChatArea({
                                     data-message-id={msg.id}
                                     ref={rowVirtualizer.measureElement}
                                     className={`virtual-list-item ${virtualRow.index === 0 ? 'virtual-list-item-first' : ''}`}
-                                    style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                 >
                                     {showDayDivider && (
                                         <div className="message-day-divider" aria-label={`Messages from ${formatDayDivider(msg.created_at)}`}>

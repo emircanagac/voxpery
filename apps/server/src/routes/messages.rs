@@ -23,7 +23,7 @@ use crate::{
         message_content::exceeds_message_limit,
         moderation,
         permissions::{self, Permissions},
-        rate_limit::enforce_rate_limit,
+        rate_limit::{enforce_rate_limit, enforce_reaction_rate_limit},
     },
     ws::WsEvent,
     AppState,
@@ -1287,6 +1287,7 @@ async fn add_message_reaction(
     Json(body): Json<AddReactionRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     let emoji = normalize_reaction_emoji(&body.emoji)?;
+    enforce_reaction_rate_limit(&state.redis, claims.sub).await?;
     let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
         .bind(message_id)
         .fetch_optional(&state.db)
@@ -1390,6 +1391,7 @@ async fn remove_message_reaction(
     Query(query): Query<RemoveReactionQuery>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     let emoji = normalize_reaction_emoji(&query.emoji)?;
+    enforce_reaction_rate_limit(&state.redis, claims.sub).await?;
     let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1")
         .bind(message_id)
         .fetch_optional(&state.db)

@@ -839,6 +839,11 @@ async fn login(
 
     clear_login_failures(&state, &failure_key, client_ip.as_deref()).await?;
 
+    // Only after the password matched, so the reply does not reveal that the account exists.
+    if user.disabled_at.is_some() {
+        return Err(AppError::AccountDisabled);
+    }
+
     // Ensure user is in official Voxpery community on login as well
     ensure_default_server_join(&state.db, user.id).await?;
 
@@ -950,7 +955,8 @@ async fn get_session(
             AND privacy_notice_version = $4 AND privacy_notice_acknowledged_at IS NOT NULL
             AND kvkk_notice_version = $5 AND kvkk_notice_acknowledged_at IS NOT NULL,
             FALSE
-        ) AS legal_current FROM users u WHERE id = $1 AND token_version = $2"#,
+        ) AS legal_current FROM users u
+        WHERE id = $1 AND token_version = $2 AND disabled_at IS NULL"#,
     )
     .bind(claims.sub)
     .bind(claims.ver)

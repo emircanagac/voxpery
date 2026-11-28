@@ -197,7 +197,8 @@ pub struct SessionAccount {
     pub status: String,
 }
 
-/// The account behind a token; `None` when it is gone or the token's version is stale.
+/// The account behind a token; `None` when it is gone, disabled, or the token's version is
+/// stale.
 pub async fn session_account(
     db: &PgPool,
     user_id: Uuid,
@@ -217,7 +218,7 @@ pub async fn session_account(
                username,
                status
            FROM users
-           WHERE id = $1 AND token_version = $2"#,
+           WHERE id = $1 AND token_version = $2 AND disabled_at IS NULL"#,
     )
     .bind(user_id)
     .bind(token_version)

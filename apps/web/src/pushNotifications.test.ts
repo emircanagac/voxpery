@@ -1,4 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const desktop = vi.hoisted(() => ({
+  isTauri: false,
+  invoke: vi.fn(),
+  clickListener: null as null | ((event: { payload: string }) => void),
+}))
+vi.mock('./secureStorage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./secureStorage')>()),
+  isTauri: () => desktop.isTauri,
+}))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: desktop.invoke }))
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (_event: string, handler: (event: { payload: string }) => void) => {
+    desktop.clickListener = handler
+    return () => { desktop.clickListener = null }
+  }),
+}))
 import {
   getPushNotificationsEnabled,
   PUSH_NOTIFICATION_STATE_CHANGED_EVENT,
@@ -155,5 +172,50 @@ describe('notification display and clicks', () => {
     expect(parseNotificationTarget({ kind: 'dm', channelId: 'a b' })).toBeNull()
     removeHandler()
     sw.remove()
+  })
+})
+
+describe('desktop app notifications', () => {
+  beforeEach(() => {
+    desktop.isTauri = true
+    desktop.invoke.mockReset().mockResolvedValue(undefined)
+    desktop.clickListener = null
+  })
+  afterEach(() => {
+    desktop.isTauri = false
+  })
+
+  it('needs no webview permission and never asks WebView2', async () => {
+    const requestPermission = vi.fn(async () => 'denied' as NotificationPermission)
+    vi.stubGlobal('Notification', Object.assign(vi.fn(), { permission: 'denied', requestPermission }))
+    await expect(requestPushNotificationPermission()).resolves.toBe('granted')
+    expect(requestPermission).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('shows notifications through the desktop shell with the click target', async () => {
+    showPushNotification({
+      title: 'Mention in #general',
+      body: 'friend: hi',
+      target: { kind: 'dm', channelId: 'dm-1', messageId: null },
+    })
+    await vi.waitFor(() => expect(desktop.invoke).toHaveBeenCalledWith('desktop_show_notification', {
+      title: 'Mention in #general',
+      body: 'friend: hi',
+      target: JSON.stringify({ kind: 'dm', channelId: 'dm-1', messageId: null }),
+    }))
+  })
+
+  it('opens the conversation of a clicked desktop notification', async () => {
+    const opened = vi.fn()
+    const stopHandler = setNotificationTargetHandler(opened)
+    const stop = listenForNotificationClicks()
+    await vi.waitFor(() => expect(desktop.clickListener).not.toBeNull())
+    desktop.clickListener!({ payload: JSON.stringify({ kind: 'server_channel', serverId: 's-1', channelId: 'c-1' }) })
+    expect(opened).toHaveBeenCalledWith({ kind: 'server_channel', serverId: 's-1', channelId: 'c-1' })
+    desktop.clickListener!({ payload: 'not json' })
+    expect(opened).toHaveBeenCalledTimes(1)
+    stop()
+    stopHandler()
   })
 })

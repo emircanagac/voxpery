@@ -10,6 +10,7 @@ use tauri::Manager;
 mod custom_server;
 #[cfg(target_os = "linux")]
 mod linux_focus;
+mod notifications;
 mod secure_storage;
 
 struct DesktopRuntimeState {
@@ -423,6 +424,7 @@ fn main() {
     };
     let mut builder = builder
         .manage(DesktopRuntimeState::default())
+        .manage(notifications::NotificationTargets::default())
         .invoke_handler(tauri::generate_handler![
             desktop_set_minimize_to_tray_on_close,
             desktop_prepare_for_update_install,
@@ -433,7 +435,8 @@ fn main() {
             desktop_update_channel,
             custom_server::desktop_custom_server,
             custom_server::desktop_probe_custom_server,
-            custom_server::desktop_set_custom_server
+            custom_server::desktop_set_custom_server,
+            notifications::desktop_show_notification
         ]);
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -476,6 +479,7 @@ fn main() {
             .plugin(tauri_plugin_http::init())
             .plugin(secure_storage::init())
             .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -486,6 +490,7 @@ fn main() {
                     .build(),
             )
             .setup(|app| {
+                notifications::register_click_handler(app.handle());
                 // The main window is created here (config `create: false`) so a custom server
                 // can extend its CSP and API base before the app's scripts run.
                 let custom = custom_server::load(app.handle());

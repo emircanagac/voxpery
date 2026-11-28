@@ -6,7 +6,7 @@ import type { Attachment } from '../types'
 import { resolveAttachmentUrl } from '../api'
 import { useAuthStore } from '../stores/auth'
 import type { AttachmentResolutionState } from './chatAttachmentCache'
-import { attachmentResolutionCache, decodeAttachmentImage, decodedAttachmentImageCache, defaultAttachmentResolution, getAttachmentResolutionCacheKey, isImageAttachment, rememberAttachmentResolution, rememberDecodedAttachmentImage } from './chatAttachmentCache'
+import { attachmentImageDisplaySize, attachmentResolutionCache, decodeAttachmentImage, decodedAttachmentImageCache, defaultAttachmentResolution, getAttachmentImageSize, getAttachmentImageSizeKey, getAttachmentResolutionCacheKey, isImageAttachment, rememberAttachmentImageSize, rememberAttachmentResolution, rememberDecodedAttachmentImage } from './chatAttachmentCache'
 
 /** Message attachments: the image preview, the signed-URL resolution cache and attachment links. */
 export function AttachmentImagePreviewModal({
@@ -85,6 +85,17 @@ export function AttachmentLink({ attachment, index }: { attachment: Attachment; 
     const currentResolution = resolution.cacheKey === cacheKey
         ? resolution
         : attachmentResolutionCache.get(cacheKey) ?? defaultAttachmentResolution(attachment.url, cacheKey)
+    const imageSizeKey = isImage ? getAttachmentImageSizeKey(attachment) : null
+    // A known size reserves the image's final box before it is fetched or decoded, so the
+    // conversation around it does not move when it appears.
+    const knownImageSize = imageSizeKey ? getAttachmentImageSize(imageSizeKey) : null
+    const knownImageBox = knownImageSize ? attachmentImageDisplaySize(knownImageSize) : null
+    const imageBoxStyle = knownImageSize && knownImageBox ? {
+        width: `${knownImageBox.width}px`,
+        height: 'auto',
+        maxWidth: '100%',
+        aspectRatio: `${knownImageSize.width} / ${knownImageSize.height}`,
+    } : undefined
     const [imageDecoded, setImageDecoded] = useState(() => (
         !isImage || (currentResolution.resolved && decodedAttachmentImageCache.has(currentResolution.resolvedUrl))
     ))
@@ -186,7 +197,8 @@ export function AttachmentLink({ attachment, index }: { attachment: Attachment; 
         let cancelled = false
         setImageDecoded(false)
         decodeAttachmentImage(imageUrl)
-            .then(() => {
+            .then((size) => {
+                if (size && imageSizeKey) rememberAttachmentImageSize(imageSizeKey, size.width, size.height)
                 if (!cancelled) setImageDecoded(true)
             })
             .catch(() => {
@@ -195,7 +207,7 @@ export function AttachmentLink({ attachment, index }: { attachment: Attachment; 
         return () => {
             cancelled = true
         }
-    }, [currentResolution.loadFailed, currentResolution.resolved, currentResolution.resolvedUrl, isImage])
+    }, [currentResolution.loadFailed, currentResolution.resolved, currentResolution.resolvedUrl, imageSizeKey, isImage])
 
     if (isImage) {
         const alt = attachment.name || `Attachment ${index + 1}`
@@ -285,10 +297,18 @@ export function AttachmentLink({ attachment, index }: { attachment: Attachment; 
                             src={currentResolution.resolvedUrl}
                             alt=""
                             className="chat-image-attachment"
+                            style={imageBoxStyle}
                             loading="eager"
                             decoding="async"
-                            onLoad={() => {
+                            onLoad={(event) => {
                                 rememberDecodedAttachmentImage(currentResolution.resolvedUrl)
+                                if (imageSizeKey) {
+                                    rememberAttachmentImageSize(
+                                        imageSizeKey,
+                                        event.currentTarget.naturalWidth,
+                                        event.currentTarget.naturalHeight,
+                                    )
+                                }
                             }}
                             onError={handleImageLoadError}
                         />
@@ -296,6 +316,7 @@ export function AttachmentLink({ attachment, index }: { attachment: Attachment; 
                 ) : (
                     <span
                         className="chat-image-link chat-image-preview-trigger chat-image-preview-trigger--pending"
+                        style={imageBoxStyle}
                         aria-hidden="true"
                     />
                 )}

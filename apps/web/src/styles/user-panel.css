@@ -955,6 +955,19 @@
   color: var(--text-secondary);
 }
 
+.voice-background-log {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .voice-settings-block__desc {
   font-size: 11px;
   line-height: 1.3;

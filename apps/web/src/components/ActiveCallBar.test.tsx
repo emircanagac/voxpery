@@ -182,6 +182,7 @@ function voiceState(overrides?: Record<string, unknown>): UseLiveKitVoiceState {
   return {
     joinedChannelId: voiceChannel.id,
     isJoining: false,
+    microphoneUnavailable: false,
     localStream: new MediaStream([mediaTrack('audio', 'local-mic')]),
     screenStream: null,
     isScreenSharing: false,
@@ -228,6 +229,7 @@ function renderActiveCallBar(
     stopCamera: vi.fn(),
     switchCamera: vi.fn().mockResolvedValue(undefined),
     setVoiceControls: vi.fn(),
+    enableMicrophone: vi.fn(),
     setRemoteMicrophonePlaybackMuted,
     setRemoteMediaSubscribed: vi.fn(),
     playVoiceCue: vi.fn(),
@@ -302,22 +304,48 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.leaveVoice).toHaveBeenCalledOnce()
   })
 
-  it('keeps microphone denial visible and retries the original channel only on user action', async () => {
+  for (const [label, error] of [
+    ['denied', new DOMException('Denied', 'NotAllowedError')],
+    ['missing', new DOMException('Requested device not found', 'NotFoundError')],
+    ['busy', new DOMException('Could not start audio source', 'NotReadableError')],
+  ] as const) {
+    it(`joins as a listener when the microphone is ${label} and turns it on later without rejoining`, async () => {
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+      const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream').mockRejectedValueOnce(error)
+      try {
+        const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null, microphoneUnavailable: true })
+        const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+        await act(async () => { await join('voice-listen') })
+        expect(voice.joinVoice).toHaveBeenCalledWith('voice-listen', { listenOnly: true })
+        expect(screen.getByRole('status', { name: 'Joined as a listener' })).toBeVisible()
+        expect(screen.queryByRole('alert', { name: 'Microphone access required' })).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Turn on microphone' }))
+        await waitFor(() => expect(voice.enableMicrophone).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(voice.setVoiceControls).toHaveBeenCalledWith(false, false, false))
+        await waitFor(() => expect(screen.queryByRole('status', { name: 'Joined as a listener' })).not.toBeInTheDocument())
+      } finally {
+        capture.mockRestore()
+      }
+    })
+  }
+
+  it('keeps the listener notice with the reason when the microphone is still unavailable', async () => {
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
-    const stream = new MediaStream([new MediaStreamTrack()])
     const capture = vi.spyOn(voiceDevices, 'getPreferredMicrophoneStream')
-      .mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'))
-      .mockResolvedValueOnce(stream)
-    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null })
-    const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
-    await act(async () => { await expect(join('voice-retry-target')).rejects.toThrow('Denied') })
-    expect(screen.getByRole('alert', { name: 'Microphone access required' })).toBeVisible()
-    expect(capture).toHaveBeenCalledTimes(1)
-    expect(voice.joinVoice).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    await waitFor(() => expect(voice.joinVoice).toHaveBeenCalledWith('voice-retry-target', { preflightStream: stream }))
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
-    capture.mockRestore()
+      .mockRejectedValueOnce(new DOMException('Requested device not found', 'NotFoundError'))
+    try {
+      const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null, microphoneUnavailable: true })
+      vi.mocked(voice.enableMicrophone).mockRejectedValueOnce(new DOMException('Requested device not found', 'NotFoundError'))
+      const join = (window as Window & { __voxperyJoinVoice?: (id: string) => Promise<void> }).__voxperyJoinVoice!
+      await act(async () => { await join('voice-listen') })
+      fireEvent.click(screen.getByRole('button', { name: 'Turn on microphone' }))
+      await waitFor(() => expect(voice.enableMicrophone).toHaveBeenCalledTimes(1))
+      expect(screen.getByRole('status', { name: 'Joined as a listener' })).toHaveTextContent('No microphone device detected')
+      expect(voice.setVoiceControls).not.toHaveBeenCalledWith(false, false, false)
+    } finally {
+      capture.mockRestore()
+    }
   })
 
   it('blocks duplicate captures and stops a capture that resolves after unmount', async () => {

@@ -14,6 +14,8 @@ test.describe('App Navigation', () => {
       'https://github.com/emircanagac/voxpery',
     )
     await expect(page.getByRole('link', { name: /self-host with docker/i })).toBeVisible()
+    await expect(page).toHaveTitle("Voxpery | Your group's own voice and chat server")
+    await expect(page.getByText(/on a server you own/)).toBeVisible()
   })
 
   test('should keep the public product page usable on mobile', async ({ page }) => {
@@ -22,8 +24,10 @@ test.describe('App Navigation', () => {
 
     await expect(page.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeVisible()
     await expect(page.getByRole('link', { name: /use voxpery in browser/i })).toBeVisible()
-    // Compact layouts focus on the browser app: self-hosting links stay on desktop widths.
-    await expect(page.getByRole('link', { name: /self-host with docker/i })).toHaveCount(0)
+    // Phones offer self-hosting as well (many visitors arrive from a phone); only the desktop
+    // download stays on desktop widths.
+    await expect(page.getByRole('link', { name: /self-host with docker/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /^download/i })).toHaveCount(0)
     await expect(page.getByText('Community chat, wherever you are. No desktop download needed.')).toBeVisible()
     await expect(page.getByRole('img', { name: /voxpery voice channel interface/i })).toBeVisible()
 

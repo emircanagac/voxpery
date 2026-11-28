@@ -73,6 +73,8 @@ Authorization:
 - User must be allowed to subscribe to the channel.
 - `is_typing: true` also needs what sending a message needs: `SEND_MESSAGES` and no active timeout in a server channel, and the peer's `dm_privacy` in a one-to-one DM.
 
+Client behavior (web and desktop): while the draft has text the composer sends a start at most every 3 seconds (the server relays one per channel and connection in that time); it sends a stop after 5 seconds without input, when the draft empties, when the message is sent and when the conversation changes. Receivers show a start for 6 seconds unless it is renewed, drop it on a stop or on that member's `NewMessage`, and never show the viewer's own typing.
+
 Note:
 
 - There is no dedicated server-side typing throttle in WS handler today; clients should debounce.
@@ -102,7 +104,7 @@ Authorization:
 { "type": "LeaveVoice", "data": null }
 ```
 
-Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored. When that connection closes without `LeaveVoice`, the session survives for 10 seconds: a `JoinVoice` for the same channel from a new connection in that time continues it without any departure event; otherwise the departure is published when the grace ends.
+Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored. When that connection closes without `LeaveVoice`, the session survives for 10 seconds: a `JoinVoice` for the same channel from a new connection in that time continues it without any departure event. After the grace the session goes on while LiveKit still has the participant (a phone browser in the background), and a later `JoinVoice` for the same channel continues it the same way; the departure is published when LiveKit no longer has the participant, a session or access check fails, or right when the grace ends if LiveKit is not configured (see `docs/VOICE_SYSTEM.md`, Short Connection Drops).
 
 ### `SetVoiceControl`
 
@@ -177,7 +179,8 @@ The server's `WsEvent` enum (`apps/server/src/ws/mod.rs`) is the source of truth
 - `ChannelRead`
   - Targeted to the user who read a server channel (`POST /api/notifications/channels/:channel_id/read`) so other open sessions clear the same unread and mention badges.
   - Payload: `channel_id`, `user_id`, and `last_read_at` (creation time of the last message read). Sent only when the read mark moved.
-  - Missed `ChannelRead` events need no replay: clients reload `GET /api/notifications/state` after reconnecting.
+  - Missed `ChannelRead` events need no replay: clients reload `GET /api/notifications/state` after reconnecting, and when a page hidden for at least 15 seconds is shown again (a background tab or phone can miss events without its connection dropping). DM unread counts come back with the DM list, which reloads on the same occasions.
+  - A client sends the read mark for an open channel only while its window has focus; a channel opened without focus (a clicked system notification, a return from the tray) is marked read as soon as the window gets focus.
 - `MessageUpdated`
 - `MessageDeleted`
   - For server channels, delivered to sessions subscribed to the channel. For DMs and group DMs, delivered to every member's sessions, including the author's other sessions.

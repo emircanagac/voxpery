@@ -26,7 +26,8 @@ use crate::services::privacy::SessionAccount;
 use crate::services::redact::ShortId;
 use crate::services::voice_revoke;
 use crate::ws::access::{
-    can_subscribe_to_channel, subscribable_channel_candidates, ChannelAccessCache, TypingThrottle,
+    can_join_voice_channel, can_subscribe_to_channel, subscribable_channel_candidates,
+    ChannelAccessCache, TypingThrottle,
 };
 use crate::AppState;
 
@@ -1101,6 +1102,7 @@ async fn handle_socket(
     // Voice ends with the connection that holds it, even while other tabs stay open. A socket
     // that only dropped gets `VOICE_RECONNECT_GRACE` to come back: until then nobody is told it
     // left, and a client that rejoins the same channel in time keeps its call without a trace.
+    // After the grace the call goes on while LiveKit still has the participant.
     let held_voice = state
         .voice_session_connections
         .remove_if(&user_id, |_, holder| holder.0 == connection_id)
@@ -1108,28 +1110,41 @@ async fn handle_socket(
     let holder_missing = !state.voice_session_connections.contains_key(&user_id);
     if held_voice || (last_session_gone && holder_missing && !state.peers.holds_voice(user_id)) {
         if let Some(channel_id) = state.voice_sessions.get(&user_id).map(|entry| *entry) {
-            schedule_dropped_voice_departure(state.clone(), user_id, channel_id);
+            schedule_dropped_voice_departure(state.clone(), user_id, channel_id, token, claims);
         }
     }
 
     tracing::info!("WebSocket disconnected: {}", ShortId(user_id));
 }
 
-/// Ends the voice session of a user whose connection dropped, unless they come back in time.
-/// Nothing happens when the user rejoined voice here or on another instance, or when the session
-/// already ended another way (leave, moderation, a move) during the grace.
-fn schedule_dropped_voice_departure(state: Arc<AppState>, user_id: Uuid, channel_id: Uuid) {
+/// Whether the user holds voice again, through a connection here or on another instance.
+fn voice_rejoined(state: &AppState, user_id: Uuid) -> bool {
+    state.voice_session_connections.contains_key(&user_id) || state.peers.holds_voice(user_id)
+}
+
+/// Ends the voice session of a user whose connection dropped, unless they come back. Nothing
+/// happens when the user rejoined voice here or on another instance, or when the session
+/// already ended another way (leave, moderation, a move, LiveKit reporting the participant
+/// gone) meanwhile. See [`wait_while_voice_detached`] for how long the session may wait.
+fn schedule_dropped_voice_departure(
+    state: Arc<AppState>,
+    user_id: Uuid,
+    channel_id: Uuid,
+    token: String,
+    claims: Claims,
+) {
+    // A newer wait for the same user replaces an older one, which then ends quietly.
+    let wait_id = Uuid::new_v4();
+    state
+        .voice_detached_sessions
+        .insert(user_id, (channel_id, wait_id));
     tokio::spawn(async move {
-        tokio::time::sleep(voice_revoke::VOICE_RECONNECT_GRACE).await;
-        // A stopping server keeps voice; `reconcile_orphaned_voice_claims` cleans up after it.
-        if state.shutdown.is_started() {
-            return;
-        }
-        let rejoined = |state: &AppState| {
-            state.voice_session_connections.contains_key(&user_id)
-                || state.peers.holds_voice(user_id)
-        };
-        if rejoined(&state) {
+        let depart =
+            wait_while_voice_detached(&state, user_id, channel_id, wait_id, &token, &claims).await;
+        state
+            .voice_detached_sessions
+            .remove_if(&user_id, |_, (_, current)| *current == wait_id);
+        if !depart {
             return;
         }
         let removed = state
@@ -1157,7 +1172,7 @@ fn schedule_dropped_voice_departure(state: Arc<AppState>, user_id: Uuid, channel
         let _ = state.voice_controls.remove(&user_id);
         cleanup_voice_channel_active_since_if_empty(&state, channel_id);
         // A rejoin that raced the removal announces itself; a departure after it would be wrong.
-        if rejoined(&state) {
+        if voice_rejoined(&state, user_id) {
             return;
         }
         super::publish_event(
@@ -1182,6 +1197,92 @@ fn schedule_dropped_voice_departure(state: Arc<AppState>, user_id: Uuid, channel
         )
         .await;
     });
+}
+
+/// Waits while the voice session of a dropped connection may go on, and says whether it should
+/// end with a departure now; `false` means it is no longer this wait's to end.
+///
+/// The client gets `VOICE_RECONNECT_GRACE` to reconnect. After that the session goes on while
+/// LiveKit still has the participant: a phone browser in the background often loses the
+/// WebSocket but keeps the call, and returns to it with a `JoinVoice` for the same channel.
+/// Every `VOICE_DETACHED_CHECK_INTERVAL` the session is checked again like an open connection
+/// would be (signed out, expired, disabled, legal consent) together with channel access (bans,
+/// timeouts, permissions); a failed check removes the participant. LiveKit's `participant_left`
+/// webhook ends the session as soon as the call itself drops.
+async fn wait_while_voice_detached(
+    state: &Arc<AppState>,
+    user_id: Uuid,
+    channel_id: Uuid,
+    wait_id: Uuid,
+    token: &str,
+    claims: &Claims,
+) -> bool {
+    tokio::time::sleep(voice_revoke::VOICE_RECONNECT_GRACE).await;
+    let detached_since = tokio::time::Instant::now();
+    let mut lookup_failures: u8 = 0;
+    loop {
+        // A stopping server keeps voice; `reconcile_orphaned_voice_claims` cleans up after it.
+        if state.shutdown.is_started() || voice_rejoined(state, user_id) {
+            return false;
+        }
+        let still_waiting = state
+            .voice_detached_sessions
+            .get(&user_id)
+            .is_some_and(|entry| *entry == (channel_id, wait_id));
+        let session_here = state
+            .voice_sessions
+            .get(&user_id)
+            .is_some_and(|entry| *entry == channel_id);
+        if !still_waiting || !session_here {
+            return false;
+        }
+        if detached_since.elapsed() >= voice_revoke::VOICE_DETACHED_MAX {
+            return true;
+        }
+
+        match voice_revoke::livekit_participant_sid(state, channel_id, user_id).await {
+            Ok(Some(_)) => lookup_failures = 0,
+            Ok(None) | Err(crate::errors::AppError::FeatureDisabled(_)) => return true,
+            Err(error) => {
+                lookup_failures += 1;
+                tracing::warn!(
+                    "Detached voice participant lookup failed for user {}: {}",
+                    ShortId(user_id),
+                    error
+                );
+                if lookup_failures >= voice_revoke::VOICE_DETACHED_MAX_LOOKUP_FAILURES {
+                    return true;
+                }
+            }
+        }
+
+        // An outage says nothing about the session; the next check asks again.
+        if check_ws_session(state, token, claims).await == WsSessionCheck::Invalid {
+            voice_revoke::remove_livekit_participant(state, channel_id, user_id, "session ended")
+                .await;
+            return true;
+        }
+        match can_join_voice_channel(&state.db, user_id, channel_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                voice_revoke::remove_livekit_participant(
+                    state,
+                    channel_id,
+                    user_id,
+                    "voice access no longer allowed",
+                )
+                .await;
+                return true;
+            }
+            Err(error) => tracing::warn!(
+                "Detached voice access check failed for user {}: {}",
+                ShortId(user_id),
+                error
+            ),
+        }
+
+        tokio::time::sleep(voice_revoke::VOICE_DETACHED_CHECK_INTERVAL).await;
+    }
 }
 
 #[cfg(test)]

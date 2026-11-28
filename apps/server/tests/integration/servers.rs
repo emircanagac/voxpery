@@ -1632,7 +1632,7 @@ async fn category_override_enforces_view_send_and_voice_access() {
 }
 
 #[tokio::test]
-async fn channel_create_race_is_serialized_at_500_channel_limit() {
+async fn channel_create_race_is_serialized_at_the_channel_limit() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
@@ -1667,7 +1667,8 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
         .await
         .unwrap();
 
-    for idx in 0..499 {
+    // One below the per-server limit of 200 channels.
+    for idx in 0..199 {
         sqlx::query(
             r#"INSERT INTO channels (id, server_id, name, description, channel_type, category, position, created_at)
                VALUES ($1, $2, $3, NULL, 'text', 'General', $4, NOW())"#,
@@ -1735,7 +1736,7 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
     );
     assert_eq!(
         rejected_count, 1,
-        "exactly one concurrent create should be rejected at 500-limit, got ({status_a}, {status_b}) with bodies: A={}, B={}",
+        "exactly one concurrent create should be rejected at the limit, got ({status_a}, {status_b}) with bodies: A={}, B={}",
         String::from_utf8_lossy(&body_a),
         String::from_utf8_lossy(&body_b)
     );
@@ -1747,8 +1748,8 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
             .await
             .unwrap();
     assert_eq!(
-        total_channels, 500,
-        "row lock must keep channel count capped at 500"
+        total_channels, 200,
+        "row lock must keep channel count capped at 200"
     );
 }
 
@@ -3444,4 +3445,653 @@ async fn rotating_the_invite_code_invalidates_the_old_link() {
         .await
         .unwrap();
     assert_eq!(still, "voxpery");
+}
+
+#[tokio::test]
+async fn server_creation_respects_owned_server_cap_and_rate_limit() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    // An owner already at the cap keeps their servers but cannot create another one.
+    let (capped_auth, capped_id, _) = register_named_user(&mut app, "servercap").await;
+    sqlx::query(
+        r#"INSERT INTO servers (id, name, owner_id, invite_code, created_at)
+           SELECT uuid_generate_v4(), 'cap seed', $1, substr(md5(random()::text || g::text), 1, 20), NOW()
+           FROM generate_series(1, 50) AS g"#,
+    )
+    .bind(capped_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers",
+        &capped_auth,
+        Some(json!({ "name": "one too many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("at most 50 servers"), "{body}");
+    let (status, servers) = api_json(&mut app, "GET", "/api/servers", &capped_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{servers}");
+
+    // Five servers an hour per account; the sixth is refused with 429.
+    let (auth, _, _) = register_named_user(&mut app, "serverrate").await;
+    for n in 0..5 {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            "/api/servers",
+            &auth,
+            Some(json!({ "name": format!("rate {n}") })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "server {n}: {body}");
+    }
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/servers",
+        &auth,
+        Some(json!({ "name": "rate 6" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+}
+
+#[tokio::test]
+async fn server_structure_caps_refuse_new_channels_categories_and_roles() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "structcap").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "structure caps").await;
+
+    // The server starts with two channels, the General category and two roles.
+    sqlx::query(
+        r#"INSERT INTO channels (id, server_id, name, channel_type, category, position, created_at)
+           SELECT uuid_generate_v4(), $1, 'seed-' || g, 'text', 'General', 100 + g, NOW()
+           FROM generate_series(1, 198) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_channel_categories (server_id, name, position)
+           SELECT $1, 'Seed ' || g, g FROM generate_series(1, 49) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO server_roles (id, server_id, name, color, position, permissions)
+           SELECT uuid_generate_v4(), $1, 'seed role ' || g, NULL, g, 0
+           FROM generate_series(1, 98) AS g"#,
+    )
+    .bind(server_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &auth,
+        Some(json!({ "server_id": server_id, "name": "one-too-many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.to_string().contains("maximum of 200 channels"),
+        "{body}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/channels/server/{server_id}/categories"),
+        &auth,
+        Some(json!({ "name": "One Too Many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.to_string().contains("maximum of 50 categories"),
+        "{body}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "one too many" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("maximum of 100 roles"), "{body}");
+
+    // Data already at the cap keeps working.
+    let (status, channels) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/channels"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{channels}");
+    assert_eq!(channels.as_array().map(Vec::len), Some(200));
+}
+
+#[tokio::test]
+async fn channel_category_and_role_creation_are_rate_limited() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "structrate").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "structure rate").await;
+
+    let cases = [
+        ("/api/channels".to_string(), "channel"),
+        (
+            format!("/api/channels/server/{server_id}/categories"),
+            "category",
+        ),
+        (format!("/api/servers/{server_id}/roles"), "role"),
+    ];
+    for (uri, kind) in cases {
+        let body_for = |n: u32| match kind {
+            "channel" => json!({ "server_id": server_id, "name": format!("rate-{n}") }),
+            "category" => json!({ "name": format!("Rate {n}") }),
+            _ => json!({ "name": format!("rate role {n}") }),
+        };
+        for n in 0..30 {
+            let (status, body) = api_json(&mut app, "POST", &uri, &auth, Some(body_for(n))).await;
+            assert_eq!(status, StatusCode::OK, "{kind} {n}: {body}");
+        }
+        let (status, body) = api_json(&mut app, "POST", &uri, &auth, Some(body_for(30))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{kind}: {body}");
+    }
+}
+
+/// Latest audit entry for `action` on the server, as the owner sees it.
+async fn latest_audit_entry(
+    app: &mut axum::Router,
+    auth: &str,
+    server_id: Uuid,
+    action: &str,
+) -> serde_json::Value {
+    let uri = format!("/api/servers/{server_id}/audit-log?action={action}&limit=1");
+    let (status, page) = api_json(app, "GET", &uri, auth, None).await;
+    assert_eq!(status, StatusCode::OK, "audit log failed: {page}");
+    let entry = page["entries"][0].clone();
+    assert!(entry.is_object(), "no {action} audit entry: {page}");
+    entry
+}
+
+#[tokio::test]
+async fn role_changes_are_written_to_the_audit_log() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, owner_id, _) = register_named_user(&mut app, "auditroles").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit roles").await;
+    let send_messages = 1_i64 << 7;
+    let manage_pins = 1_i64 << 9;
+    let ban_members = 1_i64 << 5;
+
+    let (status, role) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "Helpers", "permissions": send_messages | manage_pins })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{role}");
+    let role_id = role["id"].as_str().unwrap().to_string();
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_create").await;
+    assert_eq!(entry["actor_id"], json!(owner_id));
+    assert_eq!(entry["resource_id"], json!(role_id));
+    assert_eq!(entry["details"]["name"], "Helpers");
+    assert_eq!(
+        entry["details"]["permissions"],
+        json!(["SEND_MESSAGES", "MANAGE_PINS"])
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        Some(json!({ "name": "Mods", "permissions": send_messages | ban_members })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_update").await;
+    assert_eq!(entry["details"]["old_name"], "Helpers");
+    assert_eq!(entry["details"]["new_name"], "Mods");
+    assert_eq!(
+        entry["details"]["permissions"],
+        json!({ "added": ["BAN_MEMBERS"], "removed": ["MANAGE_PINS"] })
+    );
+
+    let (status, roles) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{roles}");
+    let mut role_ids: Vec<String> = roles
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|role| {
+            !role["name"]
+                .as_str()
+                .unwrap()
+                .eq_ignore_ascii_case("everyone")
+        })
+        .map(|role| role["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(role_ids.len() >= 2, "{roles}");
+    role_ids.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}/roles/reorder"),
+        &auth,
+        Some(json!({ "role_ids": role_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_reorder").await;
+    assert_ne!(entry["details"]["old_order"], entry["details"]["new_order"]);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "role_delete").await;
+    assert_eq!(entry["resource_id"], json!(role_id));
+    assert_eq!(entry["details"]["name"], "Mods");
+}
+
+#[tokio::test]
+async fn category_override_and_reorder_changes_are_written_to_the_audit_log() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "auditstruct").await;
+    let (server_id, channel_id, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit structure").await;
+    let everyone = everyone_role_id(&state, server_id).await;
+    let send_messages = 1_i64 << 7;
+
+    for name in ["Alpha", "Beta"] {
+        let (status, body) = api_json(
+            &mut app,
+            "POST",
+            &format!("/api/channels/server/{server_id}/categories"),
+            &auth,
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_create").await;
+    assert_eq!(entry["details"]["name"], "Beta");
+
+    // Channel override: create, then remove.
+    let override_uri = format!("/api/channels/{channel_id}/overrides/{everyone}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &override_uri,
+        &auth,
+        Some(json!({ "allow": 0, "deny": send_messages })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_override_update").await;
+    assert_eq!(entry["resource_id"], json!(channel_id));
+    assert_eq!(entry["details"]["role_id"], json!(everyone));
+    assert!(entry["details"]["old_deny"].is_null(), "{entry}");
+    assert_eq!(entry["details"]["deny"], json!(["SEND_MESSAGES"]));
+    let (status, body) = api_json(&mut app, "DELETE", &override_uri, &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_override_delete").await;
+    assert_eq!(entry["details"]["old_deny"], json!(["SEND_MESSAGES"]));
+    assert!(entry["details"]["deny"].is_null(), "{entry}");
+
+    // Category override: create, then remove.
+    let category_override_uri =
+        format!("/api/channels/server/{server_id}/categories/Alpha/overrides/{everyone}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &category_override_uri,
+        &auth,
+        Some(json!({ "allow": send_messages, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_override_update").await;
+    assert_eq!(entry["details"]["category"], "Alpha");
+    assert_eq!(entry["details"]["allow"], json!(["SEND_MESSAGES"]));
+    let (status, body) = api_json(&mut app, "DELETE", &category_override_uri, &auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_override_delete").await;
+    assert_eq!(entry["details"]["category"], "Alpha");
+
+    // Reordering categories and channels.
+    let mut category_names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM server_channel_categories WHERE server_id = $1 ORDER BY position, name",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    category_names.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/channels/server/{server_id}/categories/reorder"),
+        &auth,
+        Some(json!({ "category_names": category_names })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_reorder").await;
+    assert_eq!(entry["details"]["new_order"], json!(category_names));
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        "/api/channels",
+        &auth,
+        Some(json!({ "server_id": server_id, "name": "second", "channel_type": "text" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut channel_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 ORDER BY category, position",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    channel_ids.reverse();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        "/api/channels/reorder",
+        &auth,
+        Some(json!({ "server_id": server_id, "channel_ids": channel_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "channel_reorder").await;
+    assert!(
+        !entry["details"]["channels"].as_array().unwrap().is_empty(),
+        "{entry}"
+    );
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/server/{server_id}/categories/Beta"),
+        &auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = latest_audit_entry(&mut app, &auth, server_id, "category_delete").await;
+    assert_eq!(entry["details"]["name"], "Beta");
+}
+
+#[tokio::test]
+async fn permission_change_is_rolled_back_when_its_audit_entry_fails() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (auth, _, _) = register_named_user(&mut app, "auditrollback").await;
+    let (server_id, _, _) =
+        create_server_with_default_text_channel(&mut app, &state, &auth, "audit rollback").await;
+    let (status, role) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &auth,
+        Some(json!({ "name": "Keepers" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{role}");
+    let role_id = Uuid::parse_str(role["id"].as_str().unwrap()).unwrap();
+
+    // Make audit writes fail for role deletions on this server only.
+    let name = format!("test_fail_role_delete_audit_{}", Uuid::new_v4().simple());
+    sqlx::query(&format!(
+        "CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN RAISE EXCEPTION 'audit write refused'; END $$"
+    ))
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "CREATE TRIGGER {name} BEFORE INSERT ON audit_log FOR EACH ROW \
+         WHEN (NEW.action = 'role_delete' AND NEW.server_id = '{server_id}'::uuid) \
+         EXECUTE FUNCTION {name}()"
+    ))
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/roles/{role_id}"),
+        &auth,
+        None,
+    )
+    .await;
+
+    sqlx::query(&format!("DROP TRIGGER {name} ON audit_log"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query(&format!("DROP FUNCTION {name}()"))
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let still_there: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_roles WHERE id = $1")
+        .bind(role_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        still_there, 1,
+        "role deletion must roll back with its audit entry"
+    );
+}
+
+#[tokio::test]
+async fn moderators_lift_a_stored_voice_restriction_while_the_member_is_out_of_voice() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "voicelift").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "voicelifted").await;
+    let (server_id, _, invite) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "voice lift").await;
+    join_with_invite(&mut app, &member_auth, &invite).await;
+
+    // The member was server-muted and deafened in voice, then left voice.
+    sqlx::query(
+        "UPDATE server_members SET voice_server_muted = TRUE, voice_server_deafened = TRUE
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let restrictions = format!("/api/servers/{server_id}/voice-restrictions");
+    let (status, rows) = api_json(&mut app, "GET", &restrictions, &owner_auth, None).await;
+    assert_eq!(status, StatusCode::OK, "{rows}");
+    assert_eq!(rows[0]["user_id"], json!(member_id));
+    assert_eq!(rows[0]["voice_server_muted"], true);
+
+    let (status, detail) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    let listed = detail["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["user_id"] == json!(member_id))
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["voice_server_deafened"], true);
+
+    let lift = format!("/api/servers/{server_id}/members/{member_id}/voice-moderation");
+    let (status, _) = api_json(&mut app, "GET", &restrictions, &member_auth, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &member_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["voice_server_muted"], false);
+    assert_eq!(body["voice_server_deafened"], true);
+
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?deafened=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let stored: (bool, bool) = sqlx::query_as(
+        "SELECT voice_server_muted, voice_server_deafened FROM server_members
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(stored, (false, false));
+    let (_, rows) = api_json(&mut app, "GET", &restrictions, &owner_auth, None).await;
+    assert_eq!(rows, json!([]));
+
+    let (status, page) = api_json(
+        &mut app,
+        "GET",
+        &format!("/api/servers/{server_id}/audit-log?action=voice_member_unmute&limit=1"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["entries"][0]["resource_id"], json!(member_id));
+    assert_eq!(page["entries"][0]["details"]["out_of_voice"], true);
+
+    // Voice in another server does not block it; voice in this server does.
+    sqlx::query(
+        "UPDATE server_members SET voice_server_muted = TRUE
+         WHERE server_id = $1 AND user_id = $2",
+    )
+    .bind(server_id)
+    .bind(member_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let (other_server_id, _, other_invite) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "voice elsewhere")
+            .await;
+    join_with_invite(&mut app, &member_auth, &other_invite).await;
+    state
+        .voice_sessions
+        .insert(member_id, voice_channel_of(&state, other_server_id).await);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["voice_server_muted"], false);
+
+    state
+        .voice_sessions
+        .insert(member_id, voice_channel_of(&state, server_id).await);
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("{lift}?muted=true"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    state.voice_sessions.remove(&member_id);
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }

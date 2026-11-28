@@ -1,4 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router'
+import { markStartup } from '../startupTiming'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownToLine, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
@@ -52,6 +53,7 @@ const QUICK_SEARCH_SHORTCUT = typeof navigator !== 'undefined'
 const IS_DESKTOP_WINDOW = isTauri()
 
 export default function AppShell() {
+  useEffect(() => markStartup('shell'), [])
   const { user } = useAuthStore()
   const userId = user?.id ?? null
   const myStatus = useAuthStore((s) => s.user?.status)

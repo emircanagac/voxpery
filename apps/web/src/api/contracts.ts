@@ -151,6 +151,17 @@ export interface MemberInfo {
     highest_role_position?: number
     /** End of an active timeout, when the member is timed out. */
     timed_out_until?: string | null
+    /** Server mute and deafen stored on the membership; they stay while the member is out of voice. */
+    voice_server_muted?: boolean
+    voice_server_deafened?: boolean
+}
+
+/** A member with a stored server mute or deafen (Safety tab). */
+export interface ServerVoiceRestrictionEntry {
+    user_id: string
+    username: string
+    voice_server_muted: boolean
+    voice_server_deafened: boolean
 }
 
 export interface Friend {

@@ -362,6 +362,11 @@ async fn livekit_token(
     )
     .await?;
 
+    if crate::ws::access::voice_timeout_active(&state.db, claims.sub, channel_id).await? {
+        return Err(AppError::Forbidden(
+            "You are timed out on this server and cannot join voice until the timeout ends".into(),
+        ));
+    }
     let can_join = can_join_voice_channel(&state.db, claims.sub, channel_id).await?;
     if !can_join {
         return Err(AppError::Forbidden("Voice access denied".into()));

@@ -1,4 +1,8 @@
+import { isTauri } from './secureStorage'
+
 const PUSH_KEY = 'voxpery-settings-push-enabled'
+/** Event the desktop shell sends when a system notification is clicked; payload: the target JSON. */
+const DESKTOP_NOTIFICATION_CLICK_EVENT = 'desktop-notification-click'
 const PUSH_EXPLICIT_KEY = 'voxpery-settings-push-explicit'
 const APP_ICON = '/pwa-192.png'
 export const PUSH_NOTIFICATION_STATE_CHANGED_EVENT = 'voxpery-push-notification-state-changed'
@@ -26,13 +30,23 @@ export function setPushNotificationsEnabled(enabled: boolean, explicit = false):
   notifyPushNotificationStateChanged()
 }
 
+// The desktop app shows notifications through the operating system (see showPushNotification),
+// so it needs no webview permission: the in-app setting and the system's own notification
+// settings decide. WebView2 would refuse the request without asking and remember the refusal.
 export function getPushNotificationPermission(): NotificationPermission | 'unsupported' {
-  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+  if (typeof window === 'undefined') return 'unsupported'
+  if (isTauri()) return 'granted'
+  if (!('Notification' in window)) return 'unsupported'
   return window.Notification.permission
 }
 
 export async function requestPushNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
-  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+  if (typeof window === 'undefined') return 'unsupported'
+  if (isTauri()) {
+    notifyPushNotificationStateChanged()
+    return 'granted'
+  }
+  if (!('Notification' in window)) return 'unsupported'
   const permission = await window.Notification.requestPermission()
   notifyPushNotificationStateChanged()
   return permission
@@ -102,6 +116,7 @@ export function parseNotificationTarget(value: unknown): NotificationTarget | nu
  */
 export function listenForNotificationClicks(): () => void {
   if (typeof window === 'undefined') return () => {}
+  if (isTauri()) return listenForDesktopNotificationClicks()
   if (window.location.hash.startsWith(NOTIFICATION_TARGET_HASH)) {
     let target: NotificationTarget | null
     try {
@@ -144,6 +159,46 @@ async function showThroughServiceWorker(title: string, options: NotificationOpti
   }
 }
 
+/** Desktop app: clicks on system notifications arrive as an event from the shell. */
+function listenForDesktopNotificationClicks(): () => void {
+  let stopped = false
+  let unlisten: (() => void) | null = null
+  void import('@tauri-apps/api/event')
+    .then(({ listen }) => listen<string>(DESKTOP_NOTIFICATION_CLICK_EVENT, (event) => {
+      let target: NotificationTarget | null
+      try {
+        target = parseNotificationTarget(JSON.parse(event.payload))
+      } catch {
+        target = null
+      }
+      if (target) openNotificationTarget(target)
+    }))
+    .then((stop) => {
+      if (stopped) stop()
+      else unlisten = stop
+    })
+    .catch(() => {
+      // Without the event bridge a click still brings the window forward.
+    })
+  return () => {
+    stopped = true
+    unlisten?.()
+  }
+}
+
+/** Desktop app: the shell shows a system notification; WebView2 would not show `new Notification`. */
+function showOnDesktop(title: string, body: string, target: NotificationTarget | undefined): void {
+  void import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke('desktop_show_notification', {
+      title,
+      body,
+      target: target ? JSON.stringify(target) : null,
+    }))
+    .catch((error: unknown) => {
+      console.warn('Desktop notification failed', error)
+    })
+}
+
 function showInPage(title: string, options: NotificationOptions, target: NotificationTarget | undefined): void {
   try {
     const notification = new window.Notification(title, options)
@@ -168,7 +223,12 @@ export function showPushNotification({
   tag?: string
   target?: NotificationTarget
 }): void {
-  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (typeof window === 'undefined') return
+  if (isTauri()) {
+    showOnDesktop(title, body, target)
+    return
+  }
+  if (!('Notification' in window)) return
   if (window.Notification.permission !== 'granted') return
 
   const options: NotificationOptions = {

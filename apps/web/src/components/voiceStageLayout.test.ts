@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitMediaFrame, fitStageGrid, stripVisibleCount } from './voiceStageLayout'
+import { fitMediaFrame, fitStageGrid, stageGridStyle, stripVisibleCount } from './voiceStageLayout'
 
 describe('fitStageGrid', () => {
   it('keeps two tiles at 16:9 instead of stretching them to the stage height', () => {
@@ -60,5 +60,26 @@ describe('stripVisibleCount', () => {
     // Too narrow for even one tile: only the "+N" tile is shown.
     expect(stripVisibleCount(3, 100, 160, 12)).toBe(0)
     expect(stripVisibleCount(0, 804, 160, 12)).toBe(0)
+  })
+})
+
+describe('stageGridStyle', () => {
+  const fit = { columns: 2, tileWidth: 320, tileHeight: 180 }
+
+  it('keeps desktop rows at the fitted tile height', () => {
+    expect(stageGridStyle(fit, false)).toEqual({
+      gridTemplateColumns: 'repeat(2, 320px)',
+      gridAutoRows: '180px',
+      justifyContent: 'center',
+      alignContent: 'safe center',
+    })
+  })
+
+  it('lets a phone row grow past the tile height for content that needs it', () => {
+    expect(stageGridStyle(fit, true)).toMatchObject({
+      gridTemplateColumns: 'repeat(2, 320px)',
+      gridAutoRows: 'fit-content(180px)',
+      '--stage-row-min': '180px',
+    })
   })
 })

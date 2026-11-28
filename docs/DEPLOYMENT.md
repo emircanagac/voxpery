@@ -12,6 +12,8 @@ This repository now supports a **full Docker Compose deployment**:
 
 - Docker Engine + Docker Compose v2
 - A copied `.env` file from `.env.example`
+- A 64-bit Linux server, x86-64 (amd64) or ARM (arm64): release images are published for both. The optional ClamAV scanner (`security` profile) has no ARM image and runs only on x86-64.
+- Memory, measured on voxpery.com with `docker stats`: about 250 MB for the whole stack while idle and about 350 MB with five people in voice calls, without ClamAV. ClamAV adds about 1 GB. Leave room for the operating system, so 1 GB of RAM is a comfortable minimum without ClamAV and 2 GB with it.
 
 ## Public server with HTTPS
 
@@ -130,6 +132,10 @@ Attachments note:
   - `ATTACHMENTS_KEY_PREFIX`
   - `ATTACHMENTS_PUBLIC_BASE_URL`
   - `ATTACHMENTS_URL_TTL_SECS`
+  - `ATTACHMENTS_USER_QUOTA_BYTES` — upload storage each account may use (default `1073741824`, 1 GB).
+  - `ATTACHMENTS_TOTAL_QUOTA_BYTES` — upload storage all accounts may use together (unset by default: no shared limit). Set it below your free disk space so uploads cannot fill the disk the database also needs; when it is full, uploads are refused with a clear message and the server logs a warning. On a disk shared with the database and its backups, leave generous room for both.
+
+Deleting a message frees the files only it used: their size returns to the account's quota and counts no longer against the shared limit.
 
 `ATTACHMENTS_KEY_PREFIX` is part of the persisted storage-key layout. Keep it stable after uploads exist, or migrate existing attachment files and database keys together.
 
@@ -223,7 +229,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-ClamAV is disabled by default in compose.
+ClamAV is disabled by default in compose. Its image is x86-64 only, so the `security` profile cannot run on ARM servers.
 To use malware scanning in production:
 
 ```bash
@@ -326,6 +332,8 @@ restores keep running as `POSTGRES_USER`.
 ## 7) Prebuilt Images (Optional, Recommended for Production)
 
 You can prebuild and push images, then let Compose pull them during deploy instead of rebuilding on the server.
+
+Release images (`voxpery/voxpery-server` and `voxpery/voxpery-web`) are multi-architecture: Docker pulls the linux/amd64 or linux/arm64 variant that matches the server. Each architecture is built natively; the release workflow then starts the arm64 images on an arm64 runner and fails if the stack does not report healthy (production, which runs x86-64, deploys once both architectures are merged under the tag).
 
 Recommended tagging strategy:
 
@@ -494,6 +502,33 @@ Healthcheck:
 For production operations, alerting and restore drill checklist, see:
 
 - `docs/OPERATIONS_RUNBOOK.md`
+
+## 9) Disabling an Account
+
+An operator can stop an abusive account. There is no admin screen yet; run the SQL in the
+database container (`docker compose exec postgres psql -U "${POSTGRES_USER:-voxpery}" -d "${POSTGRES_DB:-voxpery}"`).
+A disabled account cannot sign in with a password or Google, gets no password reset email
+and no push notifications. Its sessions end at once for API requests, and an open
+WebSocket (and with it any voice call) closes at the next session check, within 30
+seconds. Its messages, memberships and profile stay as they are.
+
+```sql
+-- Disable (bumping token_version keeps old tokens invalid after a later re-enable)
+UPDATE users SET disabled_at = NOW(), token_version = token_version + 1
+ WHERE lower(username) = lower('USERNAME') AND NOT is_system
+RETURNING id, username, disabled_at;
+
+-- Enable again; the user signs in anew
+UPDATE users SET disabled_at = NULL
+ WHERE lower(username) = lower('USERNAME')
+RETURNING id, username;
+
+-- List disabled accounts
+SELECT id, username, disabled_at FROM users
+ WHERE disabled_at IS NOT NULL ORDER BY disabled_at DESC;
+```
+
+The deleted-account placeholder (`is_system`) cannot be disabled; the database refuses it.
 
 ## Notes
 

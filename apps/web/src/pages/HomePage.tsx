@@ -33,7 +33,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { applyIncomingMessage, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
+import { applyIncomingMessage, enqueueMessageSend, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom, withUpdatedAuthor, type AuthorProfileUpdate } from '../messageAuthors'
 import {
   clearMessageDraftIfUnchanged,
@@ -1115,7 +1115,8 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
       return next
     })
     try {
-      const msg = await dmApi.sendMessage(channelId, content, attachmentsToSend, token, clientId)
+      // Sends of one conversation go out in the order they were written; see createSendQueue.
+      const msg = await enqueueMessageSend(`dm:${channelId}`, () => dmApi.sendMessage(channelId, content, attachmentsToSend, token, clientId))
       clearDmUnread(channelId)
       setStoreDmChannels(
         touchDmChannelActivity(useAppStore.getState().dmChannels, channelId, msg.created_at),
@@ -1173,20 +1174,15 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
         return next
       })
       try {
-        const msg = await dmApi.sendMessage(
+        const msg = await enqueueMessageSend(`dm:${channelId}`, () => dmApi.sendMessage(
           channelId,
           target.content,
           target.attachments ?? [],
           token,
           clientId,
-        )
+        ))
         clearDmUnread(channelId)
-        const applyRetriedDm = (current: UiDmMessage[]) => {
-          if (current.some((m) => m.id === msg.id)) {
-            return current.filter((m) => m.clientId !== clientId)
-          }
-          return current.map((m) => (m.clientId === clientId ? msg : m))
-        }
+        const applyRetriedDm = (current: UiDmMessage[]) => reconcileConfirmedMessage(current, clientId, msg)
         if (activeDmChannelIdRef.current === channelId) {
           setDmMessages((prev) => {
             const next = applyRetriedDm(prev)

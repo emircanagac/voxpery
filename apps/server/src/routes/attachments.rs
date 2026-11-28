@@ -23,7 +23,6 @@ use crate::{
     AppState,
 };
 
-const FREE_TIER_STORAGE_QUOTA_BYTES: i64 = 1_073_741_824; // 1 GiB
 const ATTACHMENT_CONTENT_USER_RATE_LIMIT_MAX: usize = 240;
 const ATTACHMENT_CONTENT_ITEM_RATE_LIMIT_MAX: usize = 30;
 const ATTACHMENT_CONTENT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
@@ -44,6 +43,19 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         ));
 
     protected.merge(content)
+}
+
+/// A quota for people: whole gigabytes or megabytes when it is one, bytes otherwise.
+fn format_quota(bytes: i64) -> String {
+    const MB: i64 = 1024 * 1024;
+    const GB: i64 = 1024 * MB;
+    if bytes >= GB && bytes % GB == 0 {
+        format!("{} GB", bytes / GB)
+    } else if bytes >= MB && bytes % MB == 0 {
+        format!("{} MB", bytes / MB)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 fn should_force_attachment_download(content_type: &str) -> bool {
@@ -133,7 +145,9 @@ async fn process_attachment_upload(
 ) -> Result<Vec<AttachmentResponseItem>, AppError> {
     let mut uploaded = Vec::<AttachmentResponseItem>::new();
     let mut file_count = 0usize;
+    let mut reserved_bytes = 0i64;
     let max_files = state.attachment_service.max_files_per_request();
+    let total_quota = state.attachment_service.total_quota_bytes();
 
     while let Some(field) = multipart
         .next_field()
@@ -159,14 +173,17 @@ async fn process_attachment_upload(
             .content_type()
             .unwrap_or("application/octet-stream")
             .to_string();
+        let read_started = std::time::Instant::now();
         let bytes = field
             .bytes()
             .await
             .map_err(|e| AppError::Validation(format!("Failed to read uploaded file: {e}")))?;
+        let read_ms = read_started.elapsed().as_millis();
         let prepared = state
             .attachment_service
             .prepare_file_for_storage(&file_name, &content_type, &bytes)
             .await?;
+        let prepare_timings = prepared.timings;
 
         acquire_transaction_lock(
             tx,
@@ -220,6 +237,16 @@ async fn process_attachment_upload(
             continue;
         }
 
+        // The shared limit protects the disk of the whole server. This early look takes no lock and
+        // only spares writing a file that cannot fit; the locked check after the loop decides.
+        if let Some(total_quota) = total_quota {
+            let used = total_storage_used(tx).await?;
+            if used.saturating_add(prepared.size_bytes) > total_quota {
+                return Err(server_storage_full(total_quota));
+            }
+        }
+
+        let user_quota = state.attachment_service.user_quota_bytes();
         let reserve_result = sqlx::query_scalar::<_, Uuid>(
             r#"UPDATE users
                SET storage_used_bytes = storage_used_bytes + $1
@@ -229,21 +256,35 @@ async fn process_attachment_upload(
         )
         .bind(prepared.size_bytes)
         .bind(user_id)
-        .bind(FREE_TIER_STORAGE_QUOTA_BYTES)
+        .bind(user_quota)
         .fetch_optional(&mut **tx)
         .await?;
 
         if reserve_result.is_none() {
-            return Err(AppError::Validation(
-                "Storage quota exceeded (1 GB). Delete messages with files you no longer need; their space is freed shortly after.".into(),
-            ));
+            return Err(AppError::Validation(format!(
+                "Storage quota exceeded ({}). Delete messages with files you no longer need; their space is freed shortly after.",
+                format_quota(user_quota)
+            )));
         }
+        reserved_bytes = reserved_bytes.saturating_add(prepared.size_bytes);
 
+        let store_started = std::time::Instant::now();
         let stored = state
             .attachment_service
             .store_prepared_file(prepared)
             .await?;
         stored_keys.push(stored.storage_key.clone());
+        // One line per stored file, without names or users, to find where slow uploads spend time.
+        tracing::info!(
+            size_bytes = stored.size_bytes,
+            content_type = %stored.content_type,
+            read_ms,
+            check_ms = prepare_timings.check_ms,
+            metadata_ms = prepare_timings.metadata_ms,
+            scan_ms = prepare_timings.scan_ms,
+            store_ms = store_started.elapsed().as_millis(),
+            "attachment upload timing"
+        );
 
         let attachment_id = Uuid::new_v4();
         sqlx::query(
@@ -290,7 +331,40 @@ async fn process_attachment_upload(
         ));
     }
 
+    // Requests that add storage take this lock one at a time, only for the check and the commit
+    // that follows it: reading, scanning and storing the files above run in parallel. Every
+    // request reserves its bytes before it gets here, and the sum read under the lock counts
+    // those of this request and of every request that passed before, so parallel requests
+    // cannot pass the limit together.
+    if let Some(total_quota) = total_quota.filter(|_| reserved_bytes > 0) {
+        acquire_transaction_lock(tx, "attachments:total-quota").await?;
+        if total_storage_used(tx).await? > total_quota {
+            return Err(server_storage_full(total_quota));
+        }
+    }
+
     Ok(uploaded)
+}
+
+/// Storage used by all accounts, including what this transaction reserved so far.
+async fn total_storage_used(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<i64, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users")
+            .fetch_one(&mut **tx)
+            .await?,
+    )
+}
+
+fn server_storage_full(total_quota: i64) -> AppError {
+    tracing::warn!(
+        "Upload refused: the server-wide attachment quota of {} bytes is full",
+        total_quota
+    );
+    AppError::Validation(
+        "This server's file storage is full. Ask the server operator to free space, or try again later.".into(),
+    )
 }
 
 async fn cleanup_failed_upload_files(state: &Arc<AppState>, stored_keys: &[String]) {
@@ -454,7 +528,14 @@ async fn ensure_attachment_view_access(
 
 #[cfg(test)]
 mod tests {
-    use super::should_force_attachment_download;
+    use super::{format_quota, should_force_attachment_download};
+
+    #[test]
+    fn quotas_read_as_whole_gigabytes_or_megabytes() {
+        assert_eq!(format_quota(1_073_741_824), "1 GB");
+        assert_eq!(format_quota(500 * 1024 * 1024), "500 MB");
+        assert_eq!(format_quota(1_000), "1000 bytes");
+    }
 
     #[test]
     fn archives_download_while_images_remain_previewable() {

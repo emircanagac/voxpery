@@ -34,6 +34,7 @@ export type {
     ServerReportEntry,
     ServerRole,
     ServerTimeoutEntry,
+    ServerVoiceRestrictionEntry,
     ServerRule,
     SystemFeatures,
     TurnCredentials,

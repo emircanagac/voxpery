@@ -170,6 +170,24 @@ async fn setup_app_with_features(
     .await
 }
 
+/// A LiveKit API stand-in whose rooms are empty: a participant lookup answers "not found", as
+/// for an app that closed, so a voice session whose connection closed ends after the reconnect
+/// grace. Every other call succeeds without doing anything.
+async fn spawn_livekit_without_participants() -> String {
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(|| async { (StatusCode::NOT_FOUND, axum::Json(json!({}))) }),
+        )
+        .fallback(|| async { axum::Json(json!({})) });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, livekit_app).await;
+    });
+    format!("http://{addr}")
+}
+
 async fn setup_app_with_features_and_livekit(
     email_verification_enabled: bool,
     password_reset_enabled: bool,
@@ -263,6 +281,28 @@ async fn build_test_app_with_storage(
         object_store,
         RegistrationMode::Open,
         redis_client(),
+        None,
+    )
+    .await
+}
+
+/// An app whose uploads use the given per-account and, optionally, server-wide quota.
+async fn setup_app_with_attachment_quotas(
+    user_quota_bytes: i64,
+    total_quota_bytes: Option<i64>,
+) -> (axum::Router, Arc<AppState>) {
+    build_test_app_with_registration_mode(
+        false,
+        false,
+        false,
+        false,
+        false,
+        "ws://localhost:7880".into(),
+        None,
+        None,
+        RegistrationMode::Open,
+        redis_client(),
+        Some((user_quota_bytes, total_quota_bytes)),
     )
     .await
 }
@@ -282,6 +322,7 @@ async fn setup_app_with_registration_mode(
         None,
         registration_mode,
         redis_client(),
+        None,
     )
     .await
 }
@@ -303,6 +344,7 @@ async fn setup_app_with_unreachable_redis() -> (axum::Router, Arc<AppState>) {
         None,
         RegistrationMode::Open,
         unreachable,
+        None,
     )
     .await
 }
@@ -319,6 +361,7 @@ async fn build_test_app_with_registration_mode(
     object_store: Option<voxpery_server::services::object_storage::ObjectStore>,
     registration_mode: RegistrationMode,
     redis: SharedRedis,
+    attachment_quotas: Option<(i64, Option<i64>)>,
 ) -> (axum::Router, Arc<AppState>) {
     let database_url = test_db_url().expect("DATABASE_URL must be set for integration tests");
     let db = PgPoolOptions::new()
@@ -342,6 +385,10 @@ async fn build_test_app_with_registration_mode(
         Some(store) => attachment_service.with_object_store(store),
         None => attachment_service,
     };
+    let attachment_service = match attachment_quotas {
+        Some((user, total)) => attachment_service.with_quotas(user, total),
+        None => attachment_service,
+    };
 
     let (tx, _rx) = broadcast::channel(256);
     let release_http_client = reqwest::Client::builder()
@@ -360,6 +407,7 @@ async fn build_test_app_with_registration_mode(
         peers: Default::default(),
         voice_sessions: DashMap::new(),
         voice_session_connections: DashMap::new(),
+        voice_detached_sessions: DashMap::new(),
         voice_participant_sids: DashMap::new(),
         pending_voice_moves: DashMap::new(),
         voice_channel_active_since_ms: DashMap::new(),

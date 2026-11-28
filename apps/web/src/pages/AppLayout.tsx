@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo, type FormEvent, type RefObject, type SetStateAction } from 'react'
+import { markStartup } from '../startupTiming'
 import { createPortal } from 'react-dom'
 import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import { useNavigate } from 'react-router'
@@ -30,7 +31,7 @@ import {
     setDraftAttachmentUploading,
     type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
+import { enqueueMessageSend, mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage, withoutFailedDuplicates } from '../messageResilience'
 import { withAuthorsFrom } from '../messageAuthors'
 import {
     clearMessageDraftIfUnchanged,
@@ -60,6 +61,9 @@ export interface AppLayoutProps {
     serverDialogTriggerRef?: RefObject<HTMLElement | null>
 }
 
+
+/** A page hidden at least this long reloads the unread state when shown again. */
+const UNREAD_RELOAD_AFTER_HIDDEN_MS = 15_000
 
 export default function AppLayout({ skipServerSidebar = false, isViewActive, serverDialogTriggerRef: externalServerDialogTriggerRef }: AppLayoutProps) {
     const MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -328,6 +332,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     useDialogFocus(serverDialogRef, showCreateServer || showJoinServer, undefined, serverDialogTriggerRef)
 
     useEffect(() => { activeChannelIdRef.current = activeChannelId }, [activeChannelId])
+    const isViewActiveRef = useRef(isViewActive)
+    useEffect(() => { isViewActiveRef.current = isViewActive }, [isViewActive])
     useEffect(() => { activeServerIdRef.current = activeServerId }, [activeServerId])
     useEffect(() => { channelServerMapRef.current = channelServerMap }, [channelServerMap])
     useEffect(() => { tokenRef.current = token }, [token])
@@ -377,6 +383,29 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         // The view state is read when the response arrives; it must not restart the load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggedIn, token])
+
+    // A page that was hidden for a while (a background tab, a phone app switched away) can miss
+    // the `ChannelRead` of another device without its connection dropping, so it reloads the
+    // unread state when it is shown again.
+    useEffect(() => {
+        if (!isLoggedIn) return
+        let hiddenAt: number | null = document.visibilityState === 'hidden' ? Date.now() : null
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                hiddenAt ??= Date.now()
+                return
+            }
+            const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt
+            hiddenAt = null
+            if (hiddenFor < UNREAD_RELOAD_AFTER_HIDDEN_MS) return
+            void loadNotificationState(
+                tokenRef.current ?? null,
+                () => (isViewActiveRef.current ? activeChannelIdRef.current : null),
+            ).catch(() => {})
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    }, [isLoggedIn])
 
     useEffect(() => {
         if (!isLoggedIn || servers.length === 0) return
@@ -637,6 +666,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             }
             messagesByChannelRef.current[channelId] = merged
             setMessages(merged)
+            markStartup('firstMessages')
             setHasMoreOlder(rows.length >= MESSAGE_PAGE_SIZE)
             setOlderMessagesReady(true)
             if (historicalChannelIdRef.current === channelId) historicalChannelIdRef.current = null
@@ -884,15 +914,20 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setChannelUnreadDividerCount(unreadCount > 0 ? unreadCount : 0)
         clearServerUnread(activeChannelId)
         clearServerMention(activeChannelId)
-        if (!isAppBackgrounded()) scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
+        // A channel opened before the window has focus (a clicked system notification, a return
+        // from the tray) still owes the server its read mark: the badge here is already cleared,
+        // and without the mark the account's other devices keep showing it as unread.
+        let readMarkOwed = isAppBackgrounded()
+        if (!readMarkOwed) scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
 
         // Messages that arrived while the app was in the background stay unread until the
         // user returns; then they get the divider and are marked read.
         const syncReadOnReturn = () => {
             if (isAppBackgrounded()) return
             const pendingUnread = useAppStore.getState().serverUnreadByChannel[activeChannelId] ?? 0
-            if (pendingUnread <= 0) return
-            setChannelUnreadDividerCount(pendingUnread)
+            if (pendingUnread <= 0 && !readMarkOwed) return
+            readMarkOwed = false
+            if (pendingUnread > 0) setChannelUnreadDividerCount(pendingUnread)
             clearServerUnread(activeChannelId)
             clearServerMention(activeChannelId)
             scheduleChannelRead(activeChannelId, tokenRef.current ?? null)
@@ -1018,7 +1053,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             return next
         })
         try {
-            const msg = await messageApi.send(channelId, content, attachments, token, clientId)
+            // Sends of one channel go out in the order they were written; see createSendQueue.
+            const msg = await enqueueMessageSend(`channel:${channelId}`, () => messageApi.send(channelId, content, attachments, token, clientId))
             const applySentMessage = (current: UiMessage[]) => {
                 return reconcileConfirmedMessage(current, clientId, msg)
             }
@@ -1073,19 +1109,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             return next
         })
         try {
-            const msg = await messageApi.send(
+            const msg = await enqueueMessageSend(`channel:${channelId}`, () => messageApi.send(
                 channelId,
                 target.content,
                 target.attachments ?? [],
                 token,
                 clientId,
-            )
-            const applyRetriedMessage = (current: UiMessage[]) => {
-                if (current.some((m) => m.id === msg.id)) {
-                    return current.filter((m) => m.clientId !== clientId)
-                }
-                return current.map((m) => (m.clientId === clientId ? msg : m))
-            }
+            ))
+            const applyRetriedMessage = (current: UiMessage[]) => reconcileConfirmedMessage(current, clientId, msg)
             if (activeChannelIdRef.current === channelId) {
                 setMessages((prev) => {
                     const next = applyRetriedMessage(prev)
@@ -1818,7 +1849,14 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setRoleEditColor(null)
     }
 
+    // A role error belongs to the edit that caused it; typing a new name starts a new attempt.
+    const setRoleEditNameClearingError = useCallback((value: SetStateAction<string>) => {
+        setRolesError(null)
+        setRoleEditName(value)
+    }, [])
+
     const handleSelectRole = (role: ServerRole) => {
+        setRolesError(null)
         if (selectedRoleId === role.id) {
             // Toggle off: collapse editor for this role.
             setSelectedRoleId(null)
@@ -1915,6 +1953,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         const existing = selectedRoleId
             ? serverRoles.find((r) => r.id === selectedRoleId)
             : undefined
+        setRolesError(null)
         try {
             if (!existing) {
                 await serverApi.createRole(
@@ -2912,6 +2951,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
                 canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
+                canMuteMembers={canMuteMembers}
+                canDeafenMembers={canDeafenMembers}
                 onReportMember={openUserReport}
                 collapsed={!isMobileViewport && !memberPanelOpen}
             />
@@ -2948,6 +2989,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                             canBanMembers={canBanMembers}
                             canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
+                            canMuteMembers={canMuteMembers}
+                            canDeafenMembers={canDeafenMembers}
                             onReportMember={openUserReport}
                             variant="sheet"
                         />
@@ -3097,7 +3140,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                       setEditingRuleText={setEditingRuleText}
                       setNewRuleText={setNewRuleText}
                       setRoleEditColor={setRoleEditColor}
-                      setRoleEditName={setRoleEditName}
+                      setRoleEditName={setRoleEditNameClearingError}
                       setRulesError={setRulesError}
                       setSafetySettingsTab={setSafetySettingsTab}
                       setServerIconEditor={setServerIconEditor}

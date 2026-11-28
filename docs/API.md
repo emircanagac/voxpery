@@ -50,6 +50,7 @@ Important behavior:
 - `POST /api/auth/register`
   - Subject to the server's registration mode (`REGISTRATION_MODE`, reported by `GET /api/system/features`). `closed`: `403`. `invite`: the body must carry `invite_code`, the invite code of a server on this instance; a missing or unknown code (and the default community code) returns `400`, and the new account joins that server. The same rule applies to desktop registration and to a first Google sign-in, which read the invite from the `/invite/<code>` return path. Signing in to an existing account is never affected.
 - `POST /api/auth/login`
+  - A disabled account (see `docs/DEPLOYMENT.md`) returns `403` with code `ACCOUNT_DISABLED`, but only after the password matched; a wrong password still returns `401`. Google sign-in for a disabled account returns to the sign-in page with `error=account_disabled`.
 - `POST /api/auth/logout`
   - Idempotent and available without authentication. A presented valid token is blacklisted in Redis until it can no longer validate (its expiry plus the validation leeway); if revocation cannot be stored the endpoint returns `503` but still clears the session cookie, so a reload cannot restore the browser session. Desktop clients complete sign-out and sign-in regardless; a token whose revocation failed is kept only in the OS keyring revocation list and retried on later starts.
 - `GET /api/auth/me`
@@ -66,6 +67,7 @@ Important behavior:
   - Requires explicit acknowledgement of all three current document versions.
   - Updates the account and inserts the privacy-safe audit event in one database transaction; repeating the same current acknowledgement is idempotent.
 - `PATCH /api/auth/status` (`status` values: `online`, `dnd`, `invisible`)
+  - Limited to 10 requests per minute per account (`429`). Sending the status the account already has changes nothing and broadcasts no `PresenceUpdate`.
 - `PATCH /api/auth/profile`
   - `dm_privacy` values: `everyone`, `friends`; new accounts default to `everyone`. With `friends`, a non-friend cannot start a DM, send to one, edit their messages there, add a reaction or pin, except in a one-to-one DM where the `friends` user has written themselves (writing to someone is consent to their reply); otherwise `403`. Ending a friendship resets that consent: only messages written after it ended count. Removing a reaction or a pin and deleting your own message stay possible.
   - Optional profile field: `about_me` (maximum 190 characters).
@@ -117,9 +119,10 @@ Important behavior:
 Notes:
 
 - Authenticated application, WebSocket, attachment, and voice endpoints return `428` with code `LEGAL_CONSENT_REQUIRED` while the account's legal-document versions are missing or stale. Session inspection, legal acknowledgement, public legal pages, and logout remain available.
+- Tokens of a disabled account are refused like signed-out ones: `401` on every authenticated endpoint, including `GET /api/auth/session`, and on the WebSocket handshake; an open WebSocket closes with code `4001` at its next 30-second session check.
 - With `EMAIL_VERIFICATION_REQUIRED=true`, the same endpoints return `403` with code `EMAIL_VERIFICATION_REQUIRED` (the WebSocket handshake `403`) until the account's email address is verified. Session inspection, legal acknowledgement, logout and the account's own `/api/auth/*` routes (verification email, password, status, profile, data export, deletion) remain available.
 - `forgot-password` always returns a generic success message to prevent account enumeration.
-- Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
+- Unknown emails and disabled accounts do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
 - Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
 - `email/request-verification` issues a fresh verification token, optionally for a new address (`{ "email", "current_password" }`). A different address needs the current password, or for a Google-only account a sign-in within the last 10 minutes (`REAUTH_REQUIRED` otherwise). The account email does not change until the link is confirmed; the pending address is kept with the token.
 - `email/confirm` returns 409 when another account took the pending address after the link was sent.
@@ -149,6 +152,7 @@ Notes:
 - `GET /api/servers`
 - `POST /api/servers`
   - Optional `client_request_id` (1-128 URL-safe characters) makes retries return the originally created server. Reusing the ID with different server data returns `409`.
+  - An account can own at most 50 servers (`400` beyond that) and create at most 5 servers per hour (`429`). A retry that returns an existing server through `client_request_id` does not count.
 - `GET /api/servers/:server_id`
 - `PATCH /api/servers/:server_id` (requires `MANAGE_SERVER`)
   - Members are told through the `ServerUpdated` WebSocket event.
@@ -187,6 +191,7 @@ Notes:
 - `GET /api/servers/:server_id/roles`
   - Supports query `?include_system=true` to include `Everyone`.
 - `POST /api/servers/:server_id/roles` (owner only; `permissions` must contain only known bits)
+  - A server can have at most 100 roles, `Everyone` included (`400` beyond that). At most 30 role creations per user in 10 minutes (`429`).
 - `PATCH /api/servers/:server_id/roles/:role_id` (owner only)
 - `DELETE /api/servers/:server_id/roles/:role_id` (owner only)
 - `PATCH /api/servers/:server_id/roles/reorder` (owner only)
@@ -195,7 +200,7 @@ Notes:
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
 - `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
-- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list.
+- Member lists include `role` (`owner` or `member`, derived from `servers.owner_id`) and `highest_role_position` (`-1` for the owner, lower outranks). Kick, ban and timeout require a strictly higher position than the target, and clients show those actions by the same rule. They also include `timed_out_until` (RFC 3339, or `null`) for members with an active timeout; the timeout reason stays in the moderation list. `voice_server_muted` and `voice_server_deafened` report a server mute or deafen stored on the membership, which stays after the member leaves voice.
 
 ### Moderation
 
@@ -203,9 +208,13 @@ Notes:
 - `POST /api/servers/:server_id/members/:user_id/ban` (requires `BAN_MEMBERS`)
 - `POST /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
   - Body: `{ "duration_minutes": 60, "reason": "optional note" }`
-  - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, and new reactions.
+  - Duration must be 1 minute to 7 days. Active timeouts block server-channel sends, edits, new reactions and voice: the member cannot join a voice channel of the server (`GET /api/webrtc/livekit-token` returns `403` naming the timeout), and a member already in voice there is removed from the room at once. Clearing the timeout, or its end, lets them join again; nothing rejoins them automatically.
 - `DELETE /api/servers/:server_id/members/:user_id/timeout` (requires `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/timeouts` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
+- `GET /api/servers/:server_id/voice-restrictions` (requires `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, or `MANAGE_SERVER`)
+  - Members with a stored server mute or deafen: `user_id`, `username`, `voice_server_muted`, `voice_server_deafened`.
+- `DELETE /api/servers/:server_id/members/:user_id/voice-moderation?muted=true&deafened=true`
+  - Lifts a stored server mute (`MUTE_MEMBERS`) and/or deafen (`DEAFEN_MEMBERS`; `MANAGE_SERVER` covers both) from a member who is not in voice in this server; it never adds one. A member in voice in this server returns `409`: the voice participant menu changes it there (voice in another server does not count). A member who joined this server's voice while the change was made gets the new state on their voice session too. Returns the new `voice_server_muted` and `voice_server_deafened`, and writes `voice_member_unmute`/`voice_member_undeafen` audit entries with `out_of_voice: true`.
 - `GET /api/servers/:server_id/raid-events` (requires `VIEW_AUDIT_LOG`, `BAN_MEMBERS`, or `MANAGE_MESSAGES`)
 - `GET /api/servers/:server_id/bans` (requires `BAN_MEMBERS`)
 - `DELETE /api/servers/:server_id/bans/:user_id` (requires `BAN_MEMBERS`)
@@ -219,6 +228,7 @@ Notes:
   - Cursor pagination uses `before=<audit-entry-id>` and `limit` from 1 to 100 (default 50).
   - Returns `{ entries, next_before }`, newest first. Pass `next_before` as the next request's `before` value.
   - Voice moderation entries identify the actor, target member, channel, action, and optional reason.
+  - Permission and structure changes are recorded in the same transaction as the change, so a change whose entry cannot be written is rolled back: `role_create`, `role_update` (old and new name and color, permission flags `added`/`removed`), `role_reorder`, `role_delete`, `member_role_change`, `channel_override_update`/`channel_override_delete` and `category_override_update`/`category_override_delete` (role, old and new `allow`/`deny` flag names), `category_create`, `category_delete`, `channel_reorder` (moved channels with old and new positions) and `category_reorder`. Unchanged saves and reorders write no entry.
 - `GET /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `POST /api/servers/:server_id/automod-rules` (requires `MANAGE_MESSAGES`)
 - `PATCH /api/servers/:server_id/automod-rules/:rule_id` (requires `MANAGE_MESSAGES`)
@@ -240,6 +250,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `POST /api/channels` (requires `MANAGE_CHANNELS`)
   - If `category` is empty/missing, backend uses `General`.
   - Name uniqueness is enforced by scope: `(server, category, channel_type, case-insensitive name)`.
+  - A server can have at most 200 channels and 50 categories (`400` beyond that); a new category name given here counts toward the category cap. At most 30 channel creations per user in 10 minutes (`429`). Servers already above a cap keep their channels and categories.
 - `PATCH /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
   - Moving the channel to a category whose role overrides differ from its current category changes its permissions, so that move is owner only (`403` otherwise). Moves between categories with identical overrides, including two categories without any, stay open to channel managers.
 - `DELETE /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
@@ -252,6 +263,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 
 - `GET /api/channels/server/:server_id/categories`
 - `POST /api/channels/server/:server_id/categories`
+  - Same 50-category cap; at most 30 category creations per user in 10 minutes (`429`).
 - `PATCH /api/channels/server/:server_id/categories/:category`
 - `DELETE /api/channels/server/:server_id/categories/:category`
   - Optional `move_to` query parameter; channels default-move to `General`.
@@ -272,10 +284,10 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - The client MIME value must be allowlisted, but it is not trusted as proof of content. The server checks magic bytes, rejects MIME mismatches, active markup, executable formats, and unidentified binary data, then stores the canonical detected MIME. Markdown (`text/markdown`, `text/x-markdown`) follows the `text/plain` allowlist entry and is stored and served as `text/plain`.
   - Generic `application/octet-stream` declarations remain compatible with files whose actual type is safely detected, including ZIP uploads from browsers that do not report a specific ZIP MIME.
   - Returns uploaded attachment objects with `id`, signed `url`, `type`, `name`, `size`, `sha256`.
-  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
+  - Upload pipeline: size/allowlist validation -> magic-byte content validation -> bounded JPEG/PNG decode and metadata cleanup -> optional ClamAV scan (a refused file returns `400` "This file did not pass the security scan"; the signature is logged for operators only) -> atomic local storage write -> quota and metadata transaction -> short-lived signed URL.
   - Multi-file uploads are all-or-nothing. If validation, quota reservation, metadata persistence, or transaction commit fails, database changes are rolled back and files already written for that request are removed.
   - Retry-equivalent files from the same user reuse the existing clean attachment record and do not consume storage quota twice.
-  - Each user has 1 GB of upload storage. Files that no message uses any more (after message, channel or server deletion) are deleted and their size is returned to the quota; files that were never sent are deleted 24 hours after their last upload. See `docs/DATABASE.md`.
+  - Each user has 1 GB of upload storage by default (`ATTACHMENTS_USER_QUOTA_BYTES`); an operator can also cap all uploads together (`ATTACHMENTS_TOTAL_QUOTA_BYTES`). Either limit refuses the upload with `400` and a message naming it. Files that no message uses any more (after message, channel or server deletion) are deleted and their size is returned to the quota; files that were never sent are deleted 24 hours after their last upload. See `docs/DATABASE.md`.
 - `GET /api/attachments/content/:attachment_id?exp=...&sig=...`
   - Auth-required endpoint guarded by signature + expiry + attachment ACL checks.
   - Streams attachment media in chat without exposing permanent public file URLs.
@@ -329,6 +341,7 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `DELETE /api/messages/item/:message_id/reactions?emoji=...`
 - Reaction add/remove requires effective `SEND_MESSAGES`.
 - Server and direct messages accept at most 20 distinct reaction emoji. Concurrent additions are serialized against the parent message.
+- Adding and removing reactions share one budget per account across server channels and DMs: 30 changes per 10 seconds (`429`).
 
 ## Notifications
 
@@ -339,7 +352,7 @@ Unread counts, mention counts and mutes of server channels are kept per account,
   - `mention_count` adds mentions by name and `@everyone`/`@here` messages. Mutes are returned, not applied; clients decide what a muted server or channel shows.
 - `POST /api/notifications/channels/:channel_id/read`
   - Body `{ "message_id": "..." }` (optional): moves the caller's read mark to that message, or to the newest message of the channel when it is absent or no longer exists. The mark is the creation time of the message, never the time of the request, and it only moves forward; a late request for an older message changes nothing.
-  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute.
+  - Requires that the caller can see the channel (`403` otherwise). When the mark moves, the caller's other sessions receive `ChannelRead`. Limited to 120 requests per minute, shared with `POST /api/dm/channels/:channel_id/read`.
 - `PUT /api/notifications/mutes`
   - Body `{ "server_ids": [...], "channel_ids": [...], "muted": true|false }`, at most 200 ids of each kind. Servers and channels the caller is not a member of are ignored. Returns the caller's full mute lists. Limited to 60 requests per minute.
   - Other open sessions pick up mute changes the next time they load the notification state (sign-in or reconnect); no event is sent.
@@ -413,6 +426,7 @@ Web Push for direct messages and mentions while the recipient has no open connec
 - `GET /api/dm/channels/:channel_id/read-state`
 - `POST /api/dm/channels/:channel_id/read`
   - Marks the current user's DM read state through the latest message in the channel and emits a `DmRead` WebSocket event for the user's other sessions.
+  - Shares the 120 requests per minute read limit with server channel read marks (`429`).
 - `GET /api/dm/channels/:channel_id/pins`
 - `POST /api/dm/channels/:channel_id/pins`
 - `DELETE /api/dm/channels/:channel_id/pins/:message_id`

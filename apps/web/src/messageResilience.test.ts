@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyIncomingMessage, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from './messageResilience'
+import { applyIncomingMessage, createSendQueue, mergeLatestPageWithHistory, reconcileConfirmedMessage, withoutFailedDuplicates } from './messageResilience'
 
 type TestMessage = {
   id: string
@@ -98,17 +98,19 @@ describe('applyIncomingMessage', () => {
     const slow = pending('slow', 'first')
     const quick = pending('quick', 'second')
     let messages = applyIncomingMessage([slow, quick], confirmed('m2', 'second'), 'quick', me)
-    expect(messages.map((m) => m.id)).toEqual(['local-slow', 'm2'])
+    // Stored messages come first; the copy still sending waits at the end, where the server will
+    // store it.
+    expect(messages.map((m) => m.id)).toEqual(['m2', 'local-slow'])
 
     // The quick request's own response is then a no-op, and the slow one can still fail visibly.
     messages = reconcileConfirmedMessage(messages, 'quick', confirmed('m2', 'second'))
     messages = messages.map((m) => (m.clientId === 'slow' ? { ...m, clientStatus: 'failed' as const } : m))
-    expect(messages.map((m) => [m.id, m.clientStatus])).toEqual([['local-slow', 'failed'], ['m2', undefined]])
+    expect(messages.map((m) => [m.id, m.clientStatus])).toEqual([['m2', undefined], ['local-slow', 'failed']])
   })
 
   it('adds a message from another session of the same user', () => {
     const messages = applyIncomingMessage([pending('local', 'mine')], confirmed('m9', 'from phone'), 'phone-request', me)
-    expect(messages.map((m) => m.id)).toEqual(['local-local', 'm9'])
+    expect(messages.map((m) => m.id)).toEqual(['m9', 'local-local'])
   })
 
   it('falls back to text and attachment count when the server sends no request id', () => {
@@ -118,16 +120,87 @@ describe('applyIncomingMessage', () => {
       undefined,
       me,
     )
-    expect(messages.map((m) => m.id)).toEqual(['local-a', 'm2'])
+    expect(messages.map((m) => m.id)).toEqual(['m2', 'local-a'])
   })
 
   it("never lets another user's message replace a pending copy", () => {
     const messages = applyIncomingMessage([pending('a', 'hi')], confirmed('m3', 'hi', 'user-other'), undefined, me)
-    expect(messages.map((m) => m.id)).toEqual(['local-a', 'm3'])
+    expect(messages.map((m) => m.id)).toEqual(['m3', 'local-a'])
   })
 
   it('updates a message that is already listed', () => {
     const messages = applyIncomingMessage([confirmed('m1', 'old')], confirmed('m1', 'new'), 'x', me)
     expect(messages.map((m) => m.content)).toEqual(['new'])
+  })
+})
+
+describe('createSendQueue', () => {
+  const deferred = () => {
+    let resolve!: () => void
+    let reject!: (error: Error) => void
+    const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+
+  it('starts the next send of a conversation only after the previous one finished', async () => {
+    const enqueue = createSendQueue()
+    const started: string[] = []
+    const first = deferred()
+    const second = deferred()
+    const a = enqueue('channel:1', () => { started.push('a'); return first.promise })
+    const b = enqueue('channel:1', () => { started.push('b'); return second.promise })
+    const other = enqueue('channel:2', async () => { started.push('other') })
+    await other
+    expect(started).toEqual(['a', 'other'])
+
+    first.resolve()
+    await a
+    await Promise.resolve()
+    expect(started).toEqual(['a', 'other', 'b'])
+    second.resolve()
+    await b
+  })
+
+  it('does not hold the next send back when the previous one fails', async () => {
+    const enqueue = createSendQueue()
+    const failing = enqueue('dm:1', async () => { throw new Error('offline') })
+    const next = enqueue('dm:1', async () => 'sent')
+    await expect(failing).rejects.toThrow('offline')
+    await expect(next).resolves.toBe('sent')
+  })
+})
+
+describe('placing confirmed messages by server time', () => {
+  type ChatMessage = TestMessage & { author: { user_id: string } }
+  const me = 'user-me'
+  const stored = (id: string, minute: number, userId = 'user-other'): ChatMessage => ({
+    id, created_at: at(minute), content: id, author: { user_id: userId },
+  })
+  const sending = (clientId: string, minute: number): ChatMessage => ({
+    id: `local-${clientId}`, created_at: at(minute), content: clientId, clientId, clientStatus: 'sending', author: { user_id: me },
+  })
+
+  it('moves a confirmed copy to its server time, before stored messages that came later', () => {
+    // The client clock said minute 9; the server stored it at minute 3, before the other user's message.
+    const messages = reconcileConfirmedMessage(
+      [stored('s1', 1), sending('a', 9), stored('s5', 5)],
+      'a',
+      stored('m-a', 3, me),
+    )
+    expect(messages.map((m) => m.id)).toEqual(['s1', 'm-a', 's5'])
+  })
+
+  it('keeps copies still sending after the confirmed ones, in the order they were written', () => {
+    let messages = [stored('s1', 1), sending('a', 2), sending('b', 2), sending('c', 2)]
+    messages = reconcileConfirmedMessage(messages, 'a', stored('m-a', 4, me))
+    messages = reconcileConfirmedMessage(messages, 'b', stored('m-b', 5, me))
+    expect(messages.map((m) => m.id)).toEqual(['s1', 'm-a', 'm-b', 'local-c'])
+    messages = reconcileConfirmedMessage(messages, 'c', stored('m-c', 6, me))
+    expect(messages.map((m) => m.id)).toEqual(['s1', 'm-a', 'm-b', 'm-c'])
+  })
+
+  it('places a message from someone else among the stored ones, above copies still sending', () => {
+    const messages = applyIncomingMessage([stored('s1', 1), sending('a', 2)], stored('x', 3), null, me)
+    expect(messages.map((m) => m.id)).toEqual(['s1', 'x', 'local-a'])
   })
 })

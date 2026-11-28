@@ -1047,6 +1047,7 @@ pub(super) async fn google_oauth_callback(
     let user = crate::services::auth::find_google_account(&state.db, &google_id, &email).await;
 
     let user = match user {
+        Ok(Some(u)) if u.disabled_at.is_some() => return failure("account_disabled"),
         Ok(Some(mut u)) => {
             if u.google_id.is_none() {
                 match crate::services::auth::link_google_identity(

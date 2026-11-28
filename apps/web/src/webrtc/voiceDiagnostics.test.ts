@@ -293,3 +293,13 @@ describe('voiceDiagnostics', () => {
     expect(linearToDbDiagnostic(0.001)).toBe(-60)
   })
 })
+
+describe('timed-out voice joins', () => {
+  it('explains that a timeout keeps the member out of voice', () => {
+    expect(classifyVoiceError(new Error('You are timed out on this server and cannot join voice until the timeout ends'))).toEqual({
+      level: 'info',
+      title: 'You are timed out',
+      message: 'You cannot join voice on this server until your timeout ends.',
+    })
+  })
+})

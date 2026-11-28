@@ -12,6 +12,9 @@ use crate::models::MessageWithAuthor;
 
 pub use audience::BroadcastEvent;
 pub use bus::{publish_cluster_update, publish_event, publish_user_event, SessionQueue};
+pub(crate) use voice_commands::{
+    sync_voice_moderation_after_out_of_voice_change, voice_channel_in_server,
+};
 
 /// Events sent over WebSocket connections.
 #[derive(Debug, Clone, Serialize, Deserialize)]

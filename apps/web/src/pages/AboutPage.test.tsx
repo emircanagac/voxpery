@@ -31,7 +31,8 @@ describe('AboutPage', () => {
     expect(screen.getByRole('link', { name: 'Use Voxpery in browser' })).toHaveAttribute('href', '/register')
     expect(screen.queryByRole('link', { name: /Download/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Releases' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Self-host with Docker' })).not.toBeInTheDocument()
+    // Phones also offer self-hosting; only the desktop download stays hidden there.
+    expect(screen.getByRole('link', { name: 'Self-host with Docker' })).toHaveAttribute('href', expect.stringContaining('DEPLOYMENT.md'))
   })
 
   it('does not offer Android visitors a Linux desktop installer', async () => {
@@ -58,7 +59,7 @@ describe('AboutPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Voxpery', level: 1 })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Voxpery' }).querySelector('img')).toHaveAttribute('src', '/fox-animated.svg')
-    expect(screen.getByText(/text chat, voice channels, screen sharing, and moderation/i)).toBeInTheDocument()
+    expect(screen.getByText(/voice, chat and screen sharing for your friend group, on a server you own/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login')
     expect(screen.getByRole('link', { name: /use voxpery in browser/i })).toHaveAttribute('href', '/register')
     expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute(

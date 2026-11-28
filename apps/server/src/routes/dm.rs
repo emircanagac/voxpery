@@ -16,8 +16,9 @@ use crate::{
         MessageAuthor, MessageQuery, MessageReactionSummary, MessageReactionUser, MessageWithAuthor,
     },
     services::{
-        idempotency::normalize_client_request_id, message_content::exceeds_message_limit,
-        rate_limit::enforce_rate_limit,
+        idempotency::normalize_client_request_id,
+        message_content::exceeds_message_limit,
+        rate_limit::{enforce_rate_limit, enforce_reaction_rate_limit},
     },
     ws::WsEvent,
     AppState,
@@ -1344,6 +1345,7 @@ async fn mark_dm_channel_read(
     Extension(claims): Extension<Claims>,
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    crate::services::rate_limit::enforce_read_mark_rate_limit(&state.redis, claims.sub).await?;
     check_dm_access(&state, channel_id, claims.sub).await?;
     let last_message_id = sqlx::query_scalar::<_, Option<Uuid>>(
         r#"SELECT id
@@ -1684,6 +1686,7 @@ async fn add_dm_reaction(
     Json(body): Json<AddDmReactionRequest>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     let emoji = normalize_reaction_emoji(&body.emoji)?;
+    enforce_reaction_rate_limit(&state.redis, claims.sub).await?;
     let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
         .bind(message_id)
         .fetch_optional(&state.db)
@@ -1766,6 +1769,7 @@ async fn remove_dm_reaction(
     Query(query): Query<RemoveDmReactionQuery>,
 ) -> Result<Json<MessageWithAuthor>, AppError> {
     let emoji = normalize_reaction_emoji(&query.emoji)?;
+    enforce_reaction_rate_limit(&state.redis, claims.sub).await?;
     let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM dm_messages WHERE id = $1")
         .bind(message_id)
         .fetch_optional(&state.db)

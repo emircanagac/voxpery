@@ -8,6 +8,23 @@ const request = {
 }
 
 describe('handleVoiceMemberMoveRequested', () => {
+  it('tells the page where a completed move went, and not for a replay', async () => {
+    let joined = 'voice-a'
+    const onMoved = vi.fn()
+    const deps = {
+      getJoinedVoiceChannelId: () => joined,
+      joinVoice: vi.fn(async (channelId: string) => { joined = channelId }),
+      send: vi.fn(),
+      onMoved,
+    }
+    const request = { requestId: 'move-1', sourceChannelId: 'voice-a', destinationChannelId: 'voice-b' }
+    await handleVoiceMemberMoveRequested(request, deps)
+    expect(onMoved).toHaveBeenCalledWith({ sourceChannelId: 'voice-a', destinationChannelId: 'voice-b' })
+    await handleVoiceMemberMoveRequested(request, deps)
+    expect(onMoved).toHaveBeenCalledTimes(1)
+  })
+
+
   it('acknowledges only after the destination connection is established', async () => {
     let joinedChannelId: string | null = 'voice-1'
     const send = vi.fn()

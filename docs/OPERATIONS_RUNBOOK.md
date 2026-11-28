@@ -335,6 +335,7 @@ Alert when any of these conditions persist for more than one check window:
 - Server logs contain `Failed to run migrations`, `VersionMismatch`, `ParseIntError`, or `must be a number`.
 - Server logs show repeated `WebSocket disconnected` surges or `Broadcast receiver lagged` / `WebSocket queue overflowed` lines. Each such line closes one connection with code `1013`, and its client reloads its state, so a surge also means a burst of API reads.
 - Attachment logs show repeated read/write, malware scanner, or upload failures.
+- Uploads feel slow: every stored file logs one `attachment upload timing` line with its size and type and the milliseconds spent reading the request (`read_ms`), on content checks (`check_ms`), on image metadata removal (`metadata_ms`), in the ClamAV scan (`scan_ms`) and writing to storage (`store_ms`); `docker compose logs server | grep "attachment upload timing"` shows them. Time the browser spends sending the file before `read_ms` starts is network.
 - Privacy-safe counters show falling OAuth/voice/reconnect success ratios or a sustained
   increase in `frontend_crash` or `backend_http_5xx`; metric formulas are documented in
   [OBSERVABILITY.md](OBSERVABILITY.md).
