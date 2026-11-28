@@ -389,6 +389,7 @@ async fn build_test_app_with_registration_mode(
         peers: Default::default(),
         voice_sessions: DashMap::new(),
         voice_session_connections: DashMap::new(),
+        voice_detached_sessions: DashMap::new(),
         voice_participant_sids: DashMap::new(),
         pending_voice_moves: DashMap::new(),
         voice_channel_active_since_ms: DashMap::new(),

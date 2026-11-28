@@ -28,6 +28,8 @@ import { setVoiceSessionActive, useSocketStore } from '../stores/socket'
 import { useToastStore } from '../stores/toast'
 import { useFeatureStore } from '../stores/features'
 import { startAudioLevelMonitor } from './audioLevelMonitor'
+import { createBackgroundMicrophoneSwitch } from './backgroundMicrophone'
+import { noteVoiceBackgroundEvent, startVoiceBackgroundLog, stopVoiceBackgroundLog } from './voiceBackgroundLog'
 import {
   resumeVoiceAudioContext,
   shouldUseLightweightMobileVoicePipeline,
@@ -452,6 +454,8 @@ export function useLiveKitVoice() {
   const inputGainNodeRef = useRef<GainNode | null>(null)
   const gateCancelRef = useRef<(() => void) | null>(null)
   const vadStreamRef = useRef<MediaStream | null>(null)
+  // Publishes the phone microphone without Web Audio while Voxpery is hidden.
+  const [backgroundMicSwitch] = useState(createBackgroundMicrophoneSwitch)
 
   const remoteStreamsRef = useRef<Map<PeerId, MediaStream>>(new Map())
   const remoteMicrophonePlaybackMutedRef = useRef(false)
@@ -909,6 +913,50 @@ export function useLiveKitVoice() {
       }
     }
   }, [applyLocalMicSettings, buildMicSendTrack, getInputVolumeFactor, getMicrophoneStream, refreshLocalStreams, setLocalMicMuted, startLocalSpeakingMonitor])
+
+  // A phone browser can suspend Web Audio while Voxpery is in the background, which silences the
+  // processed microphone track although the microphone keeps running: while hidden the phone
+  // publishes the microphone as captured, and the processed track returns in the foreground.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const hidden = document.visibilityState === 'hidden'
+      noteVoiceBackgroundEvent(hidden ? 'page hidden' : 'page shown')
+      if (!mobileOptimizedVoice) return
+      const published = localAudioTrackRef.current
+      if (!joinedChannelIdRef.current || !published) {
+        backgroundMicSwitch.reset()
+        return
+      }
+      if (hidden) {
+        const raw = rawMicTrackRef.current
+        if (!raw || !inputGainNodeRef.current) return
+        void backgroundMicSwitch.publishCaptured(published, raw).then((switched) => {
+          if (!switched) return
+          noteVoiceBackgroundEvent('microphone published without Web Audio')
+          refreshLocalStreams()
+        }).catch(() => noteVoiceBackgroundEvent('microphone switch failed'))
+        return
+      }
+      void backgroundMicSwitch.restoreProcessed(published, desiredMicMutedRef.current).then((result) => {
+        if (result === 'restored') {
+          noteVoiceBackgroundEvent('microphone processing restored')
+          refreshLocalStreams()
+        } else if (result === 'rebuild') {
+          noteVoiceBackgroundEvent('microphone processing rebuilt')
+          void rebuildPublishedMicrophoneTrack()
+        }
+      }).catch(() => noteVoiceBackgroundEvent('microphone switch failed'))
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [backgroundMicSwitch, mobileOptimizedVoice, rebuildPublishedMicrophoneTrack, refreshLocalStreams])
+
+  const loggedSocketConnectedRef = useRef(isConnected)
+  useEffect(() => {
+    if (loggedSocketConnectedRef.current === isConnected) return
+    loggedSocketConnectedRef.current = isConnected
+    noteVoiceBackgroundEvent(isConnected ? 'WebSocket connected' : 'WebSocket closed')
+  }, [isConnected])
 
   const switchMicrophoneDevice = useCallback(async () => {
     await rebuildPublishedMicrophoneTrack({ forceNewDeviceStream: true })
@@ -1517,6 +1565,7 @@ export function useLiveKitVoice() {
         })
         .on(RoomEvent.SignalReconnecting, suspendParticipantCues)
         .on(RoomEvent.Reconnecting, () => {
+          noteVoiceBackgroundEvent('LiveKit reconnecting')
           suspendParticipantCues()
           reportObservabilityEvent('livekit_reconnect_started')
           console.warn('[useLiveKitVoice] LiveKit Room reconnecting...')
@@ -1524,6 +1573,7 @@ export function useLiveKitVoice() {
         })
         .on(RoomEvent.Reconnected, () => {
           if (roomRef.current !== room) return
+          noteVoiceBackgroundEvent('LiveKit reconnected')
           hydrateParticipantCues()
           reportObservabilityEvent('livekit_reconnect_succeeded')
           updateRoomStats()
@@ -1550,6 +1600,7 @@ export function useLiveKitVoice() {
           }
         })
         .on(RoomEvent.Disconnected, (reason) => {
+          if (roomRef.current === room) noteVoiceBackgroundEvent(`LiveKit disconnected (${reason ?? 'unknown'})`)
           suspendParticipantCues()
           if (roomRef.current === room) {
             reportObservabilityEvent('livekit_disconnected')
@@ -1636,6 +1687,7 @@ export function useLiveKitVoice() {
       ensureCurrentJoin()
 
       joinedChannelIdRef.current = channelId
+      startVoiceBackgroundLog()
       reconcileLiveKitVoicePresence(userId, channelId, true)
       send('JoinVoice', {
         channel_id: channelId,
@@ -1737,6 +1789,8 @@ export function useLiveKitVoice() {
     setLastError(null)
     if (!options?.skipServerLeave) send('LeaveVoice', null)
     joinedChannelIdRef.current = null
+    if (departingChannelId) stopVoiceBackgroundLog()
+    backgroundMicSwitch.reset()
     remoteMediaStartCueReadyRef.current = false
     remoteMediaStartCueKeysRef.current.clear()
     remoteScreenStopCueTimersRef.current.forEach(clearTimeout)
@@ -1788,7 +1842,7 @@ export function useLiveKitVoice() {
     setCameraStream(null)
     setCameraFacingMode('user')
     setCanSwitchCamera(false)
-  }, [cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
+  }, [backgroundMicSwitch, cleanupLocalMedia, destroyRnnoise, playVoiceCue, send, stopLocalSpeakingMonitor, userId])
 
   // Runs one join attempt under a watchdog. A step other than the microphone prompt that makes
   // no progress for VOICE_JOIN_STALL_MS ends the attempt the way leaving does; a leave settles

@@ -288,11 +288,29 @@ pub fn apply_update(state: &AppState, origin: Uuid, update: ClusterUpdate) {
 }
 
 fn local_snapshot(state: &AppState) -> InstanceSnapshot {
-    let voice = state
+    // A session whose connection dropped is still this instance's while it waits for the client
+    // (`voice_detached_sessions`); leaving it out would make the others announce a departure.
+    let mut voice_users: Vec<Uuid> = state
         .voice_session_connections
         .iter()
-        .filter_map(|holder| {
-            let user_id = *holder.key();
+        .map(|holder| *holder.key())
+        .collect();
+    let detached: Vec<Uuid> = state
+        .voice_detached_sessions
+        .iter()
+        .filter(|entry| !state.voice_session_connections.contains_key(entry.key()))
+        .filter(|entry| {
+            state
+                .voice_sessions
+                .get(entry.key())
+                .is_some_and(|channel_id| *channel_id == entry.value().0)
+        })
+        .map(|entry| *entry.key())
+        .collect();
+    voice_users.extend(detached);
+    let voice = voice_users
+        .into_iter()
+        .filter_map(|user_id| {
             let channel_id = *state.voice_sessions.get(&user_id)?;
             Some(VoiceEntry {
                 user_id,

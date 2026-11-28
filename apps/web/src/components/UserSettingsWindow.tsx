@@ -39,6 +39,7 @@ import { formatGlobalMuteShortcut } from '../globalMuteShortcut'
 import type { ToastItem } from '../stores/toast'
 import CustomServerPanel from './CustomServerPanel'
 import BrowserPushSetting from './BrowserPushSetting'
+import VoiceBackgroundLogSetting from './VoiceBackgroundLogSetting'
 import {
   footerStatusLabel,
   getInitial,
@@ -808,6 +809,7 @@ export default function UserSettingsWindow(props: UserSettingsWindowProps) {
                 </div>
               </div>
             </div>
+            <VoiceBackgroundLogSetting />
           </section>
           )}
           {activeSettingsSection === 'desktop' && isTauri() && (

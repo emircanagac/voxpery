@@ -104,7 +104,7 @@ Authorization:
 { "type": "LeaveVoice", "data": null }
 ```
 
-Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored. When that connection closes without `LeaveVoice`, the session survives for 10 seconds: a `JoinVoice` for the same channel from a new connection in that time continues it without any departure event; otherwise the departure is published when the grace ends.
+Only the connection that holds the user's voice session (the one whose `JoinVoice` was accepted last) can end it; a `LeaveVoice` from another tab or device of the same account is ignored. When that connection closes without `LeaveVoice`, the session survives for 10 seconds: a `JoinVoice` for the same channel from a new connection in that time continues it without any departure event. After the grace the session goes on while LiveKit still has the participant (a phone browser in the background), and a later `JoinVoice` for the same channel continues it the same way; the departure is published when LiveKit no longer has the participant, a session or access check fails, or right when the grace ends if LiveKit is not configured (see `docs/VOICE_SYSTEM.md`, Short Connection Drops).
 
 ### `SetVoiceControl`
 

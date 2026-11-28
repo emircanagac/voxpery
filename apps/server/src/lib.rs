@@ -59,6 +59,11 @@ pub struct AppState {
     /// that connection may end it, so another tab or device of the same account cannot.
     pub voice_session_connections:
         DashMap<uuid::Uuid, (uuid::Uuid, tokio::sync::mpsc::Sender<ws::WsEvent>)>,
+    /// Voice sessions whose connection dropped and that wait here for the client to come back:
+    /// user_id -> (channel_id, id of the wait). A phone browser in the background often loses
+    /// its WebSocket but keeps the call; while its LiveKit participant stays, the session is
+    /// still this instance's and is reported to the others like a held one.
+    pub voice_detached_sessions: DashMap<uuid::Uuid, (uuid::Uuid, uuid::Uuid)>,
     /// Active LiveKit participant SID per user, used to reject stale leave webhooks after rejoin.
     pub voice_participant_sids: DashMap<uuid::Uuid, String>,
     /// Moderator-requested voice moves keyed by target user and awaiting LiveKit verification.

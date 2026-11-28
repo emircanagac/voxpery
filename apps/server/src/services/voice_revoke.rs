@@ -293,6 +293,15 @@ pub(crate) const DEPARTED_VOICE_LEAVE_DELAY: Duration = Duration::from_millis(15
 /// and their LiveKit participant is removed. A client that reconnects and rejoins the same
 /// channel within it keeps the call, and nobody sees it leave and come back.
 pub(crate) const VOICE_RECONNECT_GRACE: Duration = Duration::from_secs(10);
+/// After the grace, a dropped connection's voice session goes on while its LiveKit participant
+/// is still in the room (a phone browser in the background keeps the call but often loses the
+/// WebSocket). It is checked again this often: against LiveKit, the session the connection was
+/// opened with, and channel access.
+pub(crate) const VOICE_DETACHED_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+/// The longest a voice session goes on without a WebSocket.
+pub(crate) const VOICE_DETACHED_MAX: Duration = Duration::from_secs(60 * 60);
+/// Failed LiveKit lookups in a row after which a detached voice session ends.
+pub(crate) const VOICE_DETACHED_MAX_LOOKUP_FAILURES: u8 = 3;
 /// How long a LiveKit participant may exist before its client reports the join over the
 /// WebSocket. The client connects to LiveKit first and publishes the microphone before it
 /// sends `JoinVoice`.

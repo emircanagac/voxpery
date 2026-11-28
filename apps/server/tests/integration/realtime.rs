@@ -1615,7 +1615,8 @@ async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sess
         "a participant was removed although its departed SID was unknown"
     );
 
-    // Losing the last WebSocket removes the participant after the reconnect window.
+    // Losing the last WebSocket keeps the call while LiveKit has the participant, but a session
+    // that ended meanwhile (here the account was disabled) removes it after the reconnect window.
     let (dropper_auth, dropper_id, _) = register_named_user(&mut app, "dropper").await;
     join_with_invite(&mut app, &dropper_auth, &invite_code).await;
     let dropper_ws = connect_ws(addr, &dropper_auth).await;
@@ -1627,13 +1628,169 @@ async fn departed_voice_users_are_removed_from_livekit_without_touching_new_sess
         .await
         .insert(dropper_id.to_string(), "PA_dropper".to_string());
     drop(dropper_ws);
+    sqlx::query("UPDATE users SET disabled_at = NOW() WHERE id = $1")
+        .bind(dropper_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
     assert!(
         !was_removed(dropper_id, 8_000).await,
         "a dropped WebSocket must get the reconnect grace"
     );
     assert!(
         was_removed(dropper_id, 8_000).await,
-        "a lost WebSocket did not remove the LiveKit participant"
+        "a dropped WebSocket of a disabled account did not remove the LiveKit participant"
+    );
+    assert!(
+        !state.voice_sessions.contains_key(&dropper_id),
+        "a disabled account kept its voice session"
+    );
+}
+
+#[tokio::test]
+async fn a_dropped_connection_keeps_voice_while_livekit_has_the_participant() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    // LiveKit stand-in: GetParticipant answers from `participants` (identity -> SID);
+    // RemoveParticipant records the identity.
+    let participants = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        String,
+        String,
+    >::new()));
+    let removed = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let lookup = participants.clone();
+    let record_removed = removed.clone();
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let lookup = lookup.clone();
+                async move {
+                    let identity = body["identity"].as_str().unwrap_or_default().to_string();
+                    match lookup.lock().await.get(&identity) {
+                        Some(sid) => (
+                            StatusCode::OK,
+                            axum::Json(json!({ "identity": identity, "sid": sid })),
+                        ),
+                        None => (StatusCode::NOT_FOUND, axum::Json(json!({}))),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_removed = record_removed.clone();
+                async move {
+                    let identity = body["identity"].as_str().unwrap_or_default().to_string();
+                    record_removed.lock().await.push(identity);
+                    axum::Json(json!({}))
+                }
+            }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+    let addr = spawn_ws_app(&state).await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "phoneowner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Phone Guild").await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let (phone_auth, phone_id, _) = register_named_user(&mut app, "phoneuser").await;
+    join_with_invite(&mut app, &phone_auth, &invite_code).await;
+    let mut observer = connect_ws(addr, &owner_auth).await;
+    ws_subscribe(&mut observer, &[voice_channel_id]).await;
+    let join = json!({
+        "type": "JoinVoice",
+        "data": { "channel_id": voice_channel_id, "participant_sid": "PA_phone" },
+    });
+
+    let mut first = connect_ws(addr, &phone_auth).await;
+    ws_send(&mut first, join.clone()).await;
+    ws_barrier(&mut first).await;
+    let joined = receive_ws_event(&mut observer, "VoiceStateUpdate").await;
+    assert_eq!(joined["data"]["channel_id"], voice_channel_id.to_string());
+    participants
+        .lock()
+        .await
+        .insert(phone_id.to_string(), "PA_phone".to_string());
+
+    // The phone goes to the background: its WebSocket drops, the LiveKit call goes on. Past
+    // the reconnect grace the others still see it in the channel.
+    drop(first);
+    assert_no_ws_event_mentioning(
+        &mut observer,
+        "VoiceStateUpdate",
+        "\"channel_id\":null",
+        std::time::Duration::from_secs(13),
+    )
+    .await;
+    assert_eq!(
+        state.voice_sessions.get(&phone_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "a dropped connection ended voice although LiveKit still had the participant"
+    );
+    assert!(
+        removed.lock().await.is_empty(),
+        "a participant that LiveKit still had was removed"
+    );
+
+    // Back in the foreground the client rejoins the same channel and the call simply goes on.
+    let mut second = connect_ws(addr, &phone_auth).await;
+    ws_send(&mut second, join).await;
+    ws_barrier(&mut second).await;
+    assert_eq!(
+        state.voice_sessions.get(&phone_id).map(|entry| *entry),
+        Some(voice_channel_id),
+        "the rejoin after a long background lost the voice session"
+    );
+
+    // When the call itself drops, LiveKit's participant_left ends the session at once.
+    drop(second);
+    let left_webhook = json!({
+        "event": "participant_left",
+        "room": { "name": voice_channel_id.to_string() },
+        "participant": { "identity": phone_id.to_string(), "sid": "PA_phone" },
+    })
+    .to_string();
+    let webhook_token = signed_livekit_webhook(&state, left_webhook.as_bytes());
+    let webhook_request = Request::builder()
+        .method("POST")
+        .uri("/api/webrtc/livekit-webhook")
+        .header("Authorization", format!("Bearer {webhook_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(left_webhook))
+        .unwrap();
+    let (status, _) = oneshot(&mut app, webhook_request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        !state.voice_sessions.contains_key(&phone_id),
+        "LiveKit's participant_left did not end the detached voice session"
+    );
+    let mut saw_departure = false;
+    for _ in 0..5 {
+        let update = receive_ws_event(&mut observer, "VoiceStateUpdate").await;
+        if update["data"]["channel_id"].is_null() {
+            saw_departure = true;
+            break;
+        }
+    }
+    assert!(
+        saw_departure,
+        "the others were not told that the call ended"
     );
 }
 

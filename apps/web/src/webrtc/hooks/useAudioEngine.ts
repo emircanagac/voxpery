@@ -20,6 +20,7 @@ import {
     toVoiceTrackSettingsDiagnostics,
     updateVoiceDiagnostics,
 } from '../voiceDiagnostics'
+import { observeVoiceAudioContext, observeVoiceMicrophone } from '../voiceBackgroundLog'
 
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
 const NOISE_SUPPRESSION_KEY = 'voxpery-settings-noise-suppression'
@@ -461,8 +462,10 @@ export function useAudioEngine() {
 
         rawMicTrackRef.current = rawTrack
         rawTrack.enabled = !muted
+        observeVoiceMicrophone(rawTrack)
 
         const ctx = getAudioContext()
+        if (ctx) observeVoiceAudioContext(ctx)
         if (!ctx) {
             return {
                 track: rawTrack,
