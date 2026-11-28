@@ -602,6 +602,24 @@ export default function ChatArea({
         syncJumpToLatestVisibility()
     }, [cancelLatestAnchor, noteUserScrollIntent, syncJumpToLatestVisibility])
 
+    const lastVirtualTotalSizeRef = useRef<number | null>(null)
+    /* A row that changed size while the conversation shows its newest message (a photo that
+       decoded, a conversation measuring its rows) keeps that message at the bottom in the same
+       frame. The virtualizer calls this once it has written the new sizes, before the paint;
+       the resize observer further down would only catch up a frame later. */
+    const keepNewestAtBottomAfterResize = useCallback(() => {
+        const el = messagesScrollRef.current
+        if (!el || el.clientHeight <= 0) return
+        if (!shouldAutoScrollRef.current || userReadingHistoryRef.current) return
+        if (preservingOlderMessagesRef.current || pendingReadingRestoreRef.current) return
+        if (Date.now() <= userScrollIntentUntilRef.current) return
+        const bottom = Math.max(0, el.scrollHeight - el.clientHeight)
+        if (Math.abs(el.scrollTop - bottom) <= 1) return
+        runProgrammaticScroll(() => {
+            el.scrollTop = bottom
+        })
+    }, [runProgrammaticScroll])
+
     const rowVirtualizer = useVirtualizer({
         count: virtualCount,
         getScrollElement: () => messagesScrollRef.current,
@@ -619,6 +637,19 @@ export default function ChatArea({
         overscan: 8,
         anchorTo: 'end',
         scrollEndThreshold: 4,
+        // Row positions and the list height are written straight to the DOM when a row is
+        // measured or resized, before the browser paints. Through a React re-render they
+        // landed a frame later, so a row that settled (an image decoding, a new conversation
+        // measuring its rows) was first painted overlapping or away from the bottom.
+        directDomUpdates: true,
+        directDomUpdatesMode: 'position',
+        onChange: (instance) => {
+            // Scrolling alone leaves the size as it is; only a size change pins the bottom.
+            const totalSize = instance.getTotalSize()
+            if (totalSize === lastVirtualTotalSizeRef.current) return
+            lastVirtualTotalSizeRef.current = totalSize
+            keepNewestAtBottomAfterResize()
+        },
     })
 
     const armReactionBottomAnchor = useCallback(() => {
@@ -637,6 +668,11 @@ export default function ChatArea({
             reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
         }
     }, [isAtBottom])
+
+    const setVirtualListSpacer = useCallback((node: HTMLDivElement | null) => {
+        virtualListSpacerRef.current = node
+        rowVirtualizer.containerRef(node)
+    }, [rowVirtualizer])
 
     const toggleReactionPreservingBottomAnchor = useCallback((messageId: string, emoji: string, reacted: boolean) => {
         if (!onToggleReaction) return
@@ -2104,9 +2140,8 @@ export default function ChatArea({
                     </div>
                 ) : (
                     <div
-                        ref={virtualListSpacerRef}
+                        ref={setVirtualListSpacer}
                         className="virtual-list-spacer"
-                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                     >
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const isTypingRow = typingIndicatorLabel && virtualRow.index === messages.length
@@ -2117,7 +2152,6 @@ export default function ChatArea({
                                         data-index={virtualRow.index}
                                         ref={rowVirtualizer.measureElement}
                                         className="virtual-list-item"
-                                        style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                     >
                                         <div className="typing-indicator">{typingIndicatorLabel}</div>
                                     </div>
@@ -2171,7 +2205,6 @@ export default function ChatArea({
                                     data-message-id={msg.id}
                                     ref={rowVirtualizer.measureElement}
                                     className={`virtual-list-item ${virtualRow.index === 0 ? 'virtual-list-item-first' : ''}`}
-                                    style={{ transform: `translateY(${Math.round(virtualRow.start)}px)` }}
                                 >
                                     {showDayDivider && (
                                         <div className="message-day-divider" aria-label={`Messages from ${formatDayDivider(msg.created_at)}`}>

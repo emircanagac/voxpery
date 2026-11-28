@@ -33,6 +33,7 @@ vi.mock('@tanstack/react-virtual', () => ({
       measureElement: measureVirtualElement,
       measure: measureVirtualizer,
       scrollToIndex,
+      containerRef: () => {},
     }
   },
 }))
