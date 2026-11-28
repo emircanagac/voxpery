@@ -170,6 +170,24 @@ async fn setup_app_with_features(
     .await
 }
 
+/// A LiveKit API stand-in whose rooms are empty: a participant lookup answers "not found", as
+/// for an app that closed, so a voice session whose connection closed ends after the reconnect
+/// grace. Every other call succeeds without doing anything.
+async fn spawn_livekit_without_participants() -> String {
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/GetParticipant",
+            axum::routing::post(|| async { (StatusCode::NOT_FOUND, axum::Json(json!({}))) }),
+        )
+        .fallback(|| async { axum::Json(json!({})) });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, livekit_app).await;
+    });
+    format!("http://{addr}")
+}
+
 async fn setup_app_with_features_and_livekit(
     email_verification_enabled: bool,
     password_reset_enabled: bool,

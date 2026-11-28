@@ -1395,7 +1395,16 @@ async fn voice_session_belongs_to_the_connection_that_joined() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    // The closed connection's call is gone from LiveKit too, so voice ends after the grace.
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(spawn_livekit_without_participants().await),
+    )
+    .await;
     let addr = spawn_ws_app(&state).await;
     let (auth, user_id, _) = register_named_user(&mut app, "twodevices").await;
     let (server_id, _, _) =
@@ -2602,14 +2611,25 @@ async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
         return;
     };
 
+    // The target stays in the LiveKit room until it closes the app at the end.
+    let target_in_room = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let in_room = target_in_room.clone();
     let livekit_app = axum::Router::new()
         .route(
             "/twirp/livekit.RoomService/GetParticipant",
-            axum::routing::post(
-                |axum::Json(body): axum::Json<serde_json::Value>| async move {
-                    axum::Json(json!({ "sid": "PA_moved", "identity": body["identity"] }))
-                },
-            ),
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let in_room = in_room.clone();
+                async move {
+                    if in_room.load(std::sync::atomic::Ordering::SeqCst) {
+                        (
+                            StatusCode::OK,
+                            axum::Json(json!({ "sid": "PA_moved", "identity": body["identity"] })),
+                        )
+                    } else {
+                        (StatusCode::NOT_FOUND, axum::Json(json!({})))
+                    }
+                }
+            }),
         )
         .route(
             "/twirp/livekit.RoomService/RemoveParticipant",
@@ -2834,8 +2854,9 @@ async fn two_instances_share_presence_voice_and_moves_without_sticky_routing() {
     assert!(state_b.voice_sessions.contains_key(&target_id));
     assert!(state_b.is_online(target_id));
 
-    // Leaving reaches the other instance as usual, once the dropped connection's reconnect
-    // grace is over.
+    // Closing the app leaves the LiveKit room as well; the departure reaches the other instance
+    // once the dropped connection's reconnect grace is over.
+    target_in_room.store(false, std::sync::atomic::Ordering::SeqCst);
     drop(reconnected_ws);
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     wait_for("B to see the target leave", || {

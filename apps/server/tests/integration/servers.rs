@@ -1632,7 +1632,7 @@ async fn category_override_enforces_view_send_and_voice_access() {
 }
 
 #[tokio::test]
-async fn channel_create_race_is_serialized_at_500_channel_limit() {
+async fn channel_create_race_is_serialized_at_the_channel_limit() {
     let Some(_) = test_db_url() else {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
@@ -1667,7 +1667,8 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
         .await
         .unwrap();
 
-    for idx in 0..499 {
+    // One below the per-server limit of 200 channels.
+    for idx in 0..199 {
         sqlx::query(
             r#"INSERT INTO channels (id, server_id, name, description, channel_type, category, position, created_at)
                VALUES ($1, $2, $3, NULL, 'text', 'General', $4, NOW())"#,
@@ -1735,7 +1736,7 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
     );
     assert_eq!(
         rejected_count, 1,
-        "exactly one concurrent create should be rejected at 500-limit, got ({status_a}, {status_b}) with bodies: A={}, B={}",
+        "exactly one concurrent create should be rejected at the limit, got ({status_a}, {status_b}) with bodies: A={}, B={}",
         String::from_utf8_lossy(&body_a),
         String::from_utf8_lossy(&body_b)
     );
@@ -1747,8 +1748,8 @@ async fn channel_create_race_is_serialized_at_500_channel_limit() {
             .await
             .unwrap();
     assert_eq!(
-        total_channels, 500,
-        "row lock must keep channel count capped at 500"
+        total_channels, 200,
+        "row lock must keep channel count capped at 200"
     );
 }
 

@@ -3053,7 +3053,7 @@ async fn disabled_account_cannot_sign_in_and_loses_its_sessions() {
         eprintln!("SKIP: DATABASE_URL not set");
         return;
     };
-    let (mut app, state) = setup_app().await;
+    let (mut app, state) = setup_app_with_auth_features(false, true).await;
     let (auth, user_id, password) = register_named_user(&mut app, "disabled").await;
     let (username, email): (String, String) =
         sqlx::query_as("SELECT username, email FROM users WHERE id = $1")
