@@ -38,7 +38,7 @@ This document combines support flow, governance rules, and release process for V
 
 ### Roadmap Ownership
 
-Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md). Maintainers keep the roadmap aligned with the product direction: open-source community chat and voice with hosted access, self-hosting, and user data ownership.
+Roadmap priorities are tracked in [ROADMAP.md](ROADMAP.md). Maintainers keep the roadmap aligned with the product direction: a small group's own voice and chat server, used on voxpery.com or self-hosted, with ownership of its data.
 
 Roadmap changes should:
 

@@ -2,7 +2,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Voxpery",
-  "description": "Free, open-source and self-hostable Discord alternative with text channels, direct messages, voice channels, screen sharing, and moderation.",
+  "description": "Voice channels, screen sharing and chat for friend groups and small communities. Open source: use voxpery.com for free or run it on your own server with one command. A Discord alternative you control.",
   "url": "https://voxpery.com/",
   "image": "https://voxpery.com/social-preview.png",
   "applicationCategory": "CommunicationApplication",
